@@ -710,86 +710,150 @@ def search_bitbucket(query, max_results):
             print(f"Bitbucket error: {e}")
         return projects
 # ---------- SECTION SPLITTER ----------
-import re
 
-# Common paper section headers, normalized. Order matters for detection.
+import re
+from typing import Dict
+
 SECTION_HEADER_PATTERNS = {
     "abstract": r"abstract",
     "introduction": r"introduction",
-    "related_work": r"related\s+work|background|prior\s+work|literature\s+review",
-     "methodology": r"method(ology|s)?|approach|proposed\s+(method|approach|model)",
-    "experimental_setup": r"experimental\s+(implementation|setup|details)|implementation\s+details|datasets?(\s+and\s+.*)?",
-    "results": r"results?(\s+and\s+discussion)?|experiments?(\s+and\s+results)?|evaluation",
-    "discussion": r"discussion",
-    "conclusion": r"conclusion(s)?|future\s+work",
-    "references": r"references|bibliography",
+    "related_work": (
+    r"related\s+work|background|prior\s+work|"
+    r"literature\s+review|state\s+of\s+the\s+art"
+),
+
+"methodology": (
+    r"method(ology)?|approach|framework|system|"
+    r"architecture|pipeline|algorithm|model|"
+    r"feature\s+extraction"
+),
+
+"experimental_setup": (
+    r"experiments?|experimental\s+setup|"
+    r"implementation|datasets?|materials?|"
+    r"evaluation\s+protocol"
+),
+
+"results": (
+    r"results?|evaluation|performance|analysis"
+),
+
+"discussion": (
+    r"discussion|limitations?|challenges?"
+),
+    "conclusion": r"(conclusion(s)?|future\s+works?)",
+    "references": r"(references|bibliography)",
 }
 
-def heuristic_split_sections(text: str) -> Dict[str, str]:
-    """
-    Detect section boundaries using common academic headers.
-    Looks for short standalone lines (likely headers) matching known patterns,
-    optionally prefixed with a number (e.g. '3. Methodology', 'III. Results').
-    """
-    lines = text.split("\n")
-    header_line_regex = re.compile(
-        r"^\s*(?:\d+\.?\d*\.?|\bI{1,3}V?\.?|\bIV\.?|\bV\.?)?\s*([A-Za-z][A-Za-z\s]{2,40})\s*$"
-    )
 
-    found_headers = []  # list of (line_index, normalized_section_name, raw_header)
+HEADER_REGEX = re.compile(
+    r"""
+    ^
+    \s*
+    (?:                 # optional numbering
+        \d+(?:\.\d+)*   # 1  2.1  3.4.5
+        |
+        [IVXLCDM]+      # Roman numerals
+    )?
+    \.?
+    \s*
+    (?P<title>.+?)      # entire remaining line
+    \s*$
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+
+def heuristic_split_sections(text: str) -> Dict[str, str]:
+
+    lines = text.splitlines()
+    print(len(text.splitlines()))
+    found_headers = []
+
     for i, line in enumerate(lines):
+
         stripped = line.strip()
-        if not stripped or len(stripped) > 60:
+
+        if not stripped:
             continue
-        match = header_line_regex.match(stripped)
-        if not match:
+
+        m = HEADER_REGEX.match(stripped)
+
+
+        if m:
+           print(repr(m.group("title")))
+
+
+        if not m:
             continue
-        candidate = match.group(1).strip().lower()
+
+        candidate = m.group("title").strip().lower()
+
+        # remove punctuation around the title
+        candidate = re.sub(r"[:\-–]+$", "", candidate)
+        candidate = re.sub(r"\s+", " ", candidate)
+
         for section_name, pattern in SECTION_HEADER_PATTERNS.items():
-            if re.fullmatch(pattern, candidate) or re.match(pattern, candidate):
+
+            if re.fullmatch(pattern, candidate, re.IGNORECASE):
+
                 found_headers.append((i, section_name, stripped))
                 break
 
+    print("headers from heuristic:", found_headers)
+
     if len(found_headers) < 2:
-        return {}  # not enough signal, trigger LLM fallback
+        return {}
 
     sections = {}
+
     for idx, (line_no, section_name, _) in enumerate(found_headers):
+
         start = line_no + 1
         end = found_headers[idx + 1][0] if idx + 1 < len(found_headers) else len(lines)
+
         content = "\n".join(lines[start:end]).strip()
+
         if content:
-            # if the same section name appears twice, keep the longer chunk
-            if section_name in sections and len(sections[section_name]) >= len(content):
-                continue
-            sections[section_name] = content
+            if section_name not in sections or len(content) > len(sections[section_name]):
+                sections[section_name] = content
 
     return sections
-
-
-def llm_split_sections(text: str) -> Dict[str, str]:
+def llm_split_sections(text: str, chunk_chars: int = 3000) -> Dict[str, str]:
     """
-    Fallback: ask the LLM to segment the paper when heuristics fail
-    (e.g. no clear headers, messy PDF extraction).
+    Chunk-based fallback: classify each chunk of the FULL paper into a
+    known section type, then merge chunks belonging to the same section.
+    This scales to any paper length without truncating content away.
     """
-    # Truncate to keep prompt manageable; papers are long
-    truncated = text
-    prompt = f"""You are analyzing a scientific paper. Split the text below into its logical sections.
-Use these exact keys where applicable: abstract, introduction, related_work, methodology, results, discussion, conclusion.
-If a section is missing, omit its key. Return ONLY valid JSON, no markdown fences, no explanation.
+    known_sections = list(SECTION_HEADER_PATTERNS.keys())
+    chunks = chunk_text(text, max_chars=chunk_chars)
 
-Format:
-{{"introduction": "...", "methodology": "...", "results": "..."}}
+    aggregated: Dict[str, str] = {}
+    last_section = "introduction"  # sensible default for the very first chunk
 
-Paper text:
-{truncated}
+    for i, chunk in enumerate(chunks):
+        prompt = f"""This is part {i+1} of {len(chunks)} of a scientific paper, in order.
+Identify which section this text primarily belongs to. Choose exactly ONE from this list: {known_sections}.
+If this chunk continues the same section as the previous part with no new header, respond with "same_as_previous".
+
+Return ONLY valid JSON: {{"section": "..."}}
+
+Text:
+{chunk}
 """
-    response = _groq_llm.invoke(prompt)
-    content = response.content
-    if isinstance(content, list):
-        content = "".join(block.get('text', '') if isinstance(block, dict) else str(block) for block in content)
+        content = _groq_invoke_safe(prompt)
+        parsed = _safe_json_parse(content)
+        section = (parsed.get("section", "") if parsed else "").strip().lower()
 
-    return _safe_json_parse(content)
+        if section == "same_as_previous" or section not in known_sections:
+            section = last_section
+
+        aggregated.setdefault(section, "")
+        aggregated[section] += ("\n\n" if aggregated[section] else "") + chunk
+        last_section = section
+        time.sleep(2)  # rate-limit spacing, same as analyze_section
+
+    return aggregated
 
 
 def _safe_json_parse(raw: str) -> Dict:
@@ -802,19 +866,38 @@ def _safe_json_parse(raw: str) -> Dict:
     except Exception as e:
         print(f"JSON parse error: {e}, raw content: {cleaned[:200]}")
         return {}
+ESSENTIAL_SECTIONS = {
+    "methodology",
+    "experimental_setup",
+    "results",
+}
 
-
+OPTIONAL_SECTIONS = {
+    "abstract",
+    "introduction",
+    "related_work",
+    "discussion",
+    "conclusion",
+    "references",
+}
 def split_paper_sections(text: str) -> Dict[str, str]:
-    """
-    Main entry point: try heuristic split first (fast, free),
-    fall back to LLM split only if heuristics fail.
-    """
     sections = heuristic_split_sections(text)
-    if len(sections) >= 2:
+    found = set(sections.keys())
+
+    essential_found = len(found & ESSENTIAL_SECTIONS)
+
+# Require at least two core sections
+    heuristic_success = (
+    essential_found >= 2
+)
+    if heuristic_success:
+        print(f"[split] heuristic succeeded: {[(k, len(v)) for k, v in sections.items()]}")
         return sections
 
-    print("Heuristic splitting failed or incomplete, falling back to LLM.")
-    return llm_split_sections(text)
+    print(f"[split] heuristic found only {len(sections)} section(s), falling back to LLM chunk classification.")
+    #sections = llm_split_sections(text)
+    print(f"[split] LLM fallback result: {[(k, len(v)) for k, v in sections.items()]}")
+    return {}
 # ---------- SECTION-ANALYSIS AGENT ----------
 
 SECTION_SCHEMAS = {
@@ -855,19 +938,17 @@ SECTION_SCHEMAS = {
     },
 }
 
-def analyze_section(section_text: str, section_type: str) -> Dict:
-    """
-    Given a section's text and its type, extract structured fields
-    according to that section's schema. Falls back to a generic schema
-    if the section type isn't recognized.
-    """
+def analyze_section(section_text: str, section_type: str, max_chars: int = 3000) -> Dict:
     schema = SECTION_SCHEMAS.get(section_type, {
         "fields": ["summary"],
         "instructions": "Summarize the key points of this section."
     })
-
     fields_list = ", ".join(schema["fields"])
-    prompt = f"""You are analyzing the "{section_type}" section of a scientific paper.
+
+    chunks = chunk_text(section_text, max_chars=max_chars)
+
+    if len(chunks) == 1:
+        prompt = f"""You are analyzing the "{section_type}" section of a scientific paper.
 
 {schema['instructions']}
 
@@ -875,18 +956,41 @@ Return ONLY valid JSON with exactly these keys: {fields_list}.
 Use empty string or empty list if a field isn't present in the text. No markdown fences, no explanation.
 
 Section text:
-{section_text}
+{chunks[0]}
 """
-    response = _groq_llm.invoke(prompt)
-    content = response.content
-    if isinstance(content, list):
-        content = "".join(block.get('text', '') if isinstance(block, dict) else str(block) for block in content)
+        content = _groq_invoke_safe(prompt)
+        parsed = _safe_json_parse(content)
+        if not parsed:
+            parsed = {field: "" for field in schema["fields"]}
+            parsed["_error"] = "LLM output could not be parsed"
+        return parsed
 
-    parsed = _safe_json_parse(content)
-    if not parsed:
-        parsed = {field: "" for field in schema["fields"]}
-        parsed["_error"] = "LLM output could not be parsed"
-    return parsed
+    # Multiple chunks: analyze each, then merge
+    print(f"Section '{section_type}' split into {len(chunks)} chunks for rate-limit safety.")
+    partial_results = []
+    for i, chunk in enumerate(chunks):
+        prompt = f"""You are analyzing part {i+1} of {len(chunks)} of the "{section_type}" section of a scientific paper.
+
+{schema['instructions']}
+
+Return ONLY valid JSON with exactly these keys: {fields_list}.
+Use empty string or empty list if a field isn't present in this part. No markdown fences, no explanation.
+
+Section text (part {i+1}/{len(chunks)}):
+{chunk}
+"""
+        content = _groq_invoke_safe(prompt)
+        parsed = _safe_json_parse(content)
+        if parsed:
+            partial_results.append(parsed)
+        time.sleep(2)  # small buffer between chunk calls, in addition to backoff on errors
+
+    if not partial_results:
+        result = {field: "" for field in schema["fields"]}
+        result["_error"] = "All chunks failed to parse"
+        return result
+
+    return merge_section_analyses(partial_results, schema["fields"])
 
 
 def analyze_all_sections(sections: Dict[str, str]) -> Dict[str, Dict]:
@@ -901,3 +1005,91 @@ def analyze_all_sections(sections: Dict[str, str]) -> Dict[str, Dict]:
             continue
         results[section_name] = analyze_section(section_text, section_name)
     return results
+
+
+
+import time
+
+# ---------- CHUNKING UTILITY ----------
+def chunk_text(text: str, max_chars: int = 3000) -> List[str]:
+    """
+    Split text into chunks under max_chars, breaking on paragraph
+    boundaries where possible to avoid cutting sentences mid-way.
+    ~3000 chars ≈ 750-900 tokens, leaving headroom for prompt + response
+    under Groq's free-tier 12,000 TPM limit.
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    paragraphs = text.split("\n\n")
+    chunks = []
+    current = ""
+    for para in paragraphs:
+        if len(current) + len(para) + 2 <= max_chars:
+            current += ("\n\n" if current else "") + para
+        else:
+            if current:
+                chunks.append(current)
+            # paragraph itself too long, hard-split it
+            if len(para) > max_chars:
+                for i in range(0, len(para), max_chars):
+                    chunks.append(para[i:i + max_chars])
+                current = ""
+            else:
+                current = para
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _groq_invoke_safe(prompt: str, retries: int = 3, wait_seconds: float = 8.0) -> str:
+    """
+    Call Groq with basic backoff on rate-limit errors (413/429).
+    """
+    for attempt in range(retries):
+        try:
+            response = _groq_llm.invoke(prompt)
+            content = response.content
+            if isinstance(content, list):
+                content = "".join(block.get('text', '') if isinstance(block, dict) else str(block) for block in content)
+            return content
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str or "413" in err_str or "rate_limit" in err_str:
+                print(f"Rate limit hit (attempt {attempt+1}/{retries}), waiting {wait_seconds}s...")
+                time.sleep(wait_seconds)
+                continue
+            raise
+    raise RuntimeError("Groq call failed after retries due to rate limiting.")
+
+
+def merge_section_analyses(partial_results: List[Dict], fields: List[str]) -> Dict:
+    """
+    Merge multiple chunk-level analyses into one dict per the schema's fields.
+    List-type values get concatenated + deduplicated; string values get joined.
+    """
+    merged = {field: [] for field in fields}
+    for result in partial_results:
+        for field in fields:
+            val = result.get(field, "")
+            if isinstance(val, list):
+                merged[field].extend(val)
+            elif isinstance(val, str) and val.strip():
+                merged[field].append(val.strip())
+
+    # Clean up: dedupe lists, join strings into one paragraph where sensible
+    final = {}
+    for field, values in merged.items():
+        if not values:
+            final[field] = ""
+            continue
+        # dedupe while preserving order
+        seen = set()
+        deduped = []
+        for v in values:
+            key = v if isinstance(v, str) else json.dumps(v, sort_keys=True)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(v)
+        final[field] = deduped if len(deduped) > 1 else deduped[0]
+    return final

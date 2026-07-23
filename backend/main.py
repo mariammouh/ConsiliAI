@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 import os, shutil
+import requests
 from dotenv import load_dotenv
 from ingestion.pdf_processor import process_pdf, UPLOAD_DIR
 from agents.tools import retrieve_from_knowledge_base
@@ -99,13 +100,30 @@ async def chat_endpoint(message: str = Form(...)):
     return {"reply": result["output"]}
      """
 from agents.tools import split_paper_sections, analyze_all_sections
-
+import os
+import fitz  # PyMuPDF
+import re
 @app.post("/analyze_paper")
-async def analyze_paper_endpoint(text: str = Form(...)):
+async def analyze_paper_endpoint(file: UploadFile = File(...)):
     """
     Takes raw paper text (e.g. extracted from an uploaded PDF via PyMuPDF),
     splits it into sections, and runs the section-analysis agent on each.
     """
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        # 1. Extract text
+    doc = fitz.open(file_path)
+    text = ""
+    for page in doc:
+        text += page.get_text("text")
+    doc.close()
+
+    # Basic cleaning
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+    text = "\n".join(lines)
+    if not text.strip():
+        return 0
     sections = split_paper_sections(text)
     if not sections:
         return {"error": "Could not detect any sections in the provided text."}
@@ -115,3 +133,70 @@ async def analyze_paper_endpoint(text: str = Form(...)):
         "sections_detected": list(sections.keys()),
         "analysis": analysis
     }
+import tempfile
+
+def arxiv_url_to_pdf_url(url: str) -> str:
+    """Convert an arXiv abstract URL to its PDF URL."""
+    # e.g. https://arxiv.org/abs/2501.09635 -> https://arxiv.org/pdf/2501.09635
+    return url.replace("/abs/", "/pdf/")
+
+
+def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text("text")
+    doc.close()
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+
+    return "\n".join(lines)
+
+
+@app.post("/test_search_and_analyze")
+async def test_search_and_analyze(idea: str = Form(...), max_papers: int = Form(1)):
+    """
+    TEMPORARY test endpoint: search for papers on the idea, download the
+    first N arXiv results as PDFs, extract text, and run section analysis
+    on each. Non-arXiv sources are skipped since they don't reliably
+    expose a direct PDF link.
+    """
+    raw_papers = search_papers(idea, max_results=10)
+    arxiv_papers = [p for p in raw_papers if p.get("source") == "arxiv"][:max_papers]
+
+    if not arxiv_papers:
+        return {"error": "No arXiv papers found for this query."}
+
+    results = []
+    for paper in arxiv_papers:
+        pdf_url = arxiv_url_to_pdf_url(paper["url"])
+        try:
+            resp = requests.get(pdf_url, timeout=20)
+            resp.raise_for_status()
+            text = extract_text_from_pdf_bytes(resp.content)
+        except Exception as e:
+            results.append({"title": paper["title"], "error": f"Failed to fetch/extract PDF: {e}"})
+            continue
+
+        if not text.strip():
+            results.append({"title": paper["title"], "error": "No text extracted from PDF."})
+            continue
+
+        print(f"Analyzing paper: {paper['title']} ({len(text)} characters of text)")
+        with open("extracted_text.txt", "w", encoding="utf-8") as f:
+            f.write(text)
+        
+        #return {"text": "just a debug"}
+        sections = split_paper_sections(text)
+        if not sections:
+            results.append({"title": paper["title"], "error": "Could not detect sections."})
+            continue
+
+        analysis = analyze_all_sections(sections)
+        results.append({
+            "title": paper["title"],
+            "url": paper["url"],
+            "sections_detected": list(sections.keys()),
+            "analysis": analysis
+        })
+
+    return {"results": results}
