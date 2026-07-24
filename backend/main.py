@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from ingestion.pdf_processor import process_pdf, UPLOAD_DIR
 from agents.tools import retrieve_from_knowledge_base
 from agents.tools import search_papers, filter_relevant_papers,filter_papers_hybrid, summarize_papers_with_groq
-from agents.tools import search_papers_formatted
+from agents.tools import search_papers_formatted,fetch_full_text,extract_text_from_pdf_bytes
 load_dotenv()
 
 app = FastAPI()
@@ -155,48 +155,79 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
 @app.post("/test_search_and_analyze")
 async def test_search_and_analyze(idea: str = Form(...), max_papers: int = Form(1)):
     """
-    TEMPORARY test endpoint: search for papers on the idea, download the
-    first N arXiv results as PDFs, extract text, and run section analysis
-    on each. Non-arXiv sources are skipped since they don't reliably
-    expose a direct PDF link.
+    TEMPORARY test endpoint: search across all sources, try to fetch full
+    text for each paper (arXiv/Semantic Scholar/OpenAlex via pdf_url),
+    and run section analysis. Falls back to abstract-only summary when
+    no full text is available.
     """
-    raw_papers = search_papers(idea, max_results=10)
-    arxiv_papers = [p for p in raw_papers if p.get("source") == "arxiv"][:max_papers]
-
-    if not arxiv_papers:
-        return {"error": "No arXiv papers found for this query."}
+    raw_papers = search_papers(idea, max_results=10)[:max_papers]
+    if not raw_papers:
+        return {"error": "No papers found for this query."}
 
     results = []
-    for paper in arxiv_papers:
-        pdf_url = arxiv_url_to_pdf_url(paper["url"])
-        try:
-            resp = requests.get(pdf_url, timeout=20)
-            resp.raise_for_status()
-            text = extract_text_from_pdf_bytes(resp.content)
-        except Exception as e:
-            results.append({"title": paper["title"], "error": f"Failed to fetch/extract PDF: {e}"})
+    for paper in raw_papers:
+        full_text = fetch_full_text(paper)
+
+        if not full_text.strip():
+            results.append({
+                "title": paper["title"],
+                "url": paper["url"],
+                "source": paper["source"],
+                "note": "No full text available (no open-access PDF); analyzed abstract only.",
+                "analysis": {"abstract": {"summary": paper.get("abstract", "")}}
+            })
             continue
 
-        if not text.strip():
-            results.append({"title": paper["title"], "error": "No text extracted from PDF."})
-            continue
-
-        print(f"Analyzing paper: {paper['title']} ({len(text)} characters of text)")
-        with open("extracted_text.txt", "w", encoding="utf-8") as f:
-            f.write(text)
-        
-        #return {"text": "just a debug"}
-        sections = split_paper_sections(text)
+        sections = split_paper_sections(full_text)
         if not sections:
-            results.append({"title": paper["title"], "error": "Could not detect sections."})
+            results.append({
+                "title": paper["title"],
+                "url": paper["url"],
+                "source": paper["source"],
+                "error": "PDF fetched but no sections could be detected."
+            })
             continue
 
         analysis = analyze_all_sections(sections)
         results.append({
             "title": paper["title"],
             "url": paper["url"],
+            "source": paper["source"],
             "sections_detected": list(sections.keys()),
             "analysis": analysis
         })
 
     return {"results": results}
+from agents.tools import detect_gaps
+
+@app.post("/gaps")
+async def gaps_endpoint(idea: str = Form(...), max_papers: int = Form(3)):
+    """
+    Full pipeline: search -> filter -> fetch full text -> split -> analyze -> detect gaps.
+    """
+    raw_papers = search_papers(idea, max_results=15)
+    relevant_papers = filter_papers_hybrid(raw_papers, idea, embed_top_k=8, llm_top_n=max_papers)
+
+    papers_with_analysis = []
+    for paper in relevant_papers:
+        full_text = fetch_full_text(paper)
+        if not full_text.strip():
+            # fall back to abstract-only analysis so the paper still contributes
+            papers_with_analysis.append({
+                "title": paper["title"],
+                "analysis": {"abstract": {"summary": paper.get("abstract", "")}}
+            })
+            continue
+
+        sections = split_paper_sections(full_text)
+        if not sections:
+            continue
+        analysis = analyze_all_sections(sections)
+        papers_with_analysis.append({"title": paper["title"], "analysis": analysis})
+
+    if not papers_with_analysis:
+        return {"error": "No papers could be analyzed for this idea."}
+
+    result = detect_gaps(idea, papers_with_analysis)
+    result["papers_used"] = [p["title"] for p in papers_with_analysis]
+    return result

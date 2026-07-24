@@ -13,7 +13,7 @@ cache_collection = chroma_client.get_or_create_collection(
     name="search_cache",
     metadata={"hnsw:space": "cosine"}   # cosine distance
 )
-
+analysis_cache_collection = chroma_client.get_or_create_collection("analysis_cache")
 def query_chroma(query_text: str, n_results: int = 3):
     query_embedding = embed(query_text)
     results = collection.query(
@@ -21,3 +21,4 @@ def query_chroma(query_text: str, n_results: int = 3):
         n_results=n_results
     )
     return results['documents'][0] if results['documents'] else []
+

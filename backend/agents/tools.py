@@ -8,12 +8,16 @@ from langchain_openai import ChatOpenAI
 from ingestion.chroma_client import query_chroma
 from ingestion.cache import get_cached_papers, set_cached_papers
 import arxiv
-from ingestion.chroma_client import cache_collection
+from ingestion.chroma_client import cache_collection,analysis_cache_collection
 from ingestion.embedding_model import embed
 import json
 import base64
-load_dotenv()
 
+import numpy as np
+load_dotenv()
+#from langchain_community.chat_models import ChatOllama  # or langchain_ollama
+
+#_ollama_llm = ChatOllama(model="llama3.1:8b", temperature=0.2)
 # LLM instance for this tool (can be reused)
 _gemini_llm  = ChatGoogleGenerativeAI(
     model="gemini-3.1-flash-lite",  # or the exact name you used successfully
@@ -130,35 +134,16 @@ def search_papers(query: str, max_results: int = 15) -> List[Dict]:
                 "authors": [a.name for a in result.authors],
                 "abstract": result.summary,
                 "url": result.entry_id,
+                "pdf_url": result.pdf_url,   # arxiv library gives this directly
                 "source": "arxiv"
             })
     except Exception as e:
         print(f"arXiv search error: {e}")
 
     # --- Semantic Scholar ---
-    ss_api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
-    headers = {"x-api-key": ss_api_key} if ss_api_key else {}
     try:
-        ss_url = "https://api.semanticscholar.org/graph/v1/paper/search"
-        params = {
-            "query": query,
-            "limit": max_results,
-            "fields": "title,authors,abstract,url"
-        }
-        resp = requests.get(ss_url, params=params, headers=headers)
-        if resp.status_code == 429:
-            time.sleep(2)
-            resp = requests.get(ss_url, params=params, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-        for paper in data.get("data", []):
-            fresh_papers.append({
-                "title": paper.get("title", "N/A"),
-                "authors": [a["name"] for a in paper.get("authors", [])],
-                "abstract": paper.get("abstract", "No abstract available."),
-                "url": paper.get("url", ""),
-                "source": "semantic_scholar"
-            })
+        semantic_papers = search_semantic_scholar(query, max_results)
+        fresh_papers.extend(semantic_papers)
     except Exception as e:
         print(f"Semantic Scholar error: {e}")
 
@@ -182,20 +167,41 @@ def search_papers(query: str, max_results: int = 15) -> List[Dict]:
         set_cached_papers_semantic(query, combined)
 
     return combined[:max_results]
-
-import requests
-import numpy as np
+def search_semantic_scholar(query: str, max_results: int = 5) -> List[Dict]:
+    # --- Semantic Scholar (updated fields) ---
+        ss_api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+        headers = {"x-api-key": ss_api_key} if ss_api_key else {}
+    
+        ss_url = "https://api.semanticscholar.org/graph/v1/paper/search"
+        params = {
+            "query": query,
+            "limit": max_results,
+            "fields": "title,authors,abstract,url,openAccessPdf"
+        }
+        resp = requests.get(ss_url, params=params, headers=headers)
+        if resp.status_code == 429:
+            time.sleep(2)
+            resp = requests.get(ss_url, params=params, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        fresh_papers= []
+        for paper in data.get("data", []):
+            oa_pdf = paper.get("openAccessPdf") or {}
+            fresh_papers.append({
+                "title": paper.get("title", "N/A"),
+                "authors": [a["name"] for a in paper.get("authors", [])],
+                "abstract": paper.get("abstract", "No abstract available."),
+                "url": paper.get("url", ""),
+                "pdf_url": oa_pdf.get("url", ""),   # NEW
+                "source": "semantic_scholar"
+            })
+        return fresh_papers
+    
 
 def filter_papers_hybrid(papers: List[Dict], user_idea: str, embed_top_k: int = 10, llm_top_n: int = 10) -> List[Dict]:
-    """
-    Two-stage hybrid filter:
-    1. Embedding pre-filter: keep top embed_top_k papers by cosine similarity.
-    2. LLM re-rank: from those, select the final llm_top_n most relevant.
-    """
     if not papers:
         return []
 
-    # Stage 1: Embedding similarity
     idea_emb = np.array(embed(user_idea))
     scored = []
     for p in papers:
@@ -203,12 +209,10 @@ def filter_papers_hybrid(papers: List[Dict], user_idea: str, embed_top_k: int = 
         paper_emb = np.array(embed(text))
         sim = np.dot(idea_emb, paper_emb) / (np.linalg.norm(idea_emb) * np.linalg.norm(paper_emb))
         scored.append((sim, p))
-    
-    # Sort descending by similarity, take top embed_top_k
+
     scored.sort(key=lambda x: x[0], reverse=True)
     pre_filtered = [p for _, p in scored[:embed_top_k]]
 
-    # Stage 2: LLM re-rank (using Groq)
     papers_text = "\n\n".join(
         f"Paper {i+1}:\nTitle: {p['title']}\nAbstract: {(p['abstract'] or '')[:500]}"
         for i, p in enumerate(pre_filtered)
@@ -220,18 +224,21 @@ Below are {len(pre_filtered)} papers pre‑selected by semantic similarity. From
 Papers:
 {papers_text}"""
 
-    response = _groq_llm.invoke(prompt)
-    content = response.content.strip()
-    import re
+    content = _gemini_llm.invoke(prompt).content
+    if isinstance(content, list):
+        content = "".join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
+    content = content.strip()
+
     numbers = re.findall(r'\d+', content)
     indices = [int(n) - 1 for n in numbers if 1 <= int(n) <= len(pre_filtered)]
     if not indices:
         indices = list(range(min(llm_top_n, len(pre_filtered))))
     return [pre_filtered[i] for i in indices[:llm_top_n]]
+
 def search_openalex(query: str, max_results: int = 5) -> List[Dict]:
     base_url = "https://api.openalex.org/works"
     params = {
-        "filter": f"title.search:{query}",   # raw query, no manual encoding
+        "filter": f"title.search:{query}",
         "per-page": max_results,
         "sort": "relevance"
     }
@@ -246,14 +253,21 @@ def search_openalex(query: str, max_results: int = 5) -> List[Dict]:
     papers = []
     for work in data.get("results", []):
         abstract = work.get("abstract") or ""
+        oa = work.get("open_access", {}) or {}
+        best_oa_location = work.get("best_oa_location") or {}
+        pdf_url = best_oa_location.get("pdf_url") or oa.get("oa_url") or ""
         papers.append({
             "title": work.get("title", "N/A"),
             "authors": [a["author"]["display_name"] for a in work.get("authorships", [])],
             "abstract": abstract,
             "url": work.get("id", ""),
+            "pdf_url": pdf_url,   # NEW
             "source": "openalex"
         })
     return papers
+
+
+
 def search_papers_formatted(query: str, max_results: int = 5) -> str:
     papers = search_papers(query, max_results)
     if not papers:
@@ -286,9 +300,12 @@ Below is a list of {len(papers)} papers. Identify the {top_n} papers that are **
 Papers:
 {papers_text}"""
 
-    response = _groq_llm.invoke(prompt)
-    content = response.content.strip()
-    # Extract numbers from the response
+    content = _gemini_llm.invoke(prompt).content
+    if isinstance(content, list):
+        content = "".join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
+    content = content.strip()
+
+
     import re
     numbers = re.findall(r'\d+', content)
     indices = [int(n) - 1 for n in numbers if 1 <= int(n) <= len(papers)]
@@ -321,7 +338,7 @@ Papers:
 
 Summary:"""
 
-    response = _groq_llm.invoke(prompt)
+    response = _groq_invoke_safe(prompt)
     content = response.content
     if isinstance(content, list):
         content = "".join(block.get('text', '') if isinstance(block, dict) else str(block) for block in content)
@@ -457,7 +474,7 @@ Novelty analysis:"""
 
     # Try Groq first, then Gemini, then basic
     try:
-        response = _groq_llm.invoke(prompt)
+        response = _groq_invoke_safe(prompt)
         content = response.content
         if isinstance(content, list):
             content = "".join(block.get('text', '') if isinstance(block, dict) else str(block) for block in content)
@@ -763,42 +780,78 @@ HEADER_REGEX = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 
+def is_likely_header(line: str) -> bool:
+    """Heuristic guard: does this line LOOK like a header, independent of content?"""
+    if not line or len(line) > 70:
+        return False
+    if line.endswith("."):  # body sentences end in periods, headers rarely do
+        return False
+    word_count = len(line.split())
+    if word_count > 8:
+        return False
+    return True
+
+
+SECTION_KEYWORDS = {
+    "abstract": ["abstract"],
+    "introduction": ["introduction"],
+    "related_work": ["related work", "background", "prior work", "literature review"],
+    "methodology": [
+        "methodology", "proposed methodology", "proposed method", "proposed approach",
+        "proposed model", "approach", "materials and methods", "model architecture",
+        "system architecture", "cnn architecture", "network architecture"
+    ],
+    "experimental_setup": [
+        "experimental setup", "implementation details", "dataset", "datasets",
+        "evaluation metrics", "training and testing", "experimental implementation"
+    ],
+    "results": [
+        "results", "experimental results", "results and discussion",
+        "performance evaluation", "evaluation results"
+    ],
+    "discussion": ["discussion"],
+    "conclusion": ["conclusion", "conclusions", "future work", "future works"],
+    "references": ["references", "bibliography"],
+}
+
+
+def match_section_keyword(candidate: str) -> str | None:
+    """
+    Loose match: does the candidate header line CONTAIN a known keyword
+    (not require an exact fullmatch)? Longer keywords checked first so
+    'experimental results' beats a bare 'results' collision if both fit.
+    """
+    candidate = candidate.lower().strip()
+    best_match = None
+    best_len = 0
+    for section_name, keywords in SECTION_KEYWORDS.items():
+        for kw in keywords:
+            if kw in candidate and len(kw) > best_len:
+                best_match = section_name
+                best_len = len(kw)
+    return best_match
+
 
 def heuristic_split_sections(text: str) -> Dict[str, str]:
-
     lines = text.splitlines()
-    print(len(text.splitlines()))
     found_headers = []
 
     for i, line in enumerate(lines):
-
         stripped = line.strip()
-
-        if not stripped:
+        if not stripped or not is_likely_header(stripped):
             continue
 
         m = HEADER_REGEX.match(stripped)
-
-
-        if m:
-           print(repr(m.group("title")))
-
-
         if not m:
             continue
 
         candidate = m.group("title").strip().lower()
-
-        # remove punctuation around the title
         candidate = re.sub(r"[:\-–]+$", "", candidate)
         candidate = re.sub(r"\s+", " ", candidate)
 
-        for section_name, pattern in SECTION_HEADER_PATTERNS.items():
-
-            if re.fullmatch(pattern, candidate, re.IGNORECASE):
-
-                found_headers.append((i, section_name, stripped))
-                break
+        section_name = match_section_keyword(candidate)
+        if section_name:
+            found_headers.append((i, section_name, stripped))
 
     print("headers from heuristic:", found_headers)
 
@@ -806,17 +859,15 @@ def heuristic_split_sections(text: str) -> Dict[str, str]:
         return {}
 
     sections = {}
-
     for idx, (line_no, section_name, _) in enumerate(found_headers):
-
         start = line_no + 1
         end = found_headers[idx + 1][0] if idx + 1 < len(found_headers) else len(lines)
-
         content = "\n".join(lines[start:end]).strip()
-
         if content:
-            if section_name not in sections or len(content) > len(sections[section_name]):
+            if section_name not in sections:
                 sections[section_name] = content
+            else:
+                sections[section_name] += "\n\n" + content  # concatenate instead of overwrite
 
     return sections
 def llm_split_sections(text: str, chunk_chars: int = 3000) -> Dict[str, str]:
@@ -883,21 +934,17 @@ OPTIONAL_SECTIONS = {
 def split_paper_sections(text: str) -> Dict[str, str]:
     sections = heuristic_split_sections(text)
     found = set(sections.keys())
-
     essential_found = len(found & ESSENTIAL_SECTIONS)
+    heuristic_success = essential_found >= 2
 
-# Require at least two core sections
-    heuristic_success = (
-    essential_found >= 2
-)
     if heuristic_success:
         print(f"[split] heuristic succeeded: {[(k, len(v)) for k, v in sections.items()]}")
         return sections
 
-    print(f"[split] heuristic found only {len(sections)} section(s), falling back to LLM chunk classification.")
-    #sections = llm_split_sections(text)
-    print(f"[split] LLM fallback result: {[(k, len(v)) for k, v in sections.items()]}")
-    return {}
+    print(f"[split] heuristic found only {essential_found} essential section(s), falling back to LLM chunk classification.")
+    llm_sections = llm_split_sections(text)   # actually call it now
+    print(f"[split] LLM fallback result: {[(k, len(v)) for k, v in llm_sections.items()]}")
+    return llm_sections
 # ---------- SECTION-ANALYSIS AGENT ----------
 
 SECTION_SCHEMAS = {
@@ -938,7 +985,14 @@ SECTION_SCHEMAS = {
     },
 }
 
+
 def analyze_section(section_text: str, section_type: str, max_chars: int = 3000) -> Dict:
+    # Check cache first
+    cached = get_cached_section_analysis(section_text, section_type)
+    if cached:
+        print(f"[cache hit] section '{section_type}' — skipping Groq call")
+        return cached
+
     schema = SECTION_SCHEMAS.get(section_type, {
         "fields": ["summary"],
         "instructions": "Summarize the key points of this section."
@@ -963,6 +1017,7 @@ Section text:
         if not parsed:
             parsed = {field: "" for field in schema["fields"]}
             parsed["_error"] = "LLM output could not be parsed"
+        set_cached_section_analysis(section_text, section_type, parsed)
         return parsed
 
     # Multiple chunks: analyze each, then merge
@@ -988,9 +1043,12 @@ Section text (part {i+1}/{len(chunks)}):
     if not partial_results:
         result = {field: "" for field in schema["fields"]}
         result["_error"] = "All chunks failed to parse"
+        set_cached_section_analysis(section_text, section_type, result)
         return result
 
-    return merge_section_analyses(partial_results, schema["fields"])
+    result = merge_section_analyses(partial_results, schema["fields"])
+    set_cached_section_analysis(section_text, section_type, result)
+    return result
 
 
 def analyze_all_sections(sections: Dict[str, str]) -> Dict[str, Dict]:
@@ -1041,27 +1099,66 @@ def chunk_text(text: str, max_chars: int = 3000) -> List[str]:
         chunks.append(current)
     return chunks
 
+import time
 
-def _groq_invoke_safe(prompt: str, retries: int = 3, wait_seconds: float = 8.0) -> str:
+class TokenBudget:
+    def __init__(self, tpm_limit: int = 11000):  # stay under 12000 with margin
+        self.tpm_limit = tpm_limit
+        self.used = 0
+        self.window_start = time.time()
+
+    def consume(self, estimated_tokens: int):
+        now = time.time()
+        if now - self.window_start >= 60:
+            self.used = 0
+            self.window_start = now
+        if self.used + estimated_tokens > self.tpm_limit:
+            wait = 60 - (now - self.window_start)
+            if wait > 0:
+                print(f"Approaching TPM limit, waiting {wait:.1f}s...")
+                time.sleep(wait)
+            self.used = 0
+            self.window_start = time.time()
+        self.used += estimated_tokens
+
+_groq_budget = TokenBudget()
+def _groq_invoke_safe(prompt: str, retries: int = 2, wait_seconds: float = 8.0) -> str:
     """
-    Call Groq with basic backoff on rate-limit errors (413/429).
+    Try Groq first (best reasoning). On rate-limit exhaustion, fall back to
+    Gemini so the pipeline doesn't crash — not because Gemini is preferred.
     """
     for attempt in range(retries):
         try:
+            _groq_budget.consume(len(prompt)//4)
             response = _groq_llm.invoke(prompt)
             content = response.content
             if isinstance(content, list):
-                content = "".join(block.get('text', '') if isinstance(block, dict) else str(block) for block in content)
+                content = "".join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
             return content
         except Exception as e:
-            err_str = str(e)
-            if "429" in err_str or "413" in err_str or "rate_limit" in err_str:
-                print(f"Rate limit hit (attempt {attempt+1}/{retries}), waiting {wait_seconds}s...")
+            err = str(e)
+            if "429" in err or "413" in err or "rate_limit" in err:
+                print(f"Groq rate-limited (attempt {attempt+1}), retrying after {wait_seconds}s...")
                 time.sleep(wait_seconds)
                 continue
             raise
-    raise RuntimeError("Groq call failed after retries due to rate limiting.")
 
+    print("Groq exhausted retries — falling back to Gemini for this call only.")
+    try:
+        response = _gemini_llm.invoke(prompt)
+        content = response.content
+        if isinstance(content, list):
+            content = "".join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
+        return content
+    except Exception as e:
+        print(f"Gemini also failed: {e}")
+        raise
+"""         try:
+            response = _ollama_llm.invoke(prompt)
+            return response.content
+        except Exception as e3:
+            raise RuntimeError(f"All three providers failed: {e3}") """
+        
 
 def merge_section_analyses(partial_results: List[Dict], fields: List[str]) -> Dict:
     """
@@ -1093,3 +1190,195 @@ def merge_section_analyses(partial_results: List[Dict], fields: List[str]) -> Di
                 deduped.append(v)
         final[field] = deduped if len(deduped) > 1 else deduped[0]
     return final
+def fetch_full_text(paper: Dict, timeout: int = 20) -> str:
+    """
+    Attempt to fetch and extract full text for a paper. Tries pdf_url if
+    present; returns empty string if no PDF is available or extraction fails.
+    Caller should fall back to abstract-only analysis when this returns "".
+    """
+    pdf_url = paper.get("pdf_url", "")
+    if not pdf_url:
+        return ""
+
+    try:
+        resp = requests.get(pdf_url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        content_type = resp.headers.get("Content-Type", "")
+        if "pdf" not in content_type and not pdf_url.lower().endswith(".pdf"):
+            print(f"Skipping non-PDF content at {pdf_url} (Content-Type: {content_type})")
+            return ""
+        return extract_text_from_pdf_bytes(resp.content)
+    except Exception as e:
+        print(f"Failed to fetch/extract PDF from {pdf_url}: {e}")
+        return ""
+
+import fitz  
+def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text("text")
+    doc.close()
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+    return "\n".join(lines)
+# ---------- GAP DETECTION AGENT ----------
+
+def _extract_gap_relevant_text(paper_title: str, analysis: Dict) -> str:
+    """
+    Pull the fields most useful for gap detection from a paper's section
+    analysis: stated limitations, future work, and what the paper claims
+    to contribute (to infer what's NOT yet covered elsewhere).
+    """
+    parts = [f"Paper: {paper_title}"]
+
+    intro = analysis.get("introduction", {})
+    if intro.get("contributions"):
+        parts.append(f"Contributions: {intro['contributions']}")
+    if intro.get("problem_statement"):
+        parts.append(f"Problem addressed: {intro['problem_statement']}")
+
+    related = analysis.get("related_work", {})
+    if related.get("positioning"):
+        parts.append(f"Positioning vs prior work: {related['positioning']}")
+
+    for key in ("discussion", "conclusion"):
+        sec = analysis.get(key, {})
+        if sec.get("limitations"):
+            parts.append(f"Limitations ({key}): {sec['limitations']}")
+        if sec.get("future_work"):
+            parts.append(f"Future work ({key}): {sec['future_work']}")
+
+    results = analysis.get("results", {})
+    if results.get("key_improvements"):
+        parts.append(f"Key results: {results['key_improvements']}")
+
+    return "\n".join(parts)
+
+
+def detect_gaps(user_idea: str, papers_with_analysis: List[Dict], max_chars: int = 3000) -> Dict:
+    """
+    papers_with_analysis: list of {"title": str, "analysis": Dict}
+    (the output of analyze_all_sections per paper, paired with its title)
+
+    Returns a structured list of research gaps synthesized across all papers.
+    """
+    if not papers_with_analysis:
+        return {"gaps": [], "_error": "No papers provided for gap analysis."}
+
+    per_paper_summaries = [
+        _extract_gap_relevant_text(p["title"], p["analysis"])
+        for p in papers_with_analysis
+    ]
+    combined_text = "\n\n---\n\n".join(per_paper_summaries)
+
+    chunks = chunk_text(combined_text, max_chars=max_chars)
+
+    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+{
+  "gaps": [
+    {
+      "gap_description": "...",
+      "supporting_evidence": "...",
+      "papers_involved": ["paper title 1", "paper title 2"],
+      "opportunity": "..."
+    }
+  ]
+}
+Each gap should describe something unsolved, under-explored, or contradictory across the papers.
+"opportunity" should briefly state what a new project/experiment could do to address it."""
+
+    if len(chunks) == 1:
+        prompt = f"""User's project idea: "{user_idea}"
+
+You are analyzing a set of research papers to identify gaps in the current state of the art relevant to this idea.
+
+{schema_instructions}
+
+Papers analyzed:
+{chunks[0]}
+"""
+        content = _groq_invoke_safe(prompt)
+        parsed = _safe_json_parse(content)
+        return parsed if parsed else {"gaps": [], "_error": "LLM output could not be parsed"}
+
+    # Multi-chunk: detect gaps per chunk, then merge and deduplicate with a final pass
+    print(f"Gap detection input split into {len(chunks)} chunks for rate-limit safety.")
+    partial_gaps = []
+    for i, chunk in enumerate(chunks):
+        prompt = f"""User's project idea: "{user_idea}"
+
+You are analyzing part {i+1} of {len(chunks)} of a set of research paper summaries to identify gaps relevant to this idea.
+
+{schema_instructions}
+
+Papers analyzed (part {i+1}/{len(chunks)}):
+{chunk}
+"""
+        content = _groq_invoke_safe(prompt)
+        parsed = _safe_json_parse(content)
+        if parsed and parsed.get("gaps"):
+            partial_gaps.extend(parsed["gaps"])
+        time.sleep(2)
+
+    if not partial_gaps:
+        return {"gaps": [], "_error": "No gaps extracted from any chunk."}
+
+    # Final consolidation pass: dedupe/merge overlapping gaps found across chunks
+    return _consolidate_gaps(user_idea, partial_gaps)
+
+
+def _consolidate_gaps(user_idea: str, raw_gaps: List[Dict]) -> Dict:
+    """
+    Merge/deduplicate gaps found across multiple chunks into a clean final list.
+    """
+    gaps_text = json.dumps(raw_gaps, indent=2)[:6000]  # cap in case of many gaps
+    prompt = f"""User's project idea: "{user_idea}"
+
+Below is a raw list of research gaps extracted from different parts of a literature batch. Some may be duplicates or near-duplicates. Consolidate them into a clean, deduplicated final list, merging similar gaps and keeping the most specific/useful description.
+
+Return ONLY valid JSON in this format:
+{{"gaps": [{{"gap_description": "...", "supporting_evidence": "...", "papers_involved": [...], "opportunity": "..."}}]}}
+
+Raw gaps:
+{gaps_text}
+"""
+    content = _groq_invoke_safe(prompt)
+    parsed = _safe_json_parse(content)
+    return parsed if parsed else {"gaps": raw_gaps, "_note": "Consolidation failed, returning raw merged list."}
+
+import hashlib
+# ingestion/chroma_client.py (add alongside your existing collections)
+
+def _hash_text(text: str) -> str:
+    """Stable hash for cache keys, independent of text length."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def get_cached_section_analysis(section_text: str, section_type: str) -> Dict | None:
+    """
+    Look up a cached analysis result for this exact section text + type.
+    Uses a hash of (type + text) as the ID — no embedding needed since
+    we want exact matches only (same paper, same section, re-run).
+    """
+    key = _hash_text(section_type + "::" + section_text)
+    try:
+        result = analysis_cache_collection.get(ids=[key])
+        if result and result["metadatas"]:
+            return json.loads(result["metadatas"][0]["analysis"])
+    except Exception:
+        pass
+    return None
+
+
+def set_cached_section_analysis(section_text: str, section_type: str, analysis: Dict):
+    key = _hash_text(section_type + "::" + section_text)
+    try:
+        analysis_cache_collection.delete(ids=[key])  # clear old entry if present
+    except Exception:
+        pass
+    analysis_cache_collection.add(
+        documents=[key],          # dummy doc content, we're not doing similarity search here
+        embeddings=[[0.0]],       # placeholder; see note below if your Chroma setup requires real embeddings
+        metadatas=[{"analysis": json.dumps(analysis), "section_type": section_type}],
+        ids=[key]
+    )
