@@ -1,3 +1,13 @@
-# one-off, in a python shell or temp debug endpoint
 from ingestion.chroma_client import cache_collection
-cache_collection.delete(ids=cache_collection.get()['ids'])
+
+data = cache_collection.get(
+    include=["documents", "metadatas"]
+)
+
+for i, (doc, meta) in enumerate(zip(data["documents"], data["metadatas"])):
+    print("=" * 80)
+    print(f"Document #{i}")
+    print("Metadata:", meta)
+    print("-" * 80)
+    print(doc)
+    print()

@@ -231,3 +231,38 @@ async def gaps_endpoint(idea: str = Form(...), max_papers: int = Form(3)):
     result = detect_gaps(idea, papers_with_analysis)
     result["papers_used"] = [p["title"] for p in papers_with_analysis]
     return result
+from agents.tools import generate_technical_plan, search_similar_projects, compute_similarity_scores
+
+@app.post("/technical_plan")
+async def technical_plan_endpoint(idea: str = Form(...), max_papers: int = Form(2)):
+    # Reuse the same paper analysis pipeline as /gaps
+    raw_papers = search_papers(idea, max_results=15)
+    relevant_papers = filter_papers_hybrid(raw_papers, idea, embed_top_k=8, llm_top_n=max_papers)
+
+    papers_with_analysis = []
+    for paper in relevant_papers:
+        full_text = fetch_full_text(paper)
+        if not full_text.strip():
+            papers_with_analysis.append({
+                "title": paper["title"],
+                "analysis": {"abstract": {"summary": paper.get("abstract", "")}}
+            })
+            continue
+        sections = split_paper_sections(full_text)
+        if not sections:
+            continue
+        papers_with_analysis.append({"title": paper["title"], "analysis": analyze_all_sections(sections)})
+
+    gaps_result = detect_gaps(idea, papers_with_analysis) if papers_with_analysis else {"gaps": []}
+
+    similar = search_similar_projects(idea, max_results=15)
+    scored_similar = compute_similarity_scores(idea, similar)
+    top_similar = [proj for _, proj in scored_similar[:8]]
+
+    plan = generate_technical_plan(idea, gaps_result.get("gaps", []), top_similar)
+
+    return {
+        "plan": plan,
+        "gaps_used": gaps_result.get("gaps", []),
+        "similar_projects_used": [p["name"] for p in top_similar]
+    }

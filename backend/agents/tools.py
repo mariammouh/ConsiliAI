@@ -237,11 +237,7 @@ Papers:
 
 def search_openalex(query: str, max_results: int = 5) -> List[Dict]:
     base_url = "https://api.openalex.org/works"
-    params = {
-        "filter": f"title.search:{query}",
-        "per-page": max_results,
-        "sort": "relevance"
-    }
+    params = {"q": f"title.search:{query.strip()}", "per_page": max_results}
     try:
         resp = requests.get(base_url, params=params)
         resp.raise_for_status()
@@ -394,7 +390,8 @@ def search_similar_projects(query: str, max_results: int = 15) -> List[Dict]:
     
     #projects.extend(search_bitbucket(query, max_results))
     #projects.extend(search_paperswithcode(query, max_results))
-
+    for p in projects:
+        print(f"[debug] {p.get('name')}: readme={p.get('readme', '')[:200]!r}")
     if projects:
         set_cached_projects_semantic(query, projects)
 
@@ -456,7 +453,8 @@ def analyze_novelty(user_idea: str, top_projects: List) -> str:
         f"Highest similarity: {max_score:.1%}, average: {avg_score:.1%}. "
         "Your idea overlaps with existing work, but may still have unique aspects."
     )
-
+    for p in top_projects:
+          print(f"[debug] {p.get('name')}: readme={p.get('readme', '')[:200]!r}")
     # Build description text for the LLM
     projects_text = "\n".join(
         f"{i+1}. [{proj['source']}] {proj['name']} — {proj.get('description','')}"
@@ -522,7 +520,7 @@ def search_kaggle(query: str, max_results: int =15 ) -> List[Dict]:
                 "description": ds.title,
                 "url": f"https://www.kaggle.com/datasets/{ds.ref}",
                 "source": "kaggle_dataset",
-                "file_count": ds.file_count,
+                #"file_count": ds.file_count,
                 "size": ds.size,
                 "tags": ds.tags,
                 "readme": str(ds.description)[:500] if ds.description else ""
@@ -688,7 +686,7 @@ def search_gitlab(query, max_results):
     projects = []
     try:
         gl_url = "https://gitlab.com/api/v4/projects"
-        params = {"q": query, "items_per_page": max_results}  
+        params = {"q": f"title.search:{query.strip()}", "items_per_page": max_results} 
         resp = requests.get(gl_url, params=params)
         print(f"GitLab status: {resp.status_code}")
         if resp.status_code == 200:
@@ -1285,7 +1283,13 @@ def detect_gaps(user_idea: str, papers_with_analysis: List[Dict], max_chars: int
   ]
 }
 Each gap should describe something unsolved, under-explored, or contradictory across the papers.
-"opportunity" should briefly state what a new project/experiment could do to address it."""
+"opportunity" should briefly state what a new project/experiment could do to address it.
+
+CRITICAL: The "opportunity" field must stay grounded in what the papers actually discuss or
+imply — do not suggest a specific named technique or technology 
+unless it is explicitly mentioned in the paper text provided. If no specific technique is
+suggested by the source material, describe the opportunity in terms of the problem to solve,
+not a named solution."""
 
     if len(chunks) == 1:
         prompt = f"""User's project idea: "{user_idea}"
@@ -1382,3 +1386,76 @@ def set_cached_section_analysis(section_text: str, section_type: str, analysis: 
         metadatas=[{"analysis": json.dumps(analysis), "section_type": section_type}],
         ids=[key]
     )
+# ---------- TECHNICAL PLAN AGENT ----------
+
+def generate_technical_plan(
+    user_idea: str,
+    gaps: List[Dict],
+    similar_projects: List[Dict],
+    max_chars: int = 4000
+) -> Dict:
+    """
+    Synthesize a technical project plan from the user's idea, detected
+    research gaps, and similar existing projects/repos.
+    """
+    gaps_text = "\n".join(
+        f"- {g.get('gap_description', '')} (opportunité : {g.get('opportunity', '')})"
+        for g in gaps[:8]  # cap to avoid bloating the prompt
+    )
+    similar_text = "\n".join(
+        f"- [{p.get('source', '')}] {p.get('name', '')}: {(p.get('description') or '')[:150]}"
+        for p in similar_projects[:8]
+    )
+
+    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+{
+  "recommended_stack": {
+    "core_technologies": ["..."],
+    "justification": "..."
+  },
+  "architecture_overview": "...",
+  "milestones": [
+    {"title": "...", "description": "...", "estimated_duration": "...", "addresses_gap": "..."}
+  ],
+  "deliverables": ["..."],
+  "risks": [
+    {"risk": "...", "mitigation": "..."}
+  ]
+}
+
+IMPORTANT:
+- "core_technologies" and their "justification" MUST reference specific technologies actually
+  mentioned in the similar projects provided below (e.g. cite a repo name if its README mentions
+  a specific framework), not generic ML defaults.
+- Each milestone's "addresses_gap" field must name which specific gap (from the list below) that
+  milestone is designed to address. If a milestone doesn't address any listed gap, don't include it.
+- Do not produce a generic ML project template — this plan must be clearly differentiated by the
+  specific gaps and repos provided.
+
+CRITICAL — grounding rules:
+- Base every technical claim ONLY on the exact text provided below (repo descriptions, readmes,
+  gap descriptions). Do not supplement with general knowledge about the field, even if it seems
+  like a reasonable or common suggestion .
+- Only cite a technology, framework, or technique as coming from a specific repo if it literally
+  appears in that repo's description or readme text provided below. Do not attribute a technology
+  to a repo that doesn't mention it, even if the technology is real and used elsewhere.
+- If the provided data doesn't mention a specific technique or technology for a given point, do
+  not name one — describe the milestone or recommendation in terms of the underlying problem
+  instead, without filling in an unverified solution."""
+
+    prompt = f"""User's project idea: "{user_idea}"
+
+Identified research gaps and opportunities:
+{gaps_text or "None identified."}
+
+Similar existing projects found:
+{similar_text or "None found."}
+
+Based on this idea, the identified gaps, and the existing similar work, generate a technical project plan.
+
+{schema_instructions}
+"""
+
+    content = _groq_invoke_safe(prompt)
+    parsed = _safe_json_parse(content)
+    return parsed if parsed else {"_error": "LLM output could not be parsed"}
