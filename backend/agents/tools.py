@@ -26,7 +26,7 @@ _gemini_llm  = ChatGoogleGenerativeAI(
 )
 _groq_llm = ChatOpenAI(
     base_url="https://api.groq.com/openai/v1",
-    api_key=os.getenv("GROQ_API_KEY"),
+    api_key=os.getenv("GROQ_API_KEY2"),
     model="llama-3.3-70b-versatile",   # <-- updated model
     temperature=0.2
 )
@@ -453,8 +453,8 @@ def analyze_novelty(user_idea: str, top_projects: List) -> str:
         f"Highest similarity: {max_score:.1%}, average: {avg_score:.1%}. "
         "Your idea overlaps with existing work, but may still have unique aspects."
     )
-    for p in top_projects:
-          print(f"[debug] {p.get('name')}: readme={p.get('readme', '')[:200]!r}")
+    #for p in top_projects:
+          #print(f"[debug] {p.get('name')}: readme={p.get('readme', '')[:200]!r}")
     # Build description text for the LLM
     projects_text = "\n".join(
         f"{i+1}. [{proj['source']}] {proj['name']} — {proj.get('description','')}"
@@ -1392,23 +1392,39 @@ def generate_technical_plan(
     user_idea: str,
     gaps: List[Dict],
     similar_projects: List[Dict],
-    max_chars: int = 4000
+    novelty_analysis: str = "",
+    max_chars: int = 4000,
+    similarity_threshold: float = 0.35
 ) -> Dict:
     """
     Synthesize a technical project plan from the user's idea, detected
     research gaps, and similar existing projects/repos.
     """
+    
     gaps_text = "\n".join(
         f"- {g.get('gap_description', '')} (opportunité : {g.get('opportunity', '')})"
         for g in gaps[:8]  # cap to avoid bloating the prompt
     )
-    similar_text = "\n".join(
-        f"- [{p.get('source', '')}] {p.get('name', '')}: {(p.get('description') or '')[:150]}"
-        for p in similar_projects[:8]
-    )
+    #similar_text = "\n".join(
+    #    f"- [{p.get('source', '')}] {p.get('name', '')}: {(p.get('description') or '')[:150]}"
+     #   for p in similar_projects[:8] )
+    relevant_similar = [(s, p) for s, p in similar_projects if s >= similarity_threshold]
 
+    if relevant_similar:
+        similar_text = "\n".join(
+            f"- [{p.get('source','')}] {p.get('name','')} (similarity: {s:.0%})\n"
+            f"  About: {(p.get('description') or 'N/A')}\n"
+            f"  README excerpt: {(p.get('readme') or '')[:300]}"
+            for s, p in relevant_similar[:8]
+        )
+    else:
+        similar_text = "No sufficiently similar existing projects were found for this idea."
+
+    novelty_text = novelty_analysis or "No novelty analysis available."
     schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
 {
+  "novelty_assessment": "...",
+  "differentiation_strategy": "...",
   "recommended_stack": {
     "core_technologies": ["..."],
     "justification": "..."
@@ -1424,6 +1440,16 @@ def generate_technical_plan(
 }
 
 IMPORTANT:
+- "novelty_assessment" must restate, in one sentence, how overlapping or novel this idea is,
+  based on the novelty analysis provided below.
+- "differentiation_strategy" must explain how this plan differentiates the project from existing
+  work. If overlap with existing projects is high, this field MUST explicitly steer the project
+  toward the identified research gaps as the primary source of novelty — do not propose a plan
+  that simply re-implements what already exists. If overlap is low, state that the idea already
+  occupies relatively unexplored territory and the plan can proceed on its original direction.
+- The "architecture_overview" and "milestones" must reflect the differentiation_strategy — i.e.
+  if a pivot toward a specific gap is recommended, the milestones should center on that gap, not
+  on replicating the existing similar projects.
 - "core_technologies" and their "justification" MUST reference specific technologies actually
   mentioned in the similar projects provided below (e.g. cite a repo name if its README mentions
   a specific framework), not generic ML defaults.
@@ -1441,9 +1467,16 @@ CRITICAL — grounding rules:
   to a repo that doesn't mention it, even if the technology is real and used elsewhere.
 - If the provided data doesn't mention a specific technique or technology for a given point, do
   not name one — describe the milestone or recommendation in terms of the underlying problem
-  instead, without filling in an unverified solution."""
+  instead, without filling in an unverified solution. 
+  - If no similar projects are relevant (marked "No sufficiently similar existing projects were
+  found"), do NOT invent a stack based on unrelated repos. Instead, recommend a stack based only
+  on what the research papers/gaps imply is needed, and note explicitly that no comparable
+  implementations were found."""
 
     prompt = f"""User's project idea: "{user_idea}"
+
+Novelty analysis (overlap with existing work):
+{novelty_text}
 
 Identified research gaps and opportunities:
 {gaps_text or "None identified."}
@@ -1451,7 +1484,7 @@ Identified research gaps and opportunities:
 Similar existing projects found:
 {similar_text or "None found."}
 
-Based on this idea, the identified gaps, and the existing similar work, generate a technical project plan.
+Based on this idea, its novelty relative to existing work, the identified gaps, and existing similar projects, generate a technical project plan that steers toward genuine novelty.
 
 {schema_instructions}
 """

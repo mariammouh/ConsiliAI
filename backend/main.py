@@ -257,12 +257,15 @@ async def technical_plan_endpoint(idea: str = Form(...), max_papers: int = Form(
 
     similar = search_similar_projects(idea, max_results=15)
     scored_similar = compute_similarity_scores(idea, similar)
-    top_similar = [proj for _, proj in scored_similar[:8]]
+    #top_similar = [proj for p, proj in scored_similar[:8]]
+    top_similar=scored_similar[:8]
+    novelty = analyze_novelty(idea, top_similar)  
 
-    plan = generate_technical_plan(idea, gaps_result.get("gaps", []), top_similar)
+    plan = generate_technical_plan(idea, gaps_result.get("gaps", []), top_similar, novelty_analysis=novelty)
 
     return {
         "plan": plan,
+        "novelty_analysis": novelty,
         "gaps_used": gaps_result.get("gaps", []),
-        "similar_projects_used": [p["name"] for p in top_similar]
+        "similar_projects_used": [proj["name"] for score, proj in top_similar]
     }
