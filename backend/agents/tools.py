@@ -198,7 +198,7 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[Dict]:
         return fresh_papers
     
 
-def filter_papers_hybrid(papers: List[Dict], user_idea: str, embed_top_k: int = 10, llm_top_n: int = 10) -> List[Dict]:
+def filter_papers_hybrid(papers: List[Dict], user_idea: str, embed_top_k: int = 10, llm_top_n: int = 10, return_scores=False) -> List[Dict]:
     if not papers:
         return []
 
@@ -233,7 +233,11 @@ Papers:
     indices = [int(n) - 1 for n in numbers if 1 <= int(n) <= len(pre_filtered)]
     if not indices:
         indices = list(range(min(llm_top_n, len(pre_filtered))))
-    return [pre_filtered[i] for i in indices[:llm_top_n]]
+    selected = [pre_filtered[i] for i in indices[:llm_top_n]]
+    if return_scores:
+        score_map = {id(p): s for s, p in scored}
+        return [(score_map.get(id(p), 0.0), p) for p in selected]
+    return selected
 
 def search_openalex(query: str, max_results: int = 5) -> List[Dict]:
     base_url = "https://api.openalex.org/works"
@@ -1492,3 +1496,248 @@ Based on this idea, its novelty relative to existing work, the identified gaps, 
     content = _groq_invoke_safe(prompt)
     parsed = _safe_json_parse(content)
     return parsed if parsed else {"_error": "LLM output could not be parsed"}
+# ---------- TEACHING PLAN AGENT ----------
+
+def _extract_teaching_relevant_text(paper_title: str, analysis: Dict) -> str:
+    """
+    Pull the fields most useful for building a course: what the paper teaches
+    (contributions, methodology, key results) rather than what's missing
+    (that's what _extract_gap_relevant_text is for).
+    """
+    parts = [f"Paper: {paper_title}"]
+
+    intro = analysis.get("introduction", {})
+    if intro.get("contributions"):
+        parts.append(f"Contributions: {intro['contributions']}")
+    if intro.get("problem_statement"):
+        parts.append(f"Problem addressed: {intro['problem_statement']}")
+
+    methodology = analysis.get("methodology", {})
+    if methodology.get("algorithms"):
+        parts.append(f"Algorithms/methods: {methodology['algorithms']}")
+    if methodology.get("implementation_notes"):
+        parts.append(f"Implementation notes: {methodology['implementation_notes']}")
+
+    results = analysis.get("results", {})
+    if results.get("metrics"):
+        parts.append(f"Evaluation metrics used: {results['metrics']}")
+    if results.get("key_improvements"):
+        parts.append(f"Key results: {results['key_improvements']}")
+
+    abstract = analysis.get("abstract", {})
+    if abstract.get("summary"):
+        parts.append(f"Summary: {abstract['summary']}")
+
+    return "\n".join(parts)
+
+
+def generate_teaching_plan(
+    user_idea: str,
+    gaps: List[Dict],
+    papers_with_analysis: List[Dict],
+    max_chars: int = 4000
+) -> Dict:
+    """
+    Synthesize a teaching plan (course structure) from the user's idea,
+    the papers analyzed, and the research gaps identified. Gaps become
+    explicit "frontier topics" so the course teaches both established
+    knowledge and open research questions.
+    """
+    if not papers_with_analysis:
+        return {"_error": "No analyzed papers provided for teaching plan generation."}
+
+    per_paper_summaries = [
+        _extract_teaching_relevant_text(p["title"], p["analysis"])
+        for p in papers_with_analysis
+    ]
+    papers_text = "\n\n---\n\n".join(per_paper_summaries)
+    papers_text = papers_text[:max_chars]  # cap, same safety margin as other agents
+
+    gaps_text = "\n".join(
+        f"- {g.get('gap_description', '')} (opportunité : {g.get('opportunity', '')})"
+        for g in gaps[:8]
+    )
+
+    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+{
+  "course_title": "...",
+  "target_audience": "...",
+  "learning_objectives": ["..."],
+  "prerequisites": ["..."],
+  "modules": [
+    {
+      "title": "...",
+      "problem_addressed": "...",
+      "solution_approach": "...",
+      "description": "...",
+      "topics": ["..."],
+      "based_on_papers": ["paper title 1"],
+      "difficulty": "beginner|intermediate|advanced"
+    }
+  ],
+  "frontier_topics": [
+    {
+      "topic": "...",
+      "addresses_gap": "...",
+      "rationale": "..."
+    }
+  ],
+  "suggested_duration": "..."
+}
+
+IMPORTANT:
+- the beginner module should describe the problem in accessible terms, saving specific architectural approaches for intermediate/advanced modules.
+- "problem_addressed" should state, in one or two sentences, the specific problem or question
+  the module's source paper(s) were trying to solve.
+- "solution_approach" should briefly state the method or approach the paper(s) used to address it.
+  This is a summary for planning purposes only — the full pedagogical explanation is generated
+  separately, so keep this concise.
+- Each module's "based_on_papers" MUST reference papers actually provided below. Do not invent
+  a module topic that isn't grounded in the analyzed papers' contributions, methodology, or results.
+- "frontier_topics" MUST be derived from the research gaps provided below — this section should
+  teach students what remains unsolved, not just established knowledge. Each frontier topic must
+  name which specific gap it addresses.
+- Order modules from foundational to advanced. Foundational modules should cover established
+  methods/contributions from the papers; frontier_topics come last, as the "beyond the state of
+  the art" section of the course.
+- Do not produce a generic course outline — this must be clearly built from the specific papers
+  and gaps provided, not a template course on the general topic.
+
+
+CRITICAL — grounding rules:
+- Base every module and topic ONLY on the exact text provided below (paper contributions,
+  methodology, results, gap descriptions). Do not supplement with general knowledge about the
+  field, even if it seems like a reasonable or common topic to include.
+- Only cite a paper as the basis for a module if the module's content is genuinely traceable to
+  that paper's provided text. Do not attribute a topic to a paper that doesn't cover it.
+- If the provided data doesn't cover a foundational concept you'd normally expect in such a course,
+  do not invent content to fill the gap — keep the module list limited to what the source material
+  actually supports, and note in "target_audience" or a module description if foundational prior
+  knowledge is assumed rather than taught.
+  - If the provided papers are not genuinely relevant to the user's idea (e.g. from a completely
+  different field), do NOT construct a forced conceptual bridge between them and the idea. Instead,
+  state clearly that no relevant literature was found and avoid generating gaps or content based
+  on tangential or unrelated papers."""
+
+    prompt = f"""User's project/learning idea: "{user_idea}"
+
+Analyzed papers (source material for course content):
+{papers_text}
+
+Identified research gaps (source material for frontier topics):
+{gaps_text or "None identified."}
+
+Based on this idea and the analyzed papers and gaps, generate a teaching plan that builds a
+course from established knowledge (in the papers) toward open research questions (the gaps).
+
+{schema_instructions}
+"""
+
+    content = _groq_invoke_safe(prompt)
+    parsed = _safe_json_parse(content)
+    return parsed if parsed else {"_error": "LLM output could not be parsed"}
+# ---------- QUERY BROADENING AGENT (for niche/underserved ideas) ----------
+
+def broaden_idea(user_idea: str) -> Dict:
+    """
+    When direct search returns no sufficiently relevant results, decompose
+    the idea into underlying concepts and suggest adjacent/analogous fields
+    that share methodology, even if not the same subject domain.
+    """
+    prompt = f"""A user wants to research or build a project on: "{user_idea}"
+
+A direct literature search for this exact topic returned no sufficiently relevant results —
+it may be too niche, novel, or interdisciplinary for current sources.
+
+Break this idea down and suggest a path forward:
+1. What are the core underlying concepts or methodologies involved (independent of the specific
+   application domain)?
+2. What adjacent fields or established research areas use similar methodologies, even if applied
+   to a different subject? (e.g. if the idea involves classifying rare time-series patterns, fields
+   like signal processing, anomaly detection, or gesture recognition might share relevant methods)
+3. Suggest 2-4 alternative search queries that could surface genuinely useful literature, even if
+   not an exact topical match.
+
+Return ONLY valid JSON, no markdown fences:
+{{
+  "core_concepts": ["..."],
+  "adjacent_fields": ["..."],
+  "suggested_queries": ["..."],
+  "honest_assessment": "..."
+}}
+"honest_assessment" should state plainly whether this idea appears to be a genuinely novel/niche
+combination, or just an unusual phrasing of a more common topic.
+ensure suggested_queries collectively cover all core_concepts identified, not just the most search-friendly one"""
+
+    content = _groq_invoke_safe(prompt)
+    parsed = _safe_json_parse(content)
+    return parsed if parsed else {"_error": "Could not broaden idea"}
+def search_with_broadening(idea: str, max_results: int = 15, relevance_threshold: float = 0.30):
+    """
+    Try direct search first. If nothing clears the relevance threshold,
+    broaden the query and search adjacent fields, but TAG results so
+    downstream agents know they're analogical, not direct matches.
+    """
+    raw_papers = search_papers(idea, max_results=max_results)
+    scored_papers = filter_papers_hybrid(raw_papers, idea, embed_top_k=8, llm_top_n=5, return_scores=True)
+    direct_relevant = [(s, p) for s, p in scored_papers if s >= relevance_threshold]
+
+    if direct_relevant:
+        for _, p in direct_relevant:
+            p["match_type"] = "direct"
+        return [p for _, p in direct_relevant], None  # (papers, broadening_info)
+
+    # Nothing directly relevant — broaden
+    broadening = broaden_idea(idea)
+    analogous_papers = []
+    for query in broadening.get("suggested_queries", [])[:3]:
+        raw = search_papers(query, max_results=8)
+        scored = filter_papers_hybrid(raw, query, embed_top_k=5, llm_top_n=2, return_scores=True)
+        for score, p in scored:
+            if score >= relevance_threshold:
+                p["match_type"] = "analogous"
+                p["matched_via_query"] = query
+                analogous_papers.append(p)
+
+    return analogous_papers, broadening
+def _format_papers_with_match_type(papers_with_analysis: List[Dict]) -> str:
+    direct = [p for p in papers_with_analysis if p.get("match_type", "direct") == "direct"]
+    analogous = [p for p in papers_with_analysis if p.get("match_type") == "analogous"]
+
+    parts = []
+    if direct:
+        parts.append("DIRECTLY RELEVANT PAPERS:\n" + "\n\n---\n\n".join(
+            _extract_gap_relevant_text(p["title"], p["analysis"]) for p in direct
+        ))
+    if analogous:
+        parts.append(
+            "ANALOGOUS-FIELD PAPERS (same methodology, different application domain — "
+            "use with caution, do not assume direct applicability):\n" +
+            "\n\n---\n\n".join(
+                f"[from adjacent field, matched via query '{p.get('matched_via_query','')}']\n"
+                + _extract_gap_relevant_text(p["title"], p["analysis"])
+                for p in analogous
+            )
+        )
+    return "\n\n===\n\n".join(parts)
+
+def get_papers_with_analysis(idea: str, max_papers: int = 2) -> List[Dict]:
+    """Shared pipeline: search -> filter -> fetch full text -> split -> analyze."""
+    raw_papers = search_papers(idea, max_results=15)
+    relevant_papers = filter_papers_hybrid(raw_papers, idea, embed_top_k=8, llm_top_n=max_papers)
+
+    papers_with_analysis = []
+    for paper in relevant_papers:
+        full_text = fetch_full_text(paper)
+        if not full_text.strip():
+            papers_with_analysis.append({
+                "title": paper["title"],
+                "analysis": {"abstract": {"summary": paper.get("abstract", "")}}
+            })
+            continue
+        sections = split_paper_sections(full_text)
+        if not sections:
+            continue
+        papers_with_analysis.append({"title": paper["title"], "analysis": analyze_all_sections(sections)})
+
+    return papers_with_analysis

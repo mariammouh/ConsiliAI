@@ -4,7 +4,7 @@ import os, shutil
 import requests
 from dotenv import load_dotenv
 from ingestion.pdf_processor import process_pdf, UPLOAD_DIR
-from agents.tools import retrieve_from_knowledge_base
+from agents.tools import retrieve_from_knowledge_base,broaden_idea,get_papers_with_analysis
 from agents.tools import search_papers, filter_relevant_papers,filter_papers_hybrid, summarize_papers_with_groq
 from agents.tools import search_papers_formatted,fetch_full_text,extract_text_from_pdf_bytes
 load_dotenv()
@@ -205,30 +205,9 @@ async def gaps_endpoint(idea: str = Form(...), max_papers: int = Form(3)):
     """
     Full pipeline: search -> filter -> fetch full text -> split -> analyze -> detect gaps.
     """
-    raw_papers = search_papers(idea, max_results=15)
-    relevant_papers = filter_papers_hybrid(raw_papers, idea, embed_top_k=8, llm_top_n=max_papers)
+    papers_with_analysis = get_papers_with_analysis(idea, max_papers)
+    result = detect_gaps(idea, papers_with_analysis) if papers_with_analysis else {"gaps": []}
 
-    papers_with_analysis = []
-    for paper in relevant_papers:
-        full_text = fetch_full_text(paper)
-        if not full_text.strip():
-            # fall back to abstract-only analysis so the paper still contributes
-            papers_with_analysis.append({
-                "title": paper["title"],
-                "analysis": {"abstract": {"summary": paper.get("abstract", "")}}
-            })
-            continue
-
-        sections = split_paper_sections(full_text)
-        if not sections:
-            continue
-        analysis = analyze_all_sections(sections)
-        papers_with_analysis.append({"title": paper["title"], "analysis": analysis})
-
-    if not papers_with_analysis:
-        return {"error": "No papers could be analyzed for this idea."}
-
-    result = detect_gaps(idea, papers_with_analysis)
     result["papers_used"] = [p["title"] for p in papers_with_analysis]
     return result
 from agents.tools import generate_technical_plan, search_similar_projects, compute_similarity_scores
@@ -236,23 +215,7 @@ from agents.tools import generate_technical_plan, search_similar_projects, compu
 @app.post("/technical_plan")
 async def technical_plan_endpoint(idea: str = Form(...), max_papers: int = Form(2)):
     # Reuse the same paper analysis pipeline as /gaps
-    raw_papers = search_papers(idea, max_results=15)
-    relevant_papers = filter_papers_hybrid(raw_papers, idea, embed_top_k=8, llm_top_n=max_papers)
-
-    papers_with_analysis = []
-    for paper in relevant_papers:
-        full_text = fetch_full_text(paper)
-        if not full_text.strip():
-            papers_with_analysis.append({
-                "title": paper["title"],
-                "analysis": {"abstract": {"summary": paper.get("abstract", "")}}
-            })
-            continue
-        sections = split_paper_sections(full_text)
-        if not sections:
-            continue
-        papers_with_analysis.append({"title": paper["title"], "analysis": analyze_all_sections(sections)})
-
+    papers_with_analysis = get_papers_with_analysis(idea, max_papers)
     gaps_result = detect_gaps(idea, papers_with_analysis) if papers_with_analysis else {"gaps": []}
 
     similar = search_similar_projects(idea, max_results=15)
@@ -268,4 +231,70 @@ async def technical_plan_endpoint(idea: str = Form(...), max_papers: int = Form(
         "novelty_analysis": novelty,
         "gaps_used": gaps_result.get("gaps", []),
         "similar_projects_used": [proj["name"] for score, proj in top_similar]
+    }
+
+from agents.tools import generate_teaching_plan
+
+@app.post("/teaching_plan")
+async def teaching_plan_endpoint(idea: str = Form(...), max_papers: int = Form(2)):
+    # Same pipeline as /gaps and /technical_plan
+    papers_with_analysis = get_papers_with_analysis(idea, max_papers)
+    gaps_result = detect_gaps(idea, papers_with_analysis) if papers_with_analysis else {"gaps": []}
+
+    plan = generate_teaching_plan(idea, gaps_result.get("gaps", []), papers_with_analysis)
+
+    return {
+        "teaching_plan": plan,
+        "gaps_used": gaps_result.get("gaps", []),
+        "papers_used": [p["title"] for p in papers_with_analysis]
+    }
+
+
+@app.post("/check_relevance")
+async def check_relevance_endpoint(idea: str = Form(...), relevance_threshold: float = Form(0.30)):
+    """
+    First step: check if direct literature exists for this idea.
+    If not, return a prompt asking whether to explore adjacent fields,
+    rather than silently proceeding or failing.
+    """
+    raw_papers = search_papers(idea, max_results=15)
+    scored_papers = filter_papers_hybrid(raw_papers, idea, embed_top_k=8, llm_top_n=5, return_scores=True)
+    direct_relevant = [(s, p) for s, p in scored_papers if s >= relevance_threshold]
+
+    if direct_relevant:
+        return {
+            "status": "relevant_found",
+            "papers_found": len(direct_relevant)
+        }
+
+    return {
+        "status": "no_direct_match",
+        "message": "No directly relevant literature was found for this idea.",
+        "suggestion": "Would you like to explore adjacent fields for this idea?"
+    }
+
+
+@app.post("/explore_niche")
+async def explore_niche_endpoint(idea: str = Form(...)):
+    """
+    Second step: only called if the user explicitly confirms they want
+    to explore adjacent fields after /check_relevance returned no_direct_match.
+    """
+    broadening = broaden_idea(idea)
+    analogous_papers = []
+    for query in broadening.get("suggested_queries", [])[:3]:
+        raw = search_papers(query, max_results=8)
+        scored = filter_papers_hybrid(raw, query, embed_top_k=5, llm_top_n=2, return_scores=True)
+        for score, p in scored:
+            if score >= 0.30:
+                p["match_type"] = "analogous"
+                p["matched_via_query"] = query
+                analogous_papers.append(p)
+
+    return {
+        "honest_assessment": broadening.get("honest_assessment", ""),
+        "core_concepts": broadening.get("core_concepts", []),
+        "adjacent_fields": broadening.get("adjacent_fields", []),
+        "papers_found": [{"title": p["title"], "matched_via": p.get("matched_via_query")} for p in analogous_papers],
+        "_papers_for_downstream": analogous_papers  # pass to /gaps or /teaching_plan if user proceeds
     }
