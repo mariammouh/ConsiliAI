@@ -26,7 +26,7 @@ _gemini_llm  = ChatGoogleGenerativeAI(
 )
 _groq_llm = ChatOpenAI(
     base_url="https://api.groq.com/openai/v1",
-    api_key=os.getenv("GROQ_API_KEY2"),
+    api_key=os.getenv("GROQ_API_KEY"),
     model="llama-3.3-70b-versatile",   # <-- updated model
     temperature=0.2
 )
@@ -1124,7 +1124,7 @@ class TokenBudget:
         self.used += estimated_tokens
 
 _groq_budget = TokenBudget()
-def _groq_invoke_safe(prompt: str, retries: int = 2, wait_seconds: float = 8.0) -> str:
+def _groq_invoke_safe(prompt: str, retries: int = 1, wait_seconds: float = 8.0) -> str:
     """
     Try Groq first (best reasoning). On rate-limit exhaustion, fall back to
     Gemini so the pipeline doesn't crash — not because Gemini is preferred.
@@ -1256,24 +1256,43 @@ def _extract_gap_relevant_text(paper_title: str, analysis: Dict) -> str:
 
     return "\n".join(parts)
 
+# ---------- CHUNKING WITH SOURCE TRACKING ----------
+
+def chunk_text_with_source(text: str, source: str, max_chars: int = 3000) -> List[Dict]:
+    """
+    Chunk a single paper's text, tagging every resulting chunk with its
+    source (paper title) as structured metadata. This must be called
+    PER PAPER, not on a concatenation of multiple papers, so a chunk
+    boundary never crosses between two different papers' content.
+    """
+    raw_chunks = chunk_text(text, max_chars=max_chars)  # existing paragraph-aware splitter
+    return [{"source": source, "text": chunk} for chunk in raw_chunks]
+
+
+# ---------- GAP DETECTION AGENT (fixed) ----------
 
 def detect_gaps(user_idea: str, papers_with_analysis: List[Dict], max_chars: int = 3000) -> Dict:
     """
     papers_with_analysis: list of {"title": str, "analysis": Dict}
-    (the output of analyze_all_sections per paper, paired with its title)
 
-    Returns a structured list of research gaps synthesized across all papers.
+    Fix applied: each paper is chunked INDIVIDUALLY (not concatenated then
+    chunked), and every chunk carries its source paper title as structured
+    metadata rather than relying on it being written into the chunk text.
+    This prevents chunks from losing their paper attribution when a long
+    paper's content spans multiple chunks.
     """
     if not papers_with_analysis:
         return {"gaps": [], "_error": "No papers provided for gap analysis."}
 
-    per_paper_summaries = [
-        _extract_gap_relevant_text(p["title"], p["analysis"])
-        for p in papers_with_analysis
-    ]
-    combined_text = "\n\n---\n\n".join(per_paper_summaries)
+    all_chunks = []  # list of {"source": title, "text": chunk}
+    for p in papers_with_analysis:
+        paper_text = _extract_gap_relevant_text(p["title"], p["analysis"])
+        all_chunks.extend(
+            chunk_text_with_source(paper_text, source=p["title"], max_chars=max_chars)
+        )
 
-    chunks = chunk_text(combined_text, max_chars=max_chars)
+    if not all_chunks:
+        return {"gaps": [], "_error": "No content available to analyze."}
 
     schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
 {
@@ -1281,68 +1300,84 @@ def detect_gaps(user_idea: str, papers_with_analysis: List[Dict], max_chars: int
     {
       "gap_description": "...",
       "supporting_evidence": "...",
-      "papers_involved": ["paper title 1", "paper title 2"],
       "opportunity": "..."
     }
   ]
 }
-Each gap should describe something unsolved, under-explored, or contradictory across the papers.
+Each gap should describe something unsolved, under-explored, or contradictory in this paper.
 "opportunity" should briefly state what a new project/experiment could do to address it.
 
-CRITICAL: The "opportunity" field must stay grounded in what the papers actually discuss or
-imply — do not suggest a specific named technique or technology 
-unless it is explicitly mentioned in the paper text provided. If no specific technique is
-suggested by the source material, describe the opportunity in terms of the problem to solve,
-not a named solution."""
+CRITICAL: The "opportunity" field must stay grounded in what the paper actually discusses or
+implies — do not suggest a specific named technique or technology unless it is explicitly
+mentioned in the paper text provided. Do not include a "papers_involved" field — the source
+paper is already known and will be attached automatically."""
 
-    if len(chunks) == 1:
-        prompt = f"""User's project idea: "{user_idea}"
+    def build_prompt(chunk_dict: Dict, part_num: int = None, total: int = None) -> str:
+        part_note = f" (part {part_num} of {total} for this paper)" if part_num else ""
+        return f"""User's project idea: "{user_idea}"
 
-You are analyzing a set of research papers to identify gaps in the current state of the art relevant to this idea.
+You are analyzing text from the paper "{chunk_dict['source']}"{part_note} to identify gaps
+relevant to this idea.
 
 {schema_instructions}
 
-Papers analyzed:
-{chunks[0]}
+Paper text:
+{chunk_dict['text']}
 """
-        content = _groq_invoke_safe(prompt)
-        parsed = _safe_json_parse(content)
-        return parsed if parsed else {"gaps": [], "_error": "LLM output could not be parsed"}
 
-    # Multi-chunk: detect gaps per chunk, then merge and deduplicate with a final pass
-    print(f"Gap detection input split into {len(chunks)} chunks for rate-limit safety.")
+    print(f"Gap detection: {len(all_chunks)} chunk(s) across {len(papers_with_analysis)} paper(s).")
     partial_gaps = []
-    for i, chunk in enumerate(chunks):
-        prompt = f"""User's project idea: "{user_idea}"
-
-You are analyzing part {i+1} of {len(chunks)} of a set of research paper summaries to identify gaps relevant to this idea.
-
-{schema_instructions}
-
-Papers analyzed (part {i+1}/{len(chunks)}):
-{chunk}
-"""
+    for i, chunk_dict in enumerate(all_chunks):
+        prompt = build_prompt(chunk_dict, part_num=i + 1, total=len(all_chunks))
         content = _groq_invoke_safe(prompt)
         parsed = _safe_json_parse(content)
         if parsed and parsed.get("gaps"):
+            for gap in parsed["gaps"]:
+                gap["papers_involved"] = [chunk_dict["source"]]
             partial_gaps.extend(parsed["gaps"])
+        else:
+            print(f"[debug] chunk from '{chunk_dict['source']}' produced NO gaps: {parsed}")
         time.sleep(2)
+
+    # NEW: see exactly what's going into consolidation, per paper
+    print(f"[debug] partial_gaps BEFORE consolidation ({len(partial_gaps)} total):")
+    for g in partial_gaps:
+        print(f"  - {g.get('papers_involved')}: {g.get('gap_description', '')[:80]}")
 
     if not partial_gaps:
         return {"gaps": [], "_error": "No gaps extracted from any chunk."}
 
-    # Final consolidation pass: dedupe/merge overlapping gaps found across chunks
     return _consolidate_gaps(user_idea, partial_gaps)
 
 
 def _consolidate_gaps(user_idea: str, raw_gaps: List[Dict]) -> Dict:
     """
-    Merge/deduplicate gaps found across multiple chunks into a clean final list.
+    Merge/deduplicate gaps across papers. Two safeguards, protecting two
+    different failure points:
+    1. Strip any paper name the LLM invents during merging that wasn't in
+       the actual source data (protects against hallucinated attribution
+       introduced DURING consolidation, e.g. "MERMAID" as a fake paper title).
+    2. Guarantee no real source paper is silently dropped from the final
+       output (protects against the LLM over-merging and losing a paper's
+       distinct contribution entirely).
     """
-    gaps_text = json.dumps(raw_gaps, indent=2)[:6000]  # cap in case of many gaps
+    all_input_papers = set()
+    for g in raw_gaps:
+        all_input_papers.update(g.get("papers_involved", []))
+
+    gaps_text = json.dumps(raw_gaps, indent=2)[:6000]
     prompt = f"""User's project idea: "{user_idea}"
 
-Below is a raw list of research gaps extracted from different parts of a literature batch. Some may be duplicates or near-duplicates. Consolidate them into a clean, deduplicated final list, merging similar gaps and keeping the most specific/useful description.
+Below is a raw list of research gaps extracted from different papers. Some may be duplicates or
+near-duplicates. Consolidate them into a clean, deduplicated final list, merging similar gaps
+and keeping the most specific/useful description.
+
+CRITICAL: The "papers_involved" field for each raw gap is already correct and verified. When
+merging two or more gaps into one, COMBINE their "papers_involved" lists (union, no duplicates).
+Do NOT invent, guess, or drop any paper titles. EVERY paper that appears in the raw gaps below
+MUST appear in at least one gap in your final output — do not omit a paper's contribution
+entirely just because it seems less significant than others; merge it into a related gap or
+keep it as its own entry instead.
 
 Return ONLY valid JSON in this format:
 {{"gaps": [{{"gap_description": "...", "supporting_evidence": "...", "papers_involved": [...], "opportunity": "..."}}]}}
@@ -1352,7 +1387,69 @@ Raw gaps:
 """
     content = _groq_invoke_safe(prompt)
     parsed = _safe_json_parse(content)
-    return parsed if parsed else {"gaps": raw_gaps, "_note": "Consolidation failed, returning raw merged list."}
+
+    if not parsed or "gaps" not in parsed:
+        return {"gaps": raw_gaps, "_note": "Consolidation failed, returning raw merged list."}
+
+    consolidated = parsed["gaps"]
+
+    # Safeguard 1: strip invented paper names, tracking coverage AS we clean
+    covered_papers = set()
+    for g in consolidated:
+        original = g.get("papers_involved", [])
+        cleaned = [p for p in original if p in all_input_papers]
+        if len(cleaned) != len(original):
+            invented = set(original) - set(cleaned)
+            print(f"[warning] Consolidation invented paper name(s) not in source data, removing: {invented}")
+        g["papers_involved"] = cleaned
+        covered_papers.update(cleaned)  # <-- the missing line, now populated correctly
+
+    # Safeguard 2: verify no real paper vanished entirely, repair if so
+    missing_papers = all_input_papers - covered_papers
+    if missing_papers:
+        print(f"[warning] Consolidation appears to have dropped papers: {missing_papers}")
+        verification = _verify_dropped_papers(user_idea, missing_papers, raw_gaps, consolidated)
+        for paper, verdict in verification.items():
+            if verdict.get("genuinely_missing"):
+                print(f"[repair] '{paper}' was genuinely dropped, re-adding: {verdict['gap_to_add']['gap_description'][:60]}")
+                consolidated.append(verdict["gap_to_add"])
+            else:
+                print(f"[ok] '{paper}' content is legitimately covered by existing gap: {verdict.get('covered_by','')[:60]}")
+
+    return {"gaps": consolidated}
+
+
+def _verify_dropped_papers(user_idea, missing_papers, raw_gaps, consolidated) -> Dict:
+    """
+    For each paper that disappeared during consolidation, ask the LLM to
+    judge whether its content is genuinely already represented in the
+    consolidated list, or whether it was wrongly dropped.
+    """
+    results = {}
+    for paper in missing_papers:
+        paper_raw_gaps = [g for g in raw_gaps if paper in g.get("papers_involved", [])]
+        prompt = f"""User's project idea: "{user_idea}"
+
+A paper titled "{paper}" contributed these raw gaps during initial analysis:
+{json.dumps(paper_raw_gaps, indent=2)}
+
+The final consolidated gap list (after merging near-duplicates across all papers) is:
+{json.dumps(consolidated, indent=2)[:3000]}
+
+This paper's contribution does not appear explicitly in the final list. Determine:
+1. Is this paper's content genuinely already covered by an existing gap in the consolidated list
+   (even if the paper isn't explicitly named)? If so, which gap?
+2. Or was this paper's distinct contribution wrongly dropped and should be added back?
+
+Return ONLY valid JSON:
+{{"genuinely_missing": true/false, "covered_by": "gap_description if covered, else empty", "gap_to_add": {{...one of the raw gaps to re-add if genuinely missing, else null}}}}
+"""
+        content = _groq_invoke_safe(prompt)
+        parsed = _safe_json_parse(content)
+        results[paper] = parsed if parsed else {"genuinely_missing": True, "gap_to_add": paper_raw_gaps[0]}
+    return results
+
+
 
 import hashlib
 # ingestion/chroma_client.py (add alongside your existing collections)
