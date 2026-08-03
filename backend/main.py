@@ -4,13 +4,21 @@ import os, shutil
 import requests
 from dotenv import load_dotenv
 from ingestion.pdf_processor import process_pdf, UPLOAD_DIR
-from agents.tools import retrieve_from_knowledge_base,broaden_idea,get_papers_with_analysis
+from agents.tools import _hash_text, retrieve_from_knowledge_base,broaden_idea,get_papers_with_analysis
 from agents.tools import search_papers, filter_relevant_papers,filter_papers_hybrid, summarize_papers_with_groq
 from agents.tools import search_papers_formatted,fetch_full_text,extract_text_from_pdf_bytes
 load_dotenv()
 
 app = FastAPI()
+import tempfile
+import os
 
+def get_pptx_output_path(idea: str) -> str:
+    """Cross-platform temp path for generated course pptx files."""
+    output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
+    os.makedirs(output_dir, exist_ok=True)
+    filename = f"course_{_hash_text(idea)[:8]}.pptx"
+    return os.path.join(output_dir, filename)
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
     file_path = os.path.join(UPLOAD_DIR, file.filename)
@@ -298,3 +306,35 @@ async def explore_niche_endpoint(idea: str = Form(...)):
         "papers_found": [{"title": p["title"], "matched_via": p.get("matched_via_query")} for p in analogous_papers],
         "_papers_for_downstream": analogous_papers  # pass to /gaps or /teaching_plan if user proceeds
     }
+
+
+from agents.tools import generate_course, export_course_to_pptx, generate_teaching_plan
+
+@app.post("/generate_course")
+async def generate_course_endpoint(idea: str = Form(...), max_papers: int = Form(3)):
+    papers_with_analysis = get_papers_with_analysis(idea, max_papers)
+    if not papers_with_analysis:
+        return {"error": "No papers could be analyzed for this idea."}
+
+    gaps_result = detect_gaps(idea, papers_with_analysis)
+    teaching_plan = generate_teaching_plan(idea, gaps_result.get("gaps", []), papers_with_analysis)
+    course = generate_course(teaching_plan, papers_with_analysis)
+
+    pptx_path = get_pptx_output_path(idea)
+    export_course_to_pptx(course, pptx_path)
+
+    return {
+        "course": course,
+        "download_url": f"/download_course/{_hash_text(idea)[:8]}"
+    }
+
+from fastapi.responses import FileResponse
+
+@app.get("/download_course/{idea_hash}")
+async def download_course(idea_hash: str):
+    output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
+    filepath = os.path.join(output_dir, f"course_{idea_hash}.pptx")
+    if not os.path.exists(filepath):
+        return {"error": "File not found."}
+    return FileResponse(filepath, filename=f"course_{idea_hash}.pptx",
+                         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation")

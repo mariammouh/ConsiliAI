@@ -1838,3 +1838,229 @@ def get_papers_with_analysis(idea: str, max_papers: int = 2) -> List[Dict]:
         papers_with_analysis.append({"title": paper["title"], "analysis": analyze_all_sections(sections)})
 
     return papers_with_analysis
+
+
+
+# ---------- COURSE GENERATOR ----------
+
+def _get_paper_analysis_by_title(papers_with_analysis: List[Dict], titles: List[str]) -> str:
+    """
+    Given a list of paper titles referenced by a module (based_on_papers),
+    pull their full analysis text back out for grounding the lesson content.
+    """
+    by_title = {p["title"]: p["analysis"] for p in papers_with_analysis}
+    parts = []
+    for title in titles:
+        analysis = by_title.get(title)
+        if analysis:
+            parts.append(_extract_teaching_relevant_text(title, analysis))
+    return "\n\n---\n\n".join(parts)
+def generate_module_content(
+    module: Dict,
+    papers_with_analysis: List[Dict],
+    already_covered: List[str] = None,   # NEW parameter
+    max_chars: int = 4000
+) -> Dict:
+    """
+    Expand one teaching-plan module into actual lesson content:
+    explanation, key concepts, a worked example/illustration, and a
+    check-for-understanding — grounded in the same papers the module
+    is based on.
+    """
+    already_covered = already_covered or []
+
+    source_text = _get_paper_analysis_by_title(papers_with_analysis, module.get("based_on_papers", []))
+    source_text = source_text[:max_chars]
+
+    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+{
+  "overview": "...",
+  "key_concepts": ["..."],
+  "explanation": "...",
+  "worked_example": "...",
+  "check_understanding": ["..."],
+  "summary": "..."
+}
+
+IMPORTANT:
+- "overview" is a 1-2 sentence intro to the module's topic, written for the target audience.
+- "explanation" should teach the actual content — the problem, the approach, and why it works —
+  in clear prose, based on the module's problem_addressed/solution_approach and the paper content
+  provided below. Aim for 150-250 words.
+- "worked_example" should walk through a concrete illustration of the method/finding, grounded in
+  the source papers. If the source material doesn't support a full worked example, describe the
+  paper's actual experimental setup or a real reported result instead of inventing one.
+- "check_understanding" is a list of 2-3 short questions or exercises a student could use to test
+  their grasp of the module.
+
+CRITICAL — grounding rules:
+- Base all content ONLY on the paper text provided below. Do not supplement with general domain
+  knowledge or textbook explanations not grounded in the source material.
+- Do not invent specific numbers, results, or technical details not present in the source text."""
+
+    already_covered_note = (
+    "\n\nIMPORTANT — avoiding redundancy: the following modules have ALREADY been taught in this "
+    "course, with these summaries:\n" +
+    "\n".join(f"- {s}" for s in already_covered) +
+    "\n\nIf this module's content overlaps with any of the above (e.g. the same model architecture "
+    "or technique), do NOT re-explain it in detail again. Instead, write ONE brief sentence like "
+    "'As covered in [module title], ...' and then focus this module's explanation on what is NEW "
+    "or ADDS DEPTH beyond what was already taught."
+    if already_covered else ""
+)
+
+    prompt = f"""You are creating lesson content for a course module titled "{module.get('title', '')}".
+
+Problem addressed: {module.get('problem_addressed', '')}
+Solution approach: {module.get('solution_approach', '')}
+Target difficulty: {module.get('difficulty', 'intermediate')}
+Topics to cover: {', '.join(module.get('topics', []))}
+{already_covered_note}
+
+Source material from the paper(s) this module is based on:
+{source_text or 'No detailed source text available — use the problem/solution summary above only.'}
+
+{schema_instructions}
+"""
+
+    content = _groq_invoke_safe(prompt)
+    parsed = _safe_json_parse(content)
+    return parsed if parsed else {"_error": "LLM output could not be parsed"}
+
+
+def generate_course(teaching_plan: Dict, papers_with_analysis: List[Dict]) -> Dict:
+    modules_content = []
+    covered_summaries = []  # CHANGED: store actual explanation gist, not just labels
+
+    for module in teaching_plan.get("modules", []):
+        lesson = generate_module_content(
+            module, papers_with_analysis, already_covered=covered_summaries
+        )
+        modules_content.append({
+            "title": module.get("title", ""),
+            "difficulty": module.get("difficulty", ""),
+            "problem_addressed": module.get("problem_addressed", ""),
+            "solution_approach": module.get("solution_approach", ""),
+            "based_on_papers": module.get("based_on_papers", []),
+            "lesson": lesson
+        })
+        # Store a short summary of what was actually explained, not just topic labels
+        if lesson.get("summary"):
+            covered_summaries.append(f"{module.get('title', '')}: {lesson['summary']}")
+        time.sleep(2)
+    # Frontier topics get lighter treatment — framed as open questions, not full lessons
+    frontier_content = []
+    for ft in teaching_plan.get("frontier_topics", []):
+        frontier_content.append({
+            "topic": ft.get("topic", ""),
+            "addresses_gap": ft.get("addresses_gap", ""),
+            "rationale": ft.get("rationale", "")
+        })
+
+    return {
+        "course_title": teaching_plan.get("course_title", ""),
+        "target_audience": teaching_plan.get("target_audience", ""),
+        "learning_objectives": teaching_plan.get("learning_objectives", []),
+        "lessons": modules_content,
+        "frontier_topics": frontier_content,
+        "suggested_duration": teaching_plan.get("suggested_duration", "")
+    }
+
+# ---------- PPTX EXPORT (deterministic, code-only) ----------
+
+from pptx import Presentation
+from pptx.util import Inches, Pt
+
+
+def export_course_to_pptx(course: Dict, output_path: str) -> str:
+    """
+    Convert a generated course structure into a .pptx file. Purely
+    code-driven — no LLM calls here, so slide structure is always
+    reliable regardless of model output variance.
+    """
+    prs = Presentation()
+
+    # Title slide
+    title_slide_layout = prs.slide_layouts[0]
+    slide = prs.slides.add_slide(title_slide_layout)
+    slide.shapes.title.text = course.get("course_title", "Course")
+    if len(slide.placeholders) > 1:
+        slide.placeholders[1].text = course.get("target_audience", "")
+
+    # Agenda slide
+    bullet_layout = prs.slide_layouts[1]
+    slide = prs.slides.add_slide(bullet_layout)
+    slide.shapes.title.text = "Learning Objectives"
+    body = slide.placeholders[1].text_frame
+    for i, obj in enumerate(course.get("learning_objectives", [])):
+        p = body.paragraphs[0] if i == 0 else body.add_paragraph()
+        p.text = obj
+        p.font.size = Pt(18)
+
+    # Lesson slides
+    for lesson_entry in course.get("lessons", []):
+        lesson = lesson_entry.get("lesson", {})
+
+        # Lesson intro slide — now includes problem/solution framing
+        slide = prs.slides.add_slide(bullet_layout)
+        slide.shapes.title.text = f"{lesson_entry['title']} ({lesson_entry.get('difficulty','')})"
+        body = slide.placeholders[1].text_frame
+        body.text = lesson.get("overview", "")
+        if lesson_entry.get("problem_addressed"):
+            p = body.add_paragraph()
+            p.text = f"Problem: {lesson_entry['problem_addressed']}"
+            p.font.size = Pt(14)
+            p.font.italic = True
+        if lesson_entry.get("solution_approach"):
+            p = body.add_paragraph()
+            p.text = f"Approach: {lesson_entry['solution_approach']}"
+            p.font.size = Pt(14)
+            p.font.italic = True
+        for concept in lesson.get("key_concepts", []):
+            p = body.add_paragraph()
+            p.text = f"• {concept}"
+            p.font.size = Pt(16)
+
+        # Explanation slide
+        slide = prs.slides.add_slide(bullet_layout)
+        slide.shapes.title.text = "Explanation"
+        slide.placeholders[1].text_frame.text = lesson.get("explanation", "")
+
+        # Worked example slide
+        if lesson.get("worked_example"):
+            slide = prs.slides.add_slide(bullet_layout)
+            slide.shapes.title.text = "Worked Example"
+            slide.placeholders[1].text_frame.text = lesson["worked_example"]
+
+        # Check understanding slide
+        if lesson.get("check_understanding"):
+            slide = prs.slides.add_slide(bullet_layout)
+            slide.shapes.title.text = "Check Your Understanding"
+            body = slide.placeholders[1].text_frame
+            for i, q in enumerate(lesson["check_understanding"]):
+                p = body.paragraphs[0] if i == 0 else body.add_paragraph()
+                p.text = f"{i+1}. {q}"
+                p.font.size = Pt(16)
+
+        # Source attribution slide — traceability back to the papers
+        if lesson_entry.get("based_on_papers"):
+            slide = prs.slides.add_slide(bullet_layout)
+            slide.shapes.title.text = "Based On"
+            body = slide.placeholders[1].text_frame
+            for i, paper in enumerate(lesson_entry["based_on_papers"]):
+                p = body.paragraphs[0] if i == 0 else body.add_paragraph()
+                p.text = paper
+                p.font.size = Pt(14)
+
+    # Frontier topics slide
+    if course.get("frontier_topics"):
+        slide = prs.slides.add_slide(bullet_layout)
+        slide.shapes.title.text = "Open Research Questions"
+        body = slide.placeholders[1].text_frame
+        for i, ft in enumerate(course["frontier_topics"]):
+            p = body.paragraphs[0] if i == 0 else body.add_paragraph()
+            p.text = f"{ft['topic']}: {ft['rationale']}"
+            p.font.size = Pt(14)
+
+    prs.save(output_path)
+    return output_path
