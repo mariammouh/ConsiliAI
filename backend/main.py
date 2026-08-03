@@ -308,10 +308,10 @@ async def explore_niche_endpoint(idea: str = Form(...)):
     }
 
 
-from agents.tools import generate_course, export_course_to_pptx, generate_teaching_plan
+from agents.tools import generate_course, export_course_to_pptx_per_lesson,export_course_to_pptx, generate_teaching_plan
 
 @app.post("/generate_course")
-async def generate_course_endpoint(idea: str = Form(...), max_papers: int = Form(3)):
+async def generate_course_endpoint(idea: str = Form(...), max_papers: int = Form(3), split_by_lesson: bool = Form(False)):
     papers_with_analysis = get_papers_with_analysis(idea, max_papers)
     if not papers_with_analysis:
         return {"error": "No papers could be analyzed for this idea."}
@@ -320,21 +320,22 @@ async def generate_course_endpoint(idea: str = Form(...), max_papers: int = Form
     teaching_plan = generate_teaching_plan(idea, gaps_result.get("gaps", []), papers_with_analysis)
     course = generate_course(teaching_plan, papers_with_analysis)
 
-    pptx_path = get_pptx_output_path(idea)
-    export_course_to_pptx(course, pptx_path)
-
-    return {
-        "course": course,
-        "download_url": f"/download_course/{_hash_text(idea)[:8]}"
-    }
+    single_path = get_pptx_output_path(idea)
+    output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
+    if split_by_lesson:
+        paths = export_course_to_pptx_per_lesson(course, output_dir)
+        return {"course": course, "lesson_files": paths}
+    else:
+        path = export_course_to_pptx(course, single_path)
+        return {"course": course, "download_url": path}
 
 from fastapi.responses import FileResponse
 
 @app.get("/download_course/{idea_hash}")
 async def download_course(idea_hash: str):
     output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
-    filepath = os.path.join(output_dir, f"course_{idea_hash}.pptx")
+    filepath = os.path.join(output_dir, f"{idea_hash}.pptx")
     if not os.path.exists(filepath):
         return {"error": "File not found."}
-    return FileResponse(filepath, filename=f"course_{idea_hash}.pptx",
+    return FileResponse(filepath, filename=f"{idea_hash}.pptx",
                          media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation")

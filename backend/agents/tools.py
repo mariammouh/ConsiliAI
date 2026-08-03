@@ -1927,67 +1927,77 @@ Source material from the paper(s) this module is based on:
     parsed = _safe_json_parse(content)
     return parsed if parsed else {"_error": "LLM output could not be parsed"}
 
-
-def generate_course(teaching_plan: Dict, papers_with_analysis: List[Dict]) -> Dict:
-    modules_content = []
-    covered_summaries = []  # CHANGED: store actual explanation gist, not just labels
+def generate_course(
+    teaching_plan: Dict,
+    papers_with_analysis: List[Dict],
+    lessons_per_module: int = 1  # v1 default; raise later for multi-lesson modules
+) -> Dict:
+    """
+    Hierarchical course generation:
+    1. Iterate every module in the (already generated) teaching plan.
+    2. For each module, generate `lessons_per_module` lesson(s).
+    3. Each lesson expands the module's objectives into detailed sections,
+       grounded in the module's source papers.
+    4. Cross-lesson repetition is suppressed by threading a running summary
+       of everything already taught into each new lesson's prompt.
+    """
+    modules_output = []
+    covered_summaries = []  # accumulates across the WHOLE course, module after module
 
     for module in teaching_plan.get("modules", []):
-        lesson = generate_module_content(
-            module, papers_with_analysis, already_covered=covered_summaries
-        )
-        modules_content.append({
-            "title": module.get("title", ""),
+        module_lessons = []
+        for i in range(lessons_per_module):
+            lesson = generate_lesson_for_module(
+                module, papers_with_analysis,
+                already_covered=covered_summaries,
+                lesson_index=i + 1,
+                total_lessons=lessons_per_module
+            )
+            module_lessons.append(lesson)
+            if lesson.get("summary"):
+                covered_summaries.append(f"{module.get('title','')} (lesson {i+1}): {lesson['summary']}")
+            time.sleep(2)
+
+        modules_output.append({
+            "module_title": module.get("title", ""),
             "difficulty": module.get("difficulty", ""),
             "problem_addressed": module.get("problem_addressed", ""),
             "solution_approach": module.get("solution_approach", ""),
             "based_on_papers": module.get("based_on_papers", []),
-            "lesson": lesson
+            "lessons": module_lessons
         })
-        # Store a short summary of what was actually explained, not just topic labels
-        if lesson.get("summary"):
-            covered_summaries.append(f"{module.get('title', '')}: {lesson['summary']}")
-        time.sleep(2)
-    # Frontier topics get lighter treatment — framed as open questions, not full lessons
-    frontier_content = []
-    for ft in teaching_plan.get("frontier_topics", []):
-        frontier_content.append({
+
+    frontier_content = [
+        {
             "topic": ft.get("topic", ""),
             "addresses_gap": ft.get("addresses_gap", ""),
             "rationale": ft.get("rationale", "")
-        })
+        }
+        for ft in teaching_plan.get("frontier_topics", [])
+    ]
 
     return {
         "course_title": teaching_plan.get("course_title", ""),
         "target_audience": teaching_plan.get("target_audience", ""),
         "learning_objectives": teaching_plan.get("learning_objectives", []),
-        "lessons": modules_content,
+        "modules": modules_output,   # each module now contains its own list of lessons
         "frontier_topics": frontier_content,
         "suggested_duration": teaching_plan.get("suggested_duration", "")
     }
-
 # ---------- PPTX EXPORT (deterministic, code-only) ----------
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
 
-
 def export_course_to_pptx(course: Dict, output_path: str) -> str:
-    """
-    Convert a generated course structure into a .pptx file. Purely
-    code-driven — no LLM calls here, so slide structure is always
-    reliable regardless of model output variance.
-    """
     prs = Presentation()
 
-    # Title slide
     title_slide_layout = prs.slide_layouts[0]
     slide = prs.slides.add_slide(title_slide_layout)
     slide.shapes.title.text = course.get("course_title", "Course")
     if len(slide.placeholders) > 1:
         slide.placeholders[1].text = course.get("target_audience", "")
 
-    # Agenda slide
     bullet_layout = prs.slide_layouts[1]
     slide = prs.slides.add_slide(bullet_layout)
     slide.shapes.title.text = "Learning Objectives"
@@ -1997,62 +2007,51 @@ def export_course_to_pptx(course: Dict, output_path: str) -> str:
         p.text = obj
         p.font.size = Pt(18)
 
-    # Lesson slides
-    for lesson_entry in course.get("lessons", []):
-        lesson = lesson_entry.get("lesson", {})
-
-        # Lesson intro slide — now includes problem/solution framing
+    for module in course.get("modules", []):
+        # Module divider slide
         slide = prs.slides.add_slide(bullet_layout)
-        slide.shapes.title.text = f"{lesson_entry['title']} ({lesson_entry.get('difficulty','')})"
+        slide.shapes.title.text = f"{module['module_title']} ({module.get('difficulty','')})"
         body = slide.placeholders[1].text_frame
-        body.text = lesson.get("overview", "")
-        if lesson_entry.get("problem_addressed"):
-            p = body.add_paragraph()
-            p.text = f"Problem: {lesson_entry['problem_addressed']}"
-            p.font.size = Pt(14)
-            p.font.italic = True
-        if lesson_entry.get("solution_approach"):
-            p = body.add_paragraph()
-            p.text = f"Approach: {lesson_entry['solution_approach']}"
-            p.font.size = Pt(14)
-            p.font.italic = True
-        for concept in lesson.get("key_concepts", []):
-            p = body.add_paragraph()
-            p.text = f"• {concept}"
-            p.font.size = Pt(16)
+        body.text = f"Problem: {module.get('problem_addressed','')}"
+        p = body.add_paragraph()
+        p.text = f"Approach: {module.get('solution_approach','')}"
+        p.font.size = Pt(14)
+        p.font.italic = True
 
-        # Explanation slide
-        slide = prs.slides.add_slide(bullet_layout)
-        slide.shapes.title.text = "Explanation"
-        slide.placeholders[1].text_frame.text = lesson.get("explanation", "")
+        for lesson in module.get("lessons", []):
+            # One slide per section within the lesson — this is where the
+            # actual expanded, objective-by-objective content lives
+            for section in lesson.get("sections", []):
+                slide = prs.slides.add_slide(bullet_layout)
+                slide.shapes.title.text = section.get("topic", "")
+                body = slide.placeholders[1].text_frame
+                body.text = section.get("explanation", "")
+                if section.get("example_or_evidence"):
+                    p = body.add_paragraph()
+                    p.text = f"Example/Evidence: {section['example_or_evidence']}"
+                    p.font.size = Pt(14)
+                    p.font.italic = True
 
-        # Worked example slide
-        if lesson.get("worked_example"):
-            slide = prs.slides.add_slide(bullet_layout)
-            slide.shapes.title.text = "Worked Example"
-            slide.placeholders[1].text_frame.text = lesson["worked_example"]
+            # Check-understanding slide for the lesson
+            if lesson.get("check_understanding"):
+                slide = prs.slides.add_slide(bullet_layout)
+                slide.shapes.title.text = "Check Your Understanding"
+                body = slide.placeholders[1].text_frame
+                for i, q in enumerate(lesson["check_understanding"]):
+                    p = body.paragraphs[0] if i == 0 else body.add_paragraph()
+                    p.text = f"{i+1}. {q}"
+                    p.font.size = Pt(16)
 
-        # Check understanding slide
-        if lesson.get("check_understanding"):
-            slide = prs.slides.add_slide(bullet_layout)
-            slide.shapes.title.text = "Check Your Understanding"
-            body = slide.placeholders[1].text_frame
-            for i, q in enumerate(lesson["check_understanding"]):
-                p = body.paragraphs[0] if i == 0 else body.add_paragraph()
-                p.text = f"{i+1}. {q}"
-                p.font.size = Pt(16)
-
-        # Source attribution slide — traceability back to the papers
-        if lesson_entry.get("based_on_papers"):
+        # Source attribution, once per module
+        if module.get("based_on_papers"):
             slide = prs.slides.add_slide(bullet_layout)
             slide.shapes.title.text = "Based On"
             body = slide.placeholders[1].text_frame
-            for i, paper in enumerate(lesson_entry["based_on_papers"]):
+            for i, paper in enumerate(module["based_on_papers"]):
                 p = body.paragraphs[0] if i == 0 else body.add_paragraph()
                 p.text = paper
                 p.font.size = Pt(14)
 
-    # Frontier topics slide
     if course.get("frontier_topics"):
         slide = prs.slides.add_slide(bullet_layout)
         slide.shapes.title.text = "Open Research Questions"
@@ -2064,3 +2063,165 @@ def export_course_to_pptx(course: Dict, output_path: str) -> str:
 
     prs.save(output_path)
     return output_path
+
+def export_course_to_pptx_per_lesson(course: Dict, output_dir: str) -> List[str]:
+    """
+    Same content as export_course_to_pptx, but produces ONE .pptx file
+    PER LESSON instead of one combined file for the whole course.
+    Returns the list of file paths created.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    output_paths = []
+    bullet_layout_index = 1
+
+    for module in course.get("modules", []):
+        for lesson_num, lesson in enumerate(module.get("lessons", []), start=1):
+            prs = Presentation()
+
+            # Title slide for THIS lesson only
+            title_slide_layout = prs.slide_layouts[0]
+            slide = prs.slides.add_slide(title_slide_layout)
+            slide.shapes.title.text = lesson.get("lesson_title", module.get("module_title", ""))
+            if len(slide.placeholders) > 1:
+                slide.placeholders[1].text = f"{course.get('course_title','')} — {module.get('difficulty','')}"
+
+            # Problem/approach context slide
+            bullet_layout = prs.slide_layouts[bullet_layout_index]
+            slide = prs.slides.add_slide(bullet_layout)
+            slide.shapes.title.text = "Context"
+            body = slide.placeholders[1].text_frame
+            body.text = f"Problem: {module.get('problem_addressed','')}"
+            p = body.add_paragraph()
+            p.text = f"Approach: {module.get('solution_approach','')}"
+            p.font.size = Pt(14)
+            p.font.italic = True
+
+            # One slide per section (topic)
+            for section in lesson.get("sections", []):
+                slide = prs.slides.add_slide(bullet_layout)
+                slide.shapes.title.text = section.get("topic", "")
+                body = slide.placeholders[1].text_frame
+                body.text = section.get("explanation", "")
+                if section.get("example_or_evidence"):
+                    p = body.add_paragraph()
+                    p.text = f"Example/Evidence: {section['example_or_evidence']}"
+                    p.font.size = Pt(14)
+                    p.font.italic = True
+
+            # Check-understanding slide
+            if lesson.get("check_understanding"):
+                slide = prs.slides.add_slide(bullet_layout)
+                slide.shapes.title.text = "Check Your Understanding"
+                body = slide.placeholders[1].text_frame
+                for i, q in enumerate(lesson["check_understanding"]):
+                    p = body.paragraphs[0] if i == 0 else body.add_paragraph()
+                    p.text = f"{i+1}. {q}"
+                    p.font.size = Pt(16)
+
+            # Source attribution slide
+            if module.get("based_on_papers"):
+                slide = prs.slides.add_slide(bullet_layout)
+                slide.shapes.title.text = "Based On"
+                body = slide.placeholders[1].text_frame
+                for i, paper in enumerate(module["based_on_papers"]):
+                    p = body.paragraphs[0] if i == 0 else body.add_paragraph()
+                    p.text = paper
+                    p.font.size = Pt(14)
+
+            # Save THIS lesson's file
+            safe_title = re.sub(r'[^\w\-]', '_', lesson.get("lesson_title", f"module_{module.get('module_title','')}_lesson_{lesson_num}"))[:60]
+            filepath = os.path.join(output_dir, f"{safe_title}.pptx")
+            prs.save(filepath)
+            output_paths.append(filepath)
+
+    return output_paths
+
+
+
+# ---------- LESSON GENERATION (hierarchical: plan -> module -> lesson(s)) ----------
+
+def generate_lesson_for_module(
+    module: Dict,
+    papers_with_analysis: List[Dict],
+    already_covered: List[str] = None,
+    lesson_index: int = 1,
+    total_lessons: int = 1,
+    max_chars: int = 5000
+) -> Dict:
+    """
+    Generate ONE lesson for a module, expanding each objective/topic into
+    substantial educational content (explanation + example + context per
+    topic), rather than a single flattened summary paragraph.
+
+    Designed to be called multiple times per module later (lesson_index/
+    total_lessons already threaded through) even though v1 calls it once.
+    """
+    already_covered = already_covered or []
+    source_text = _get_paper_analysis_by_title(papers_with_analysis, module.get("based_on_papers", []))
+    source_text = source_text[:max_chars]
+
+    topics = module.get("topics", [])
+    objectives_note = (
+        f"This lesson must cover ALL of these topics/objectives in depth: {', '.join(topics)}."
+        if topics else "Cover the module's problem and solution approach in depth."
+    )
+
+    already_covered_note = (
+        "\n\nIMPORTANT — avoiding redundancy: the following has already been taught earlier in "
+        "this course:\n" + "\n".join(f"- {s}" for s in already_covered) +
+        "\n\nDo not re-explain these from scratch. If this lesson's content builds on them, "
+        "reference them briefly (e.g. 'building on X, introduced earlier...') and focus on what "
+        "is NEW or goes DEEPER here."
+        if already_covered else ""
+    )
+
+    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+{
+  "lesson_title": "...",
+  "objectives_covered": ["..."],
+  "sections": [
+    {
+      "topic": "...",
+      "explanation": "...",
+      "example_or_evidence": "...",
+      "key_terms": ["..."]
+    }
+  ],
+  "check_understanding": ["..."],
+  "summary": "..."
+}
+
+IMPORTANT:
+- Create ONE entry in "sections" for EACH topic/objective listed for this module — do not merge
+  multiple topics into a single section, and do not skip any.
+- Each section's "explanation" must be a THOROUGH, substantive treatment of that specific topic
+  (aim for 120-200 words per section) — not a one-line summary. Explain the concept, why it
+  matters, and how it connects to the module's overall problem/solution.
+- "example_or_evidence" must ground the explanation in something concrete from the source papers:
+  a real experimental result, a specific reported number, or a described implementation detail.
+  If the source material doesn't support a full example for that topic, describe the paper's
+  actual relevant finding instead of inventing an illustrative example.
+- "check_understanding" should have one question per section, testing that specific topic.
+
+CRITICAL — grounding rules:
+- Base all content ONLY on the paper text provided below. Do not supplement with general domain
+  knowledge or textbook explanations not grounded in the source material.
+- Do not invent specific numbers, results, or technical details not present in the source text."""
+
+    prompt = f"""You are creating lesson {lesson_index} of {total_lessons} for a course module titled "{module.get('title', '')}".
+
+Module problem: {module.get('problem_addressed', '')}
+Module solution approach: {module.get('solution_approach', '')}
+Target difficulty: {module.get('difficulty', 'intermediate')}
+{objectives_note}
+{already_covered_note}
+
+Source material from the paper(s) this module is based on:
+{source_text or 'No detailed source text available — use the problem/solution summary above only.'}
+
+{schema_instructions}
+"""
+
+    content = _groq_invoke_safe(prompt)
+    parsed = _safe_json_parse(content)
+    return parsed if parsed else {"_error": "LLM output could not be parsed"}
