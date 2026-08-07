@@ -339,3 +339,106 @@ async def download_course(idea_hash: str):
         return {"error": "File not found."}
     return FileResponse(filepath, filename=f"{idea_hash}.pptx",
                          media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
+
+@app.get("/download_lab/{idea_hash}")
+async def download_course(idea_hash: str):
+    output_dir = os.path.join(tempfile.gettempdir(), "consiliai_labs", "06b43f13")
+    #06b43f13
+    filepath = os.path.join(output_dir, f"{idea_hash}.ipynb")
+    print(f"Looking for lab file at: {filepath}")
+    if not os.path.exists(filepath):
+        return {"error": "File not found."}
+    return FileResponse(filepath, filename=f"{idea_hash}.ipynb",
+                         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
+
+
+from agents.tools import (
+    generate_lab_exercise,
+    export_lab_to_notebook,
+    search_similar_projects,
+    compute_similarity_scores,
+)
+import re as _re
+ 
+ 
+def _slug(text: str, max_len: int = 50) -> str:
+    """Simple filename-safe slug — same word-boundary-truncation fix already
+    flagged as pending for the PPTX per-lesson exporter, applied here from
+    the start rather than inheriting the same bug."""
+    slug = _re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_").lower()
+    if len(slug) <= max_len:
+        return slug or "lesson"
+    truncated = slug[:max_len]
+    return truncated.rsplit("_", 1)[0] if "_" in truncated else truncated
+ 
+ 
+@app.post("/generate_lab")
+async def generate_lab_endpoint(
+    idea: str = Form(...),
+    max_papers: int = Form(3),
+    generate_code: bool = Form(True),
+    export_notebooks: bool = Form(True),
+):
+    """
+    Full pipeline: search -> filter -> analyze -> gaps -> teaching_plan ->
+    course -> one lab exercise per lesson.
+ 
+    generate_code=False gives a fast preview (Groq scaffolds only, no Qwen
+    calls, no notebooks) so you can sanity-check exercise framing before
+    spending time on code generation.
+    """
+    papers_with_analysis = get_papers_with_analysis(idea, max_papers)
+    if not papers_with_analysis:
+        return {"error": "No papers could be analyzed for this idea."}
+ 
+    gaps_result = detect_gaps(idea, papers_with_analysis)
+    teaching_plan = generate_teaching_plan(idea, gaps_result.get("gaps", []), papers_with_analysis)
+    course = generate_course(teaching_plan, papers_with_analysis)
+ 
+    # One similar-projects search per idea, reused across all modules/lessons —
+    # same simplification as Technical Plan Agent's global relevance gate.
+    # Known limitation: a single idea-level search may not surface the best
+    # matched repo for every individual module's specific technique.
+    similar = search_similar_projects(idea, max_results=15)
+    scored_similar = compute_similarity_scores(idea, similar)
+ 
+    output_dir = os.path.join(tempfile.gettempdir(), "consiliai_labs", _hash_text(idea)[:8])
+ 
+    modules_output = []
+    for tp_module, course_module in zip(teaching_plan.get("modules", []), course.get("modules", [])):
+        lessons_output = []
+        for lesson in course_module.get("lessons", []):
+            try:
+                lab = generate_lab_exercise(
+                    lesson=lesson,
+                    module=tp_module,
+                    papers_with_analysis=papers_with_analysis,
+                    similar_projects_scored=scored_similar,
+                    generate_code=generate_code,
+                )
+            except Exception as e:
+                print(f"[generate_lab] failed for lesson '{lesson.get('lesson_title','')}': {e}")
+                lab = {"_error": str(e)}
+ 
+            notebook_paths = None
+            if export_notebooks and generate_code and not lab.get("_error"):
+                filename_base = _slug(f"{tp_module.get('title','')}_{lesson.get('lesson_title','')}")
+                try:
+                    notebook_paths = export_lab_to_notebook(lab, output_dir, filename_base)
+                except Exception as e:
+                    print(f"[generate_lab] notebook export failed for '{filename_base}': {e}")
+ 
+            lessons_output.append({"lab": lab, "notebook_files": notebook_paths})
+ 
+        modules_output.append({
+            "module_title": tp_module.get("title", ""),
+            "lessons": lessons_output,
+        })
+ 
+    return {
+        "idea": idea,
+        "modules": modules_output,
+        "papers_used": [p["title"] for p in papers_with_analysis],
+    }

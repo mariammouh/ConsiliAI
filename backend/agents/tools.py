@@ -1,8 +1,17 @@
 import os
+import sys
 import requests
 import time
+from pathlib import Path
 from typing import List, Dict
 from dotenv import load_dotenv
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
+for path in [str(BACKEND_DIR), str(REPO_ROOT)]:
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from ingestion.chroma_client import query_chroma
@@ -15,21 +24,74 @@ import base64
 
 import numpy as np
 load_dotenv()
+
+from course_pptx_exporter import (
+    TOKENS,
+    ContentSplitter,
+    build_title_slide,
+    build_objectives_slide,
+    build_context_slide,
+    build_divider_slide,
+    build_content_slide,
+    build_example_slide,
+    build_key_terms_slide,
+    build_summary_slide,
+    build_quiz_slide,
+    build_references_slide,
+    build_closing_slide,
+    export_course_to_pptx_per_lesson as _reference_export_course_to_pptx_per_lesson,
+)
 #from langchain_community.chat_models import ChatOllama  # or langchain_ollama
 
 #_ollama_llm = ChatOllama(model="llama3.1:8b", temperature=0.2)
 # LLM instance for this tool (can be reused)
-_gemini_llm  = ChatGoogleGenerativeAI(
-    model="gemini-3.1-flash-lite",  # or the exact name you used successfully
-    google_api_key=os.getenv("GEMINI_API_KEY"),
-    temperature=0
-)
-_groq_llm = ChatOpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=os.getenv("GROQ_API_KEY"),
-    model="llama-3.3-70b-versatile",   # <-- updated model
-    temperature=0.2
-)
+def _get_gemini_llm():
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY/GOOGLE_API_KEY is not configured")
+    return ChatGoogleGenerativeAI(
+        model="gemini-3.1-flash-lite",
+        google_api_key=api_key,
+        temperature=0,
+        timeout=60,        
+    )
+
+
+def _get_groq_llm():
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise ValueError("GROQ_API_KEY is not configured")
+    return ChatOpenAI(
+        base_url="https://api.groq.com/openai/v1",
+        api_key=api_key,
+        model="llama-3.3-70b-versatile",
+        temperature=0.2,
+        timeout=60,        
+        max_retries=1,      
+    )
+
+
+_gemini_llm = None
+_groq_llm = None
+
+
+def _ensure_llm_clients():
+    global _gemini_llm, _groq_llm
+    if _gemini_llm is None:
+        _gemini_llm = _get_gemini_llm()
+    if _groq_llm is None:
+        _groq_llm = _get_groq_llm()
+    return _gemini_llm, _groq_llm
+
+
+def _invoke_gemini(prompt: str):
+    gemini_llm = _ensure_llm_clients()[0]
+    return gemini_llm.invoke(prompt)
+
+
+def _invoke_groq(prompt: str):
+    groq_llm = _ensure_llm_clients()[1]
+    return groq_llm.invoke(prompt)
 def retrieve_from_knowledge_base(question: str) -> str:
     """
     Retrieve relevant information from the user's uploaded PDFs
@@ -48,7 +110,7 @@ Context:
 Question: {question}
 Answer:"""
 
-    response = _gemini_llm .invoke(prompt)
+    response = _invoke_gemini(prompt)
     # Extract clean text
     content = response.content
     if isinstance(content, list):
@@ -224,7 +286,7 @@ Below are {len(pre_filtered)} papers pre‑selected by semantic similarity. From
 Papers:
 {papers_text}"""
 
-    content = _gemini_llm.invoke(prompt).content
+    content = _invoke_gemini(prompt).content
     if isinstance(content, list):
         content = "".join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
     content = content.strip()
@@ -300,7 +362,7 @@ Below is a list of {len(papers)} papers. Identify the {top_n} papers that are **
 Papers:
 {papers_text}"""
 
-    content = _gemini_llm.invoke(prompt).content
+    content = _invoke_gemini(prompt).content
     if isinstance(content, list):
         content = "".join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
     content = content.strip()
@@ -484,7 +546,7 @@ Novelty analysis:"""
     except Exception as e:
         print(f"Groq error ({e}), falling back to Gemini...")
         try:
-            response = _gemini_llm.invoke(prompt)
+            response = _invoke_gemini(prompt)
             content = response.content
             if isinstance(content, list):
                 content = "".join(block.get('text', '') if isinstance(block, dict) else str(block) for block in content)
@@ -1132,7 +1194,7 @@ def _groq_invoke_safe(prompt: str, retries: int = 1, wait_seconds: float = 8.0) 
     for attempt in range(retries):
         try:
             _groq_budget.consume(len(prompt)//4)
-            response = _groq_llm.invoke(prompt)
+            response = _invoke_groq(prompt)
             content = response.content
             if isinstance(content, list):
                 content = "".join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
@@ -1147,7 +1209,7 @@ def _groq_invoke_safe(prompt: str, retries: int = 1, wait_seconds: float = 8.0) 
 
     print("Groq exhausted retries — falling back to Gemini for this call only.")
     try:
-        response = _gemini_llm.invoke(prompt)
+        response = _invoke_gemini(prompt)
         content = response.content
         if isinstance(content, list):
             content = "".join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
@@ -1984,157 +2046,138 @@ def generate_course(
         "frontier_topics": frontier_content,
         "suggested_duration": teaching_plan.get("suggested_duration", "")
     }
-# ---------- PPTX EXPORT (deterministic, code-only) ----------
+# ---------- PPTX EXPORT (design system imported from reference exporter) ----------
 
 from pptx import Presentation
-from pptx.util import Inches, Pt
+
+
+def _resolve_module_title(module: Dict) -> str:
+    return module.get("module_title") or module.get("title") or ""
+
+
+def _resolve_lesson_title(lesson: Dict, default_title: str = "Lesson") -> str:
+    return lesson.get("lesson_title") or lesson.get("title") or default_title
+
 
 def export_course_to_pptx(course: Dict, output_path: str) -> str:
+    """Export the generated course with the same design system as the reference exporter."""
     prs = Presentation()
+    prs.slide_width = TOKENS.SLIDE_WIDTH
+    prs.slide_height = TOKENS.SLIDE_HEIGHT
 
-    title_slide_layout = prs.slide_layouts[0]
-    slide = prs.slides.add_slide(title_slide_layout)
-    slide.shapes.title.text = course.get("course_title", "Course")
-    if len(slide.placeholders) > 1:
-        slide.placeholders[1].text = course.get("target_audience", "")
+    course_title = course.get("course_title") or course.get("title") or "Course"
+    learning_objectives = course.get("learning_objectives", [])
+    modules = course.get("modules", [])
 
-    bullet_layout = prs.slide_layouts[1]
-    slide = prs.slides.add_slide(bullet_layout)
-    slide.shapes.title.text = "Learning Objectives"
-    body = slide.placeholders[1].text_frame
-    for i, obj in enumerate(course.get("learning_objectives", [])):
-        p = body.paragraphs[0] if i == 0 else body.add_paragraph()
-        p.text = obj
-        p.font.size = Pt(18)
+    slide_number = 1
+    build_title_slide(prs, course_title, course_title, "", slide_number)
+    slide_number += 1
 
-    for module in course.get("modules", []):
-        # Module divider slide
-        slide = prs.slides.add_slide(bullet_layout)
-        slide.shapes.title.text = f"{module['module_title']} ({module.get('difficulty','')})"
-        body = slide.placeholders[1].text_frame
-        body.text = f"Problem: {module.get('problem_addressed','')}"
-        p = body.add_paragraph()
-        p.text = f"Approach: {module.get('solution_approach','')}"
-        p.font.size = Pt(14)
-        p.font.italic = True
+    if learning_objectives:
+        build_objectives_slide(prs, learning_objectives, slide_number, course_title)
+        slide_number += 1
 
-        for lesson in module.get("lessons", []):
-            # One slide per section within the lesson — this is where the
-            # actual expanded, objective-by-objective content lives
-            for section in lesson.get("sections", []):
-                slide = prs.slides.add_slide(bullet_layout)
-                slide.shapes.title.text = section.get("topic", "")
-                body = slide.placeholders[1].text_frame
-                body.text = section.get("explanation", "")
-                if section.get("example_or_evidence"):
-                    p = body.add_paragraph()
-                    p.text = f"Example/Evidence: {section['example_or_evidence']}"
-                    p.font.size = Pt(14)
-                    p.font.italic = True
+    for module_idx, module in enumerate(modules):
+        if not isinstance(module, dict):
+            continue
 
-            # Check-understanding slide for the lesson
-            if lesson.get("check_understanding"):
-                slide = prs.slides.add_slide(bullet_layout)
-                slide.shapes.title.text = "Check Your Understanding"
-                body = slide.placeholders[1].text_frame
-                for i, q in enumerate(lesson["check_understanding"]):
-                    p = body.paragraphs[0] if i == 0 else body.add_paragraph()
-                    p.text = f"{i+1}. {q}"
-                    p.font.size = Pt(16)
+        module_title = _resolve_module_title(module)
+        difficulty = module.get("difficulty", "")
+        problem = module.get("problem_addressed", "")
+        solution = module.get("solution_approach", "")
+        based_on_papers = module.get("based_on_papers", [])
+        lessons = module.get("lessons", [])
 
-        # Source attribution, once per module
-        if module.get("based_on_papers"):
-            slide = prs.slides.add_slide(bullet_layout)
-            slide.shapes.title.text = "Based On"
-            body = slide.placeholders[1].text_frame
-            for i, paper in enumerate(module["based_on_papers"]):
-                p = body.paragraphs[0] if i == 0 else body.add_paragraph()
-                p.text = paper
-                p.font.size = Pt(14)
+        if problem or solution or difficulty:
+            build_context_slide(prs, problem, solution, difficulty, slide_number, course_title)
+            slide_number += 1
+
+        for lesson in lessons:
+            if not isinstance(lesson, dict):
+                continue
+
+            sections = lesson.get("sections", [])
+            summary = lesson.get("summary", "")
+            check_understanding = lesson.get("check_understanding", [])
+
+            for section in sections:
+                if not isinstance(section, dict):
+                    continue
+
+                topic = section.get("topic", "")
+                explanation = section.get("explanation", "")
+                example = section.get("example_or_evidence", "")
+                key_terms = section.get("key_terms", {})
+
+                if not topic and not explanation:
+                    continue
+
+                if topic:
+                    build_divider_slide(prs, topic, module_title, slide_number, course_title)
+                    slide_number += 1
+
+                if explanation:
+                    groups = ContentSplitter.to_bullets(
+                        explanation,
+                        max_bullets=TOKENS.MAX_BULLETS_PER_SLIDE,
+                        max_chars=TOKENS.MAX_CHARS_PER_BULLET,
+                    )
+                    for i, bullets in enumerate(groups):
+                        if not bullets:
+                            continue
+                        build_content_slide(
+                            prs,
+                            topic,
+                            bullets,
+                            slide_number,
+                            course_title,
+                            is_continued=(i > 0),
+                        )
+                        slide_number += 1
+
+                if example:
+                    build_example_slide(prs, topic, example, slide_number, course_title)
+                    slide_number += 1
+
+                if key_terms and isinstance(key_terms, dict):
+                    chunks = ContentSplitter.chunk_dict(key_terms, per_slide=TOKENS.MAX_TERMS_PER_SLIDE)
+                    for chunk in chunks:
+                        build_key_terms_slide(prs, chunk, slide_number, course_title)
+                        slide_number += 1
+
+            if summary:
+                build_summary_slide(prs, summary, slide_number, course_title)
+                slide_number += 1
+
+            if check_understanding:
+                questions = []
+                if isinstance(check_understanding, list):
+                    questions = [str(q) for q in check_understanding if q]
+                elif isinstance(check_understanding, str):
+                    questions = [check_understanding]
+
+                if questions:
+                    q_chunks = ContentSplitter.chunk_list(questions, per_slide=TOKENS.MAX_QUESTIONS_PER_SLIDE)
+                    for chunk in q_chunks:
+                        build_quiz_slide(prs, chunk, slide_number, course_title)
+                        slide_number += 1
+
+        if based_on_papers:
+            build_references_slide(prs, based_on_papers, slide_number, course_title)
+            slide_number += 1
 
     if course.get("frontier_topics"):
-        slide = prs.slides.add_slide(bullet_layout)
-        slide.shapes.title.text = "Open Research Questions"
-        body = slide.placeholders[1].text_frame
-        for i, ft in enumerate(course["frontier_topics"]):
-            p = body.paragraphs[0] if i == 0 else body.add_paragraph()
-            p.text = f"{ft['topic']}: {ft['rationale']}"
-            p.font.size = Pt(14)
+        build_references_slide(prs, course.get("frontier_topics", []), slide_number, course_title)
+        slide_number += 1
 
+    build_closing_slide(prs, course_title, slide_number)
     prs.save(output_path)
     return output_path
 
+
 def export_course_to_pptx_per_lesson(course: Dict, output_dir: str) -> List[str]:
-    """
-    Same content as export_course_to_pptx, but produces ONE .pptx file
-    PER LESSON instead of one combined file for the whole course.
-    Returns the list of file paths created.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    output_paths = []
-    bullet_layout_index = 1
-
-    for module in course.get("modules", []):
-        for lesson_num, lesson in enumerate(module.get("lessons", []), start=1):
-            prs = Presentation()
-
-            # Title slide for THIS lesson only
-            title_slide_layout = prs.slide_layouts[0]
-            slide = prs.slides.add_slide(title_slide_layout)
-            slide.shapes.title.text = lesson.get("lesson_title", module.get("module_title", ""))
-            if len(slide.placeholders) > 1:
-                slide.placeholders[1].text = f"{course.get('course_title','')} — {module.get('difficulty','')}"
-
-            # Problem/approach context slide
-            bullet_layout = prs.slide_layouts[bullet_layout_index]
-            slide = prs.slides.add_slide(bullet_layout)
-            slide.shapes.title.text = "Context"
-            body = slide.placeholders[1].text_frame
-            body.text = f"Problem: {module.get('problem_addressed','')}"
-            p = body.add_paragraph()
-            p.text = f"Approach: {module.get('solution_approach','')}"
-            p.font.size = Pt(14)
-            p.font.italic = True
-
-            # One slide per section (topic)
-            for section in lesson.get("sections", []):
-                slide = prs.slides.add_slide(bullet_layout)
-                slide.shapes.title.text = section.get("topic", "")
-                body = slide.placeholders[1].text_frame
-                body.text = section.get("explanation", "")
-                if section.get("example_or_evidence"):
-                    p = body.add_paragraph()
-                    p.text = f"Example/Evidence: {section['example_or_evidence']}"
-                    p.font.size = Pt(14)
-                    p.font.italic = True
-
-            # Check-understanding slide
-            if lesson.get("check_understanding"):
-                slide = prs.slides.add_slide(bullet_layout)
-                slide.shapes.title.text = "Check Your Understanding"
-                body = slide.placeholders[1].text_frame
-                for i, q in enumerate(lesson["check_understanding"]):
-                    p = body.paragraphs[0] if i == 0 else body.add_paragraph()
-                    p.text = f"{i+1}. {q}"
-                    p.font.size = Pt(16)
-
-            # Source attribution slide
-            if module.get("based_on_papers"):
-                slide = prs.slides.add_slide(bullet_layout)
-                slide.shapes.title.text = "Based On"
-                body = slide.placeholders[1].text_frame
-                for i, paper in enumerate(module["based_on_papers"]):
-                    p = body.paragraphs[0] if i == 0 else body.add_paragraph()
-                    p.text = paper
-                    p.font.size = Pt(14)
-
-            # Save THIS lesson's file
-            safe_title = re.sub(r'[^\w\-]', '_', lesson.get("lesson_title", f"module_{module.get('module_title','')}_lesson_{lesson_num}"))[:60]
-            filepath = os.path.join(output_dir, f"{safe_title}.pptx")
-            prs.save(filepath)
-            output_paths.append(filepath)
-
-    return output_paths
+    """Produce one polished lesson deck per module lesson using the reference design system."""
+    return _reference_export_course_to_pptx_per_lesson(course, output_dir)
 
 
 
@@ -2225,3 +2268,312 @@ Source material from the paper(s) this module is based on:
     content = _groq_invoke_safe(prompt)
     parsed = _safe_json_parse(content)
     return parsed if parsed else {"_error": "LLM output could not be parsed"}
+
+
+
+
+"""
+Lab Generator Agent
+--------------------
+Turns one course lesson (from Course Generator) into a hands-on exercise:
+fill-in-the-blank code, or a small Kaggle-style notebook, grounded in the
+lesson's source paper(s) and (optionally) a matched real repo.
+
+Two-model split, consistent with the project's existing task-routing pattern
+(cheap/structural tasks -> Gemini, heavy reasoning -> Groq):
+  - Groq: produces the grounded PEDAGOGICAL scaffold (title, instructions,
+    difficulty, hints) as structured JSON, using the same grounding-rules
+    block as every other content-generating agent in the project.
+  - Qwen (local, via Ollama): produces the CODE (starter w/ blanks +
+    reference solution), since this is the one output nothing else in the
+    pipeline can verify without execution — code-specialized models reduce
+    the chance of subtly-wrong code slipping through ungrounded.
+
+No code is ever executed anywhere in this system (same constraint as the
+rest of the project). Students/teachers run the notebooks themselves.
+"""
+
+import os
+import re
+import json
+from typing import Dict, List, Tuple, Optional
+
+from langchain_ollama import ChatOllama
+
+# These are assumed to already exist in agents/tools.py — imported here for
+# clarity; when merging into tools.py just drop the import and use directly.
+# from agents.tools import (
+#     _groq_invoke_safe, _safe_json_parse, _get_paper_analysis_by_title,
+# )
+
+
+# ---------- Qwen (local) client ----------
+
+_qwen_llm = None
+
+
+def _get_qwen_llm():
+    return ChatOllama(
+        model="qwen2.5-coder:7b",
+        temperature=0.1,
+        timeout=180,   
+    )
+
+
+def _ensure_qwen():
+    global _qwen_llm
+    if _qwen_llm is None:
+        _qwen_llm = _get_qwen_llm()
+    return _qwen_llm
+
+
+def _qwen_invoke_safe(prompt: str, retries: int = 2) -> str:
+    """
+    Local model, no external rate limit, but Ollama can be unreachable
+    (server not running) or briefly busy — retry a couple times, then
+    fail loudly rather than silently falling back to a cloud model for
+    the code-generation step (defeats the point of using a coder model).
+    """
+    llm = _ensure_qwen()
+    last_err = None
+    for attempt in range(retries):
+        try:
+            response = llm.invoke(prompt)
+            content = response.content
+            if isinstance(content, list):
+                content = "".join(
+                    b.get("text", "") if isinstance(b, dict) else str(b) for b in content
+                )
+            return content
+        except Exception as e:
+            last_err = e
+            print(f"[qwen] attempt {attempt+1} failed: {e}")
+    raise RuntimeError(f"Qwen (Ollama) unreachable after {retries} attempts: {last_err}")
+
+
+def _extract_code_block(text: str) -> str:
+    """
+    Coder-tuned models routinely wrap output in ```python fences even when
+    told not to — strip them rather than trusting the instruction alone.
+    """
+    text = text.strip()
+    match = re.search(r"```(?:python|py)?\s*\n(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text
+
+
+# ---------- PEDAGOGICAL SCAFFOLD (Groq) ----------
+
+LAB_GROUNDING_RULES = """CRITICAL — grounding rules:
+- Base every part of this exercise ONLY on the lesson content and paper text provided below.
+  Do not supplement with generic textbook exercises not tied to this specific material.
+- If a matched repository is provided, the exercise should build on what that repo actually
+  does (per its description/readme), not a generic reimplementation of the paper from scratch.
+- If no matched repository is provided or the lesson is purely conceptual (no algorithm,
+  implementation, or dataset to work with), set "format" to "conceptual" and leave the code
+  guidance fields empty rather than inventing an exercise that isn't supported by the material."""
+
+
+def _build_scaffold_prompt(lesson: Dict, module: Dict, source_text: str, repo_text: str) -> str:
+    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+{
+  "exercise_title": "...",
+  "format": "notebook" | "fill_in_blank" | "conceptual",
+  "learning_objective": "...",
+  "instructions": "...",
+  "difficulty": "beginner" | "intermediate" | "advanced",
+  "hints": ["..."],
+  "code_generation_brief": "..."
+}
+
+IMPORTANT:
+- "instructions" is what the student sees before starting — describe the task, not the solution.
+- "code_generation_brief" is INTERNAL: a short, precise spec (what function/notebook to build,
+  what inputs/outputs, what should be left blank for the student) that a code-generation step
+  will use next. Only fill this in if format is "notebook" or "fill_in_blank".
+- "difficulty" should match the module's stated difficulty unless the lesson content clearly
+  suggests otherwise.
+- "hints" should be 2-4 short nudges, not step-by-step answers."""
+
+    return f"""You are designing a hands-on practice exercise for the lesson "{lesson.get('lesson_title', '')}"
+in the module "{module.get('title', '')}".
+
+Module problem: {module.get('problem_addressed', '')}
+Module solution approach: {module.get('solution_approach', '')}
+Target difficulty: {module.get('difficulty', 'intermediate')}
+
+Lesson summary: {lesson.get('summary', '')}
+
+Source material (paper content this lesson is grounded in):
+{source_text or 'None available.'}
+
+Matched real implementation (if any):
+{repo_text or 'No sufficiently similar real implementation was found for this topic.'}
+
+{LAB_GROUNDING_RULES}
+
+{schema_instructions}
+"""
+
+
+def _generate_scaffold(lesson: Dict, module: Dict, source_text: str, repo_text: str) -> Dict:
+    prompt = _build_scaffold_prompt(lesson, module, source_text, repo_text)
+    content = _groq_invoke_safe(prompt)          # noqa: F821 — provided by tools.py
+    parsed = _safe_json_parse(content)            # noqa: F821 — provided by tools.py
+    return parsed if parsed else {"_error": "LLM output could not be parsed"}
+
+
+# ---------- CODE GENERATION (Qwen, local) ----------
+
+def _build_code_prompt(scaffold: Dict, source_text: str, repo_text: str) -> str:
+    return f"""You are generating code for a student exercise.
+
+Exercise: {scaffold.get('exercise_title', '')}
+Brief: {scaffold.get('code_generation_brief', '')}
+Instructions given to the student: {scaffold.get('instructions', '')}
+
+Grounding material — paper implementation details:
+{source_text or 'None available.'}
+
+Grounding material — matched real implementation:
+{repo_text or 'None available.'}
+
+Produce TWO Python code blocks, clearly separated, and nothing else (no prose before/after):
+
+### STARTER
+A starter version of the code with the core learning step(s) replaced by
+`# TODO: ...` comments describing what the student must fill in. Everything
+else (imports, boilerplate, data loading if applicable) should be complete
+and runnable as-is.
+
+### SOLUTION
+The complete reference solution filling in every TODO from the starter code.
+
+Do not invent library calls, dataset names, or APIs that aren't implied by the
+grounding material above. If the grounding material doesn't specify a dataset
+or library, use a well-known, commonly available equivalent and say so in a
+comment.
+"""
+
+
+def _generate_code(scaffold: Dict, source_text: str, repo_text: str) -> Dict:
+    prompt = _build_code_prompt(scaffold, source_text, repo_text)
+    raw = _qwen_invoke_safe(prompt)
+
+    starter_match = re.search(r"###\s*STARTER\s*(.*?)###\s*SOLUTION", raw, re.DOTALL | re.IGNORECASE)
+    solution_match = re.search(r"###\s*SOLUTION\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
+
+    starter_code = _extract_code_block(starter_match.group(1)) if starter_match else ""
+    solution_code = _extract_code_block(solution_match.group(1)) if solution_match else ""
+
+    if not starter_code or not solution_code:
+        print("[lab] Qwen output didn't match expected STARTER/SOLUTION shape, storing raw output.")
+        return {"starter_code": starter_code, "solution_code": solution_code, "_raw": raw}
+
+    return {"starter_code": starter_code, "solution_code": solution_code}
+
+
+# ---------- MAIN ENTRY POINT ----------
+
+def generate_lab_exercise(
+    lesson: Dict,
+    module: Dict,
+    papers_with_analysis: List[Dict],
+    similar_projects_scored: Optional[List[Tuple[float, Dict]]] = None,
+    similarity_threshold: float = 0.35,
+    generate_code: bool = True,
+) -> Dict:
+    """
+    lesson: one lesson dict from generate_lesson_for_module / course["modules"][i]["lessons"][j]
+    module: the parent teaching-plan module dict
+    papers_with_analysis: same shared list used everywhere else in the pipeline
+    similar_projects_scored: List[(score, project_dict)] from compute_similarity_scores,
+        same relevance-gate pattern as Technical Plan Agent — pass None/[] if not available.
+    generate_code: if False, stops after the Groq scaffold (skips the Qwen call). Useful for
+        a cheap "preview" pass before committing local-compute time to code + notebook export.
+    """
+    source_text = _get_paper_analysis_by_title(   # noqa: F821 — provided by tools.py
+        papers_with_analysis, module.get("based_on_papers", [])
+    )[:4000]
+
+    repo_text = ""
+    matched_repo = None
+    if similar_projects_scored:
+        relevant = [(s, p) for s, p in similar_projects_scored if s >= similarity_threshold]
+        if relevant:
+            relevant.sort(key=lambda x: x[0], reverse=True)
+            score, matched_repo = relevant[0]
+            repo_text = (
+                f"[{matched_repo.get('source','')}] {matched_repo.get('name','')} "
+                f"(similarity: {score:.0%})\n"
+                f"About: {matched_repo.get('description','') or 'N/A'}\n"
+                f"README excerpt: {(matched_repo.get('readme') or '')[:800]}"
+            )
+
+    scaffold = _generate_scaffold(lesson, module, source_text, repo_text)
+    if scaffold.get("_error"):
+        return scaffold
+
+    result = {
+        "exercise_title": scaffold.get("exercise_title", ""),
+        "format": scaffold.get("format", "conceptual"),
+        "learning_objective": scaffold.get("learning_objective", ""),
+        "instructions": scaffold.get("instructions", ""),
+        "difficulty": scaffold.get("difficulty", module.get("difficulty", "intermediate")),
+        "hints": scaffold.get("hints", []),
+        "based_on_module": module.get("title", ""),
+        "based_on_lesson": lesson.get("lesson_title", ""),
+        "based_on_repo": {
+            "name": matched_repo.get("name", ""),
+            "url": matched_repo.get("url", ""),
+        } if matched_repo else None,
+    }
+
+    if generate_code and scaffold.get("format") in ("notebook", "fill_in_blank"):
+        code = _generate_code(scaffold, source_text, repo_text)
+        result.update(code)
+
+    return result
+
+
+# ---------- NOTEBOOK EXPORT (deterministic, no LLM) ----------
+
+def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Optional[Dict[str, str]]:
+    """
+    Renders a lab exercise into two .ipynb files: one for the student
+    (starter code, blanks intact) and one for the teacher (solution).
+    Returns None if the lab has no code (format == "conceptual").
+    """
+    if lab.get("format") not in ("notebook", "fill_in_blank") or not lab.get("starter_code"):
+        return None
+
+    import nbformat as nbf
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    def _build(code: str) -> "nbf.NotebookNode":
+        nb = nbf.v4.new_notebook()
+        intro = f"# {lab.get('exercise_title','Exercise')}\n\n" \
+                f"**Objective:** {lab.get('learning_objective','')}\n\n" \
+                f"{lab.get('instructions','')}\n\n" \
+                f"**Difficulty:** {lab.get('difficulty','')}"
+        if lab.get("based_on_repo"):
+            intro += f"\n\n**Reference implementation:** [{lab['based_on_repo']['name']}]({lab['based_on_repo']['url']})"
+        cells = [nbf.v4.new_markdown_cell(intro)]
+        if lab.get("hints"):
+            hints_md = "**Hints:**\n" + "\n".join(f"- {h}" for h in lab["hints"])
+            cells.append(nbf.v4.new_markdown_cell(hints_md))
+        cells.append(nbf.v4.new_code_cell(code))
+        nb["cells"] = cells
+        return nb
+
+    student_path = os.path.join(output_dir, f"{filename_base}_student.ipynb")
+    solution_path = os.path.join(output_dir, f"{filename_base}_solution.ipynb")
+
+    with open(student_path, "w", encoding="utf-8") as f:
+        nbf.write(_build(lab["starter_code"]), f)
+    with open(solution_path, "w", encoding="utf-8") as f:
+        nbf.write(_build(lab.get("solution_code", "# solution not generated")), f)
+
+    return {"student_notebook": student_path, "solution_notebook": solution_path}
