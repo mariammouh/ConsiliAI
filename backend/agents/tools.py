@@ -1,3 +1,5 @@
+import ast
+import keyword
 import os
 import sys
 import requests
@@ -2362,7 +2364,265 @@ def _extract_code_block(text: str) -> str:
         return match.group(1).strip()
     return text
 
+def _validate_python_code(code: str) -> Dict[str, object]:
+    """
+    Check Python code for:
+      1. Parseability (syntax errors).
+      2. Names used but never defined ANYWHERE in the file.
+      3. Names used at module level BEFORE the statement that actually
+         defines them (e.g. `train_df` used on line 5 but only created by
+         `train_test_split(...)` on line 12).
 
+    Scope of check #3: only code that executes immediately, top-to-bottom —
+    module-level statements, and the insides of if/for/while/with/try blocks
+    (since those run right away too). Code inside a function or class body
+    is NOT order-checked, because Python resolves those names at CALL time,
+    not definition time — a function can legitimately reference something
+    defined later in the file, as long as it exists by the time it's called.
+
+    IMPORTANT: compound blocks (if/for/while/with/try) are walked STATEMENT
+    BY STATEMENT in real execution order, not treated as one flat chunk —
+    otherwise everything inside e.g. an `if __name__ == "__main__":` block
+    gets falsely flagged as "used before defined" against everything else
+    in that same block, regardless of the actual order they appear in.
+    """
+    validation = {
+        "syntax_ok": True,
+        "syntax_error": None,
+        "undefined_names": [],
+        "used_before_defined": [],
+        "valid": True,
+    }
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        validation["syntax_ok"] = False
+        validation["syntax_error"] = f"{exc.msg} at line {exc.lineno}, col {exc.offset}"
+        validation["valid"] = False
+        return validation
+
+    # ---------- whole-file "does this exist anywhere" check ----------
+    assigned_names = set()
+    imported_names = set()
+    used_names = set()
+
+    class NameAnalyzer(ast.NodeVisitor):
+        def visit_Import(self, node: ast.Import) -> None:
+            for alias in node.names:
+                imported_names.add(alias.asname or alias.name.split(".")[0])
+            self.generic_visit(node)
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            for alias in node.names:
+                imported_names.add(alias.asname or alias.name)
+            self.generic_visit(node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            assigned_names.add(node.name)
+            for arg in node.args.args + node.args.kwonlyargs:
+                assigned_names.add(arg.arg)
+            if node.args.vararg:
+                assigned_names.add(node.args.vararg.arg)
+            if node.args.kwarg:
+                assigned_names.add(node.args.kwarg.arg)
+            self.generic_visit(node)
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            assigned_names.add(node.name)
+            self.generic_visit(node)
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if isinstance(node.ctx, ast.Store):
+                assigned_names.add(node.id)
+            elif isinstance(node.ctx, ast.Load):
+                used_names.add(node.id)
+            self.generic_visit(node)
+
+        def visit_arg(self, node: ast.arg) -> None:
+            assigned_names.add(node.arg)
+            self.generic_visit(node)
+
+        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            if node.name:
+                assigned_names.add(node.name)
+            self.generic_visit(node)
+
+    NameAnalyzer().visit(tree)
+
+    try:
+        if isinstance(__builtins__, dict):
+            builtins = set(__builtins__.keys())
+        else:
+            builtins = set(dir(__builtins__))
+    except Exception:
+        builtins = set(dir(__builtins__))
+
+    stdlib_whitelist = {
+        "print", "len", "range", "enumerate", "super", "map", "filter",
+        "zip", "min", "max", "sum", "abs", "sorted", "reversed", "open",
+        "int", "float", "str", "list", "dict", "set", "tuple", "bool",
+    }
+    extra_whitelist = {"__name__", "__file__", "self", "cls"} | stdlib_whitelist
+
+    undefined = sorted(
+        name for name in used_names
+        if name not in assigned_names
+        and name not in imported_names
+        and name not in builtins
+        and name not in keyword.kwlist
+        and name not in extra_whitelist
+    )
+    if undefined:
+        validation["undefined_names"] = undefined
+        validation["valid"] = False
+
+    # ---------- module-level (sequential) order check ----------
+    known_ok = builtins | extra_whitelist | set(keyword.kwlist)
+
+    def _own_uses_and_defs(stmt):
+        """
+        Uses/defs contributed directly by THIS statement's own content —
+        for compound statements (if/for/while/with), only the HEADER part
+        (the condition, the iterable, the context manager) is examined
+        here; the nested BODY is walked separately, in order, by the
+        flattening step below. Function/class/lambda bodies are skipped
+        entirely (deferred, not order-checked).
+        """
+        uses, defs = set(), set()
+
+        class Own(ast.NodeVisitor):
+            def visit_FunctionDef(self, node):
+                defs.add(node.name)
+
+            def visit_AsyncFunctionDef(self, node):
+                defs.add(node.name)
+
+            def visit_ClassDef(self, node):
+                defs.add(node.name)
+
+            def visit_Lambda(self, node):
+                pass  # body deferred, don't descend
+
+            def visit_Import(self, node):
+                for alias in node.names:
+                    defs.add(alias.asname or alias.name.split(".")[0])
+
+            def visit_ImportFrom(self, node):
+                for alias in node.names:
+                    defs.add(alias.asname or alias.name)
+
+            def visit_Name(self, node):
+                if isinstance(node.ctx, ast.Store):
+                    defs.add(node.id)
+                elif isinstance(node.ctx, ast.Load):
+                    uses.add(node.id)
+                self.generic_visit(node)
+
+            # --- compound statements: only look at the HEADER, not the body ---
+            def visit_If(self, node):
+                self.visit(node.test)
+
+            def visit_For(self, node):
+                self.visit(node.iter)
+                self.visit(node.target)
+
+            def visit_AsyncFor(self, node):
+                self.visit(node.iter)
+                self.visit(node.target)
+
+            def visit_While(self, node):
+                self.visit(node.test)
+
+            def visit_With(self, node):
+                for item in node.items:
+                    self.visit(item.context_expr)
+                    if item.optional_vars:
+                        self.visit(item.optional_vars)
+
+            def visit_AsyncWith(self, node):
+                for item in node.items:
+                    self.visit(item.context_expr)
+                    if item.optional_vars:
+                        self.visit(item.optional_vars)
+
+            def visit_Try(self, node):
+                pass  # body/handlers/orelse/finalbody walked separately
+
+            def visit_ExceptHandler(self, node):
+                if node.type:
+                    self.visit(node.type)
+                if node.name:
+                    defs.add(node.name)
+
+        Own().visit(stmt)
+        return uses, defs
+
+    def _flatten_immediate(stmts):
+        """
+        Yield statements in TRUE execution order, descending into the
+        bodies of if/for/while/with/try (still immediate — these run
+        right away), but never into function/class/lambda bodies
+        (deferred until called).
+        """
+        for stmt in stmts:
+            yield stmt
+            if isinstance(stmt, ast.If):
+                yield from _flatten_immediate(stmt.body)
+                yield from _flatten_immediate(stmt.orelse)
+            elif isinstance(stmt, (ast.For, ast.AsyncFor)):
+                yield from _flatten_immediate(stmt.body)
+                yield from _flatten_immediate(stmt.orelse)
+            elif isinstance(stmt, ast.While):
+                yield from _flatten_immediate(stmt.body)
+                yield from _flatten_immediate(stmt.orelse)
+            elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+                yield from _flatten_immediate(stmt.body)
+            elif isinstance(stmt, ast.Try):
+                yield from _flatten_immediate(stmt.body)
+                for handler in stmt.handlers:
+                    yield handler
+                    yield from _flatten_immediate(handler.body)
+                yield from _flatten_immediate(stmt.orelse)
+                yield from _flatten_immediate(stmt.finalbody)
+
+    flattened = list(_flatten_immediate(tree.body))
+
+    # Know every name that DOES get defined somewhere in this immediate
+    # execution flow, so we only flag genuine "used too early" cases —
+    # not names that are simply never defined at this scope at all (those
+    # are either already caught above, or are purely function-local).
+    module_level_defined_ever = set()
+    for stmt in flattened:
+        _, defs = _own_uses_and_defs(stmt)
+        module_level_defined_ever.update(defs)
+
+    defined_so_far = set()
+    used_before_defined = []
+
+    for stmt in flattened:
+        uses, defs = _own_uses_and_defs(stmt)
+        for name in sorted(uses):
+            if name in defined_so_far or name in known_ok:
+                continue
+            if name in module_level_defined_ever:
+                used_before_defined.append({
+                    "name": name,
+                    "used_line": getattr(stmt, "lineno", None),
+                })
+        defined_so_far.update(defs)
+
+    if used_before_defined:
+        seen = set()
+        deduped = []
+        for item in used_before_defined:
+            if item["name"] not in seen:
+                seen.add(item["name"])
+                deduped.append(item)
+        validation["used_before_defined"] = deduped
+        validation["valid"] = False
+
+    return validation
 # ---------- PEDAGOGICAL SCAFFOLD (Groq) ----------
 
 LAB_GROUNDING_RULES = """CRITICAL — grounding rules:
@@ -2450,10 +2710,17 @@ and runnable as-is.
 ### SOLUTION
 The complete reference solution filling in every TODO from the starter code.
 
-Do not invent library calls, dataset names, or APIs that aren't implied by the
-grounding material above. If the grounding material doesn't specify a dataset
-or library, use a well-known, commonly available equivalent and say so in a
-comment.
+The generated code must meet these requirements:
+- Both STARTER and SOLUTION must be valid Python code that parses cleanly with
+  Python's `ast` parser.
+- Do not use undefined variables, functions, or names in either code block.
+- Only use imports that are present in the code or clearly implied by the
+  grounding material.
+- If you need a dataset path or external file, keep the code syntactically valid
+  and note the placeholder in a comment, e.g. `# TODO: replace with dataset path`.
+- Do not invent library calls, dataset names, or APIs that are not grounded in
+  the source material. If the grounding material does not specify a dataset or
+  library, choose a well-known common equivalent and keep the code minimal.
 """
 
 
@@ -2469,11 +2736,127 @@ def _generate_code(scaffold: Dict, source_text: str, repo_text: str) -> Dict:
 
     if not starter_code or not solution_code:
         print("[lab] Qwen output didn't match expected STARTER/SOLUTION shape, storing raw output.")
-        return {"starter_code": starter_code, "solution_code": solution_code, "_raw": raw}
+        return {
+            "starter_code": starter_code,
+            "solution_code": solution_code,
+            "_raw": raw,
+            "validation": {
+                "starter": _validate_python_code(starter_code) if starter_code else {
+                    "valid": False, "syntax_ok": False,
+                    "syntax_error": "missing starter code", "undefined_names": []
+                },
+                "solution": _validate_python_code(solution_code) if solution_code else {
+                    "valid": False, "syntax_ok": False,
+                    "syntax_error": "missing solution code", "undefined_names": []
+                }
+            }
+        }
 
-    return {"starter_code": starter_code, "solution_code": solution_code}
+    starter_validation = _validate_python_code(starter_code)
+    solution_validation = _validate_python_code(solution_code)
+
+    # Repair only the piece(s) that actually failed, with the real error
+    # fed back to Qwen — not a blind full regeneration of both blocks.
+    if not starter_validation["valid"]:
+        repair = _repair_code(starter_code, starter_validation, "starter code")
+        starter_code = repair["code"]
+        starter_validation = repair["validation"]
+        starter_validation["repair_attempts"] = repair["attempts_used"]
+
+    if not solution_validation["valid"]:
+        repair = _repair_code(solution_code, solution_validation, "solution code")
+        solution_code = repair["code"]
+        solution_validation = repair["validation"]
+        solution_validation["repair_attempts"] = repair["attempts_used"]
+
+    validation = {"starter": starter_validation, "solution": solution_validation}
+
+    if not starter_validation["valid"] or not solution_validation["valid"]:
+        print(f"[lab] Qwen code still invalid after repair attempts: "
+              f"starter_valid={starter_validation['valid']} solution_valid={solution_validation['valid']}")
+
+    return {
+        "starter_code": starter_code,
+        "solution_code": solution_code,
+        "validation": validation,
+    }
+def _build_repair_prompt(code: str, validation: Dict, label: str) -> str:
+    """Turns a validation report into a precise instruction for Qwen to fix
+    just the specific problem found, instead of regenerating from scratch."""
+    problems = []
+    if not validation.get("syntax_ok", True):
+        problems.append(f"Syntax error: {validation.get('syntax_error')}")
+    if validation.get("undefined_names"):
+        names = ", ".join(validation["undefined_names"])
+        problems.append(
+            f"These names are used but never defined anywhere in the code: {names}. "
+            f"Either properly define them (e.g. create the missing variable/loader/dataset) "
+            f"or remove the reference if it isn't actually needed."
+        )
+
+    if validation.get("used_before_defined"):
+        details = ", ".join(
+            f"'{item['name']}' (used around line {item['used_line']})"
+            for item in validation["used_before_defined"]
+        )
+        problems.append(
+            f"These variables are used BEFORE the line that actually creates them: {details}. "
+            f"Move the line that creates each variable to before its first use, or reorder "
+            f"the code so it exists by the time it's referenced."
+        )
+    problems_text = "\n".join(f"- {p}" for p in problems)
+
+    return f"""The following Python code ({label}) has errors. Fix ONLY these specific problems,
+keep everything else in the code unchanged, and do not add new functionality.
+
+Problems found:
+{problems_text}
+
+Code to fix:
+```python
+{code}
+```
+
+Return ONLY the corrected code in a single code block, nothing else — no explanation, no text before or after.
+"""
 
 
+def _repair_code(code: str, validation: Dict, label: str, max_attempts: int = 2) -> Dict:
+    """
+    Feeds the specific validation error back to Qwen and re-checks, up to
+    max_attempts times. Same shape as _verify_dropped_papers in Gap Detection:
+    targeted, bounded re-check — not a blind full regeneration.
+    """
+    current_code = code
+    current_validation = validation
+    attempts_used = 0
+    print(f"thefirst{code}")
+
+    for attempt in range(1, max_attempts + 1):
+        if current_validation.get("valid"):
+            break
+        attempts_used = attempt
+        print(f"[lab] repairing {label}, attempt {attempt}/{max_attempts} — "
+              f"syntax_ok={current_validation.get('syntax_ok')}, "
+              f"undefined_names={current_validation.get('undefined_names')}")
+
+        prompt = _build_repair_prompt(current_code, current_validation, label)
+        try:
+            raw = _qwen_invoke_safe(prompt)
+        except Exception as e:
+            print(f"[lab] repair attempt {attempt} for {label} could not reach Qwen: {e}")
+            break
+
+        fixed_code = _extract_code_block(raw)
+        if not fixed_code.strip():
+            print(f"[lab] repair attempt {attempt} for {label} returned empty output, keeping previous version.")
+            break
+
+        current_code = fixed_code
+        print(f"fixed{current_code}")
+        current_validation = _validate_python_code(current_code)
+
+    return {"code": current_code, "validation": current_validation, "attempts_used": attempts_used}
 # ---------- MAIN ENTRY POINT ----------
 
 def generate_lab_exercise(
@@ -2532,7 +2915,26 @@ def generate_lab_exercise(
 
     if generate_code and scaffold.get("format") in ("notebook", "fill_in_blank"):
         code = _generate_code(scaffold, source_text, repo_text)
-        result.update(code)
+
+        # Always attach whatever code was produced
+        result["starter_code"] = code.get("starter_code")
+        result["solution_code"] = code.get("solution_code")
+
+        # Attach validation results if present and fail-fast on invalid code
+        if code.get("validation"):
+            result["validation"] = code.get("validation")
+            starter_valid = bool(code["validation"].get("starter", {}).get("valid", False))
+            solution_valid = bool(code["validation"].get("solution", {}).get("valid", False))
+            if not (starter_valid and solution_valid):
+                result["_error"] = "code_validation_failed"
+                result["error_detail"] = {
+                    "starter_valid": starter_valid,
+                    "solution_valid": solution_valid,
+                }
+        else:
+            # No validation produced; include raw output for debugging
+            if code.get("_raw"):
+                result["_raw_qwen_output"] = code.get("_raw")
 
     return result
 
