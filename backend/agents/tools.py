@@ -60,7 +60,7 @@ def _get_gemini_llm():
 
 
 def _get_groq_llm():
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY2")
     if not api_key:
         raise ValueError("GROQ_API_KEY is not configured")
     return ChatOpenAI(
@@ -2277,22 +2277,6 @@ Source material from the paper(s) this module is based on:
 """
 Lab Generator Agent
 --------------------
-Turns one course lesson (from Course Generator) into a hands-on exercise:
-fill-in-the-blank code, or a small Kaggle-style notebook, grounded in the
-lesson's source paper(s) and (optionally) a matched real repo.
-
-Two-model split, consistent with the project's existing task-routing pattern
-(cheap/structural tasks -> Gemini, heavy reasoning -> Groq):
-  - Groq: produces the grounded PEDAGOGICAL scaffold (title, instructions,
-    difficulty, hints) as structured JSON, using the same grounding-rules
-    block as every other content-generating agent in the project.
-  - Qwen (local, via Ollama): produces the CODE (starter w/ blanks +
-    reference solution), since this is the one output nothing else in the
-    pipeline can verify without execution — code-specialized models reduce
-    the chance of subtly-wrong code slipping through ungrounded.
-
-No code is ever executed anywhere in this system (same constraint as the
-rest of the project). Students/teachers run the notebooks themselves.
 """
 
 import os
@@ -2306,64 +2290,303 @@ from langchain_ollama import ChatOllama
 # clarity; when merging into tools.py just drop the import and use directly.
 # from agents.tools import (
 #     _groq_invoke_safe, _safe_json_parse, _get_paper_analysis_by_title,
+#     _validate_python_code, _repair_code,
 # )
+def _build_repair_prompt(code: str, validation: Dict, label: str) -> str:
+    problems = []
+    if not validation.get("syntax_ok", True):
+        problems.append(f"Syntax error: {validation.get('syntax_error')}")
+    if validation.get("undefined_names"):
+        names = ", ".join(validation["undefined_names"])
+        problems.append(
+            f"These names are used but never defined anywhere in the code: {names}. "
+            f"Either properly define them (e.g. create the missing variable/loader/dataset) "
+            f"or remove the reference if it isn't actually needed."
+        )
+    if validation.get("used_before_defined"):
+        details = ", ".join(
+            f"'{item['name']}' (used around line {item['used_line']})"
+            for item in validation["used_before_defined"]
+        )
+        problems.append(
+            f"These variables are used BEFORE the line that actually creates them: {details}. "
+            f"Move the line that creates each variable to before its first use, or reorder "
+            f"the code so it exists by the time it's referenced."
+        )
+
+    wasteful = [d for d in validation.get("duplicate_definitions", []) if d.get("likely_wasteful_repeat")]
+    if wasteful:
+        details = ", ".join(
+            f"'{d['name']}' (redefined at line {d['redefined_line']}, nearly identical to the "
+            f"version already defined at line {d['first_defined_line']})"
+            for d in wasteful
+        )
+        problems.append(
+            f"These are redefined almost identically to an earlier definition in the same file "
+            f"instead of building on it: {details}. Remove the redundant redefinition — if this part "
+            f"needs something new, extend or call the EXISTING definition rather than rewriting it."
+        )
 
 
-# ---------- Qwen (local) client ----------
 
-_qwen_llm = None
+    plan_issue = validation.get("plan_compliance")
+    if plan_issue and not plan_issue.get("valid", True):
+        if plan_issue.get("missing_produces"):
+            missing = ", ".join(f"'{m['name']}' (step: {m['goal']})" for m in plan_issue["missing_produces"])
+            problems.append(
+                f"The plan for this exercise requires defining these names, but they are missing "
+                f"from the code: {missing}. Add the missing definition(s)."
+            )
+        if plan_issue.get("unplanned_definitions"):
+            unplanned = ", ".join(plan_issue["unplanned_definitions"])
+            problems.append(
+                f"These are defined in the code but were NOT part of the plan for this exercise: "
+                f"{unplanned}. Remove them unless genuinely necessary — do not add unrelated classes "
+                f"or functions beyond what the plan calls for."
+            )
+    problems_text = "\n".join(f"- {p}" for p in problems)
+
+    return f"""The following Python code ({label}) has errors. Fix ONLY these specific problems,
+keep everything else in the code unchanged, and do not add new functionality.
+
+If the code uses helper functions or dataset-loading utilities that do not exist, add
+small self-contained definitions for them in the same code block rather than leaving
+undefined names behind.
+
+Problems found:
+{problems_text}
+
+Code to fix:
+```python
+{code}
+```
+
+Return ONLY the corrected code in a single code block, nothing else — no explanation, no text before or after.
+"""
 
 
-def _get_qwen_llm():
-    return ChatOllama(
-        model="qwen2.5-coder:7b",
-        temperature=0.1,
-        timeout=180,   
-    )
-
-
-def _ensure_qwen():
-    global _qwen_llm
-    if _qwen_llm is None:
-        _qwen_llm = _get_qwen_llm()
-    return _qwen_llm
-
-
-def _qwen_invoke_safe(prompt: str, retries: int = 2) -> str:
+def _repair_code(code: str, validation: Dict, label: str, model_name: str, max_attempts: int = 2) -> Dict:
     """
-    Local model, no external rate limit, but Ollama can be unreachable
-    (server not running) or briefly busy — retry a couple times, then
-    fail loudly rather than silently falling back to a cloud model for
-    the code-generation step (defeats the point of using a coder model).
+    Feeds the specific validation error back to the coder model and
+    re-checks, up to max_attempts times. Same shape as _verify_dropped_papers
+    in Gap Detection: targeted, bounded re-check — not a blind regeneration.
     """
-    llm = _ensure_qwen()
-    last_err = None
-    for attempt in range(retries):
+    current_code = code
+    current_validation = validation
+    attempts_used = 0
+
+    for attempt in range(1, max_attempts + 1):
+        if current_validation.get("valid"):
+            break
+        attempts_used = attempt
+        print(f"[lab] repairing {label} with {model_name}, attempt {attempt}/{max_attempts} — "
+              f"syntax_ok={current_validation.get('syntax_ok')}, "
+              f"undefined_names={current_validation.get('undefined_names')}, "
+              f"used_before_defined={[u['name'] for u in current_validation.get('used_before_defined', [])]}")
+
+        prompt = _build_repair_prompt(current_code, current_validation, label)
         try:
-            response = llm.invoke(prompt)
-            content = response.content
-            if isinstance(content, list):
-                content = "".join(
-                    b.get("text", "") if isinstance(b, dict) else str(b) for b in content
-                )
-            return content
+            raw = _coder_invoke_safe(prompt, model_name)
         except Exception as e:
-            last_err = e
-            print(f"[qwen] attempt {attempt+1} failed: {e}")
-    raise RuntimeError(f"Qwen (Ollama) unreachable after {retries} attempts: {last_err}")
+            print(f"[lab] repair attempt {attempt} for {label} could not reach {model_name}: {e}")
+            break
+
+        fixed_code = _extract_code_block(raw)
+        if not fixed_code.strip():
+            print(f"[lab] repair attempt {attempt} for {label} returned empty output, keeping previous version.")
+            break
+
+        current_code = fixed_code
+        current_validation = _validate_python_code(current_code)
+
+    if not current_validation.get("valid"):
+        rewrite = _rewrite_code(current_code, current_validation, label, model_name)
+        current_code = rewrite["code"]
+        current_validation = rewrite["validation"]
+        current_validation["repair_attempts"] = attempts_used
+        current_validation["rewrite_attempted"] = True
+    else:
+        current_validation["rewrite_attempts"] = attempts_used
+        current_validation["rewrite_attempted"] = False
+
+    return {"code": current_code, "validation": current_validation, "attempts_used": attempts_used}
 
 
-def _extract_code_block(text: str) -> str:
+def _build_rewrite_prompt(code: str, validation: Dict, label: str) -> str:
+    problems = []
+    if not validation.get("syntax_ok", True):
+        problems.append(f"Syntax error: {validation.get('syntax_error')}")
+    if validation.get("undefined_names"):
+        problems.append(
+            "Undefined names: " + ", ".join(validation["undefined_names"]) +
+            ". Define or remove any missing helper functions, imports, or dataset-loading utilities."
+        )
+    if validation.get("used_before_defined"):
+        details = ", ".join(
+            f"{item['name']} (used line {item['used_line']})" for item in validation['used_before_defined']
+        )
+        problems.append(
+            f"Used-before-defined issues: {details}. Reorder the code or define the variables before their first use."
+        )
+    if validation.get("duplicate_definitions"):
+        duplicates = ", ".join(d['name'] for d in validation['duplicate_definitions'])
+        problems.append(
+            f"Duplicate definitions detected for: {duplicates}. Keep only one correct definition for each function/class."
+        )
+
+    problems_text = "\n".join(f"- {p}" for p in problems)
+
+    return f"""The following Python code ({label}) still fails validation after repair attempts.
+Rewrite the entire code block into a complete, self-contained, runnable version.
+
+Fix every validation issue listed below, and include any missing imports or helper function definitions needed
+for the code to be syntactically valid.
+
+Problems found:
+{problems_text}
+
+Code to rewrite:
+```python
+{code}
+```
+
+Return ONLY the corrected full code block, nothing else — no explanation, no text before or after.
+"""
+
+
+def _rewrite_code(code: str, validation: Dict, label: str, model_name: str) -> Dict:
+    prompt = _build_rewrite_prompt(code, validation, label)
+    try:
+        raw = _coder_invoke_safe(prompt, model_name)
+    except Exception as e:
+        print(f"[lab] rewrite attempt for {label} failed: {e}")
+        return {"code": code, "validation": validation}
+
+    rewritten = _extract_code_block(raw)
+    if not rewritten.strip():
+        print(f"[lab] rewrite attempt for {label} returned empty output, keeping previous version.")
+        return {"code": code, "validation": validation}
+
+    new_validation = _validate_python_code(rewritten)
+    return {"code": rewritten, "validation": new_validation}
+
+
+import difflib  # add to your existing imports at the top of tools.py
+
+def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
     """
-    Coder-tuned models routinely wrap output in ```python fences even when
-    told not to — strip them rather than trusting the instruction alone.
-    """
-    text = text.strip()
-    match = re.search(r"```(?:python|py)?\s*\n(.*?)```", text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return text
+    Pure structural (non-LLM) comparison between generated code and the
+    step-by-step plan Groq produced alongside the exercise scaffold.
 
+    Deliberately NOT a semantic/logic check — it cannot tell you whether
+    a function does the right thing, only whether the names the plan
+    promised actually got defined, and whether anything got defined that
+    the plan never mentioned at all. That second check is the one that
+    catches an unplanned, out-of-nowhere class/function slipping into the
+    code (the same failure shape as the Qwen3-reference hallucination
+    found during testing) — something no syntax/undefined-name check can
+    see, since an unplanned addition is still perfectly valid Python.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        # Syntax errors are already reported by _validate_python_code;
+        # don't double-report here, just skip compliance checking.
+        return {"missing_produces": [], "unplanned_definitions": [], "valid": True}
+
+    defined_names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            defined_names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    defined_names.add(target.id)
+
+    all_planned_names = set()
+    missing_produces = []
+    for step in code_plan or []:
+        for name in step.get("produces", []):
+            all_planned_names.add(name)
+            if name not in defined_names:
+                missing_produces.append({
+                    "step": step.get("step"),
+                    "goal": step.get("goal", ""),
+                    "name": name,
+                })
+
+    # Only flag unplanned top-level defs if we actually HAVE a plan to
+    # compare against — an empty plan means "nothing to compare," not
+    # "everything is unplanned."
+    unplanned_definitions = []
+    if all_planned_names:
+        top_level_defs = {
+            node.name for node in ast.iter_child_nodes(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        unplanned_definitions = sorted(top_level_defs - all_planned_names)
+
+    return {
+        "missing_produces": missing_produces,
+        "unplanned_definitions": unplanned_definitions,
+        "valid": not missing_produces and not unplanned_definitions,
+    }
+def _find_duplicate_definitions(code: str, tree: "ast.AST" = None) -> List[Dict]:
+    """
+    Detects class/function names defined more than once at module level,
+    and scores how similar each redefinition is to the one before it.
+
+    High similarity (>= 0.85, i.e. nearly identical bodies) usually means
+    a code-generation step re-emitted an earlier definition instead of
+    building on it — exactly the pattern seen when comparing coder models:
+    one model re-wrote the same class near-verbatim across every topic
+    instead of adding new content each time.
+
+    Low similarity is NOT flagged as wasteful — a name legitimately being
+    redefined with substantially different content (e.g. a stub replaced
+    by a real implementation) is a normal enough pattern that penalizing
+    it would create false positives for no real benefit.
+    """
+    if tree is None:
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return []
+
+    lines = code.splitlines()
+    defs_by_name: Dict[str, List[Dict]] = {}
+
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            start = node.lineno - 1
+            end = getattr(node, "end_lineno", node.lineno)
+            segment = "\n".join(lines[start:end])
+            defs_by_name.setdefault(node.name, []).append({
+                "lineno": node.lineno,
+                "source": segment,
+                "kind": type(node).__name__,
+            })
+
+    duplicates = []
+    for name, occurrences in defs_by_name.items():
+        if len(occurrences) < 2:
+            continue
+        for i in range(len(occurrences) - 1):
+            a, b = occurrences[i], occurrences[i + 1]
+            similarity = difflib.SequenceMatcher(None, a["source"], b["source"]).ratio()
+            duplicates.append({
+                "name": name,
+                "kind": a["kind"],
+                "first_defined_line": a["lineno"],
+                "redefined_line": b["lineno"],
+                "similarity": round(similarity, 2),
+                "likely_wasteful_repeat": similarity >= 0.85,
+            })
+
+    return duplicates
+
+
+    
 def _validate_python_code(code: str) -> Dict[str, object]:
     """
     Check Python code for:
@@ -2386,11 +2609,13 @@ def _validate_python_code(code: str) -> Dict[str, object]:
     gets falsely flagged as "used before defined" against everything else
     in that same block, regardless of the actual order they appear in.
     """
+
     validation = {
         "syntax_ok": True,
         "syntax_error": None,
         "undefined_names": [],
         "used_before_defined": [],
+        "duplicate_definitions": [],   # NEW
         "valid": True,
     }
 
@@ -2401,6 +2626,9 @@ def _validate_python_code(code: str) -> Dict[str, object]:
         validation["syntax_error"] = f"{exc.msg} at line {exc.lineno}, col {exc.offset}"
         validation["valid"] = False
         return validation
+
+
+        
 
     # ---------- whole-file "does this exist anywhere" check ----------
     assigned_names = set()
@@ -2613,17 +2841,126 @@ def _validate_python_code(code: str) -> Dict[str, object]:
         defined_so_far.update(defs)
 
     if used_before_defined:
-        seen = set()
-        deduped = []
-        for item in used_before_defined:
-            if item["name"] not in seen:
-                seen.add(item["name"])
-                deduped.append(item)
-        validation["used_before_defined"] = deduped
-        validation["valid"] = False
+            seen = set()
+            deduped = []
+            for item in used_before_defined:
+                if item["name"] not in seen:
+                    seen.add(item["name"])
+                    deduped.append(item)
+            validation["used_before_defined"] = deduped
+            validation["valid"] = False
+
+    duplicate_definitions = _find_duplicate_definitions(code, tree)
+    if duplicate_definitions:
+            validation["duplicate_definitions"] = duplicate_definitions
+            if any(d["likely_wasteful_repeat"] for d in duplicate_definitions):
+                validation["valid"] = False
 
     return validation
-# ---------- PEDAGOGICAL SCAFFOLD (Groq) ----------
+
+"""
+Lab Generator Agent (v2)
+--------------------------
+Turns one course lesson (from Course Generator) into a hands-on exercise:
+fill-in-the-blank code, or a small Kaggle-style notebook, grounded in the
+lesson's source paper(s) and (optionally) a matched real repo.
+
+Two-model split, consistent with the project's existing task-routing pattern
+(cheap/structural tasks -> Gemini, heavy reasoning -> Groq):
+  - Groq: produces the grounded PEDAGOGICAL scaffold (title, instructions,
+    difficulty, hints) as structured JSON — model-independent, generated
+    once regardless of which local coder model is used below.
+  - A local coder model (via Ollama, swappable — e.g. qwen2.5-coder:7b or
+    deepseek-coder-v2:16b): produces the CODE.
+
+v2 change — PER-TOPIC decomposition: instead of asking the coder model to
+write one full script covering the whole lesson in a single shot, code is
+generated ONE TOPIC AT A TIME (using the lesson's own `sections`, the same
+per-topic breakdown Course Generator already produces), with each step's
+code carried forward as context for the next. This reduces the cross-
+referential slip-ups (e.g. a variable used in an eval step that was never
+created because the training step and eval step were written far apart in
+one long generation) that showed up when testing the single-shot version.
+
+Every piece of generated code is validated (syntax + undefined-name +
+use-before-define checks — no execution) and, if invalid, sent back to the
+model with the specific error for up to 2 repair attempts before giving up.
+Static validation cannot catch "confidently wrong about a real library"
+mistakes (e.g. a misspelled real API, or a plausible-but-nonexistent
+import) — that's expected, and is the reason for the model-swap support:
+compare_lab_code_models() lets you run the same exercise spec through two
+different coder models to see which one hallucinates less on real material.
+
+No code is ever executed anywhere in this system (same constraint as the
+rest of the project). Students/teachers run the notebooks themselves.
+"""
+
+import os
+import re
+import json
+from typing import Dict, List, Tuple, Optional
+
+from langchain_ollama import ChatOllama
+
+# These are assumed to already exist in agents/tools.py — imported here for
+# clarity; when merging into tools.py just drop the import and use directly.
+# from agents.tools import (
+#     _groq_invoke_safe, _safe_json_parse, _get_paper_analysis_by_title,
+#     _validate_python_code, _repair_code,
+# )
+
+
+# ---------- Local coder model client (swappable) ----------
+
+DEFAULT_CODE_MODEL = "qwen2.5-coder:7b"
+
+_coder_llm_cache: Dict[str, "ChatOllama"] = {}
+
+
+def _get_coder_llm(model_name: str):
+    if model_name not in _coder_llm_cache:
+        _coder_llm_cache[model_name] = ChatOllama(model=model_name, temperature=0.1, timeout=180)
+    return _coder_llm_cache[model_name]
+
+
+def _coder_invoke_safe(prompt: str, model_name: str = DEFAULT_CODE_MODEL, retries: int = 2) -> str:
+    """
+    Local model, no external rate limit, but Ollama can be unreachable
+    (server not running, or the model isn't pulled) or briefly busy —
+    retry a couple times, then fail loudly rather than silently falling
+    back to a cloud model for the code-generation step.
+    
+    llm = _get_coder_llm(model_name)
+    last_err = None
+    for attempt in range(retries):
+        try:
+            response = llm.invoke(prompt)
+            content = response.content
+            if isinstance(content, list):
+                content = "".join(
+                    b.get("text", "") if isinstance(b, dict) else str(b) for b in content
+                )
+            return content
+        except Exception as e:
+            last_err = e
+            print(f"[{model_name}] attempt {attempt+1} failed: {e}")
+    raise RuntimeError(f"{model_name} (Ollama) unreachable after {retries} attempts: {last_err}")
+""" 
+    return _groq_invoke_safe(prompt)  #
+
+def _extract_code_block(text: str) -> str:
+    """
+    Coder-tuned models routinely wrap output in ```python fences even when
+    told not to — strip them rather than trusting the instruction alone.
+    """
+    text = text.strip()
+    match = re.search(r"```(?:python|py)?\s*\n(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text
+
+
+# ---------- PEDAGOGICAL SCAFFOLD (Groq — model-independent) ----------
 
 LAB_GROUNDING_RULES = """CRITICAL — grounding rules:
 - Base every part of this exercise ONLY on the lesson content and paper text provided below.
@@ -2636,22 +2973,41 @@ LAB_GROUNDING_RULES = """CRITICAL — grounding rules:
 
 
 def _build_scaffold_prompt(lesson: Dict, module: Dict, source_text: str, repo_text: str) -> str:
-    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
-{
+    topics = lesson.get("sections", [])
+    topics_list_text = "\n".join(
+        f"{i + 1}. {s.get('topic', f'Step {i + 1}')}" for i, s in enumerate(topics)
+    ) or "No topic breakdown available for this lesson — code_plan can be an empty list."
+
+    schema_instructions = f"""Return ONLY valid JSON with this exact structure, no markdown fences:
+{{
   "exercise_title": "...",
   "format": "notebook" | "fill_in_blank" | "conceptual",
   "learning_objective": "...",
   "instructions": "...",
   "difficulty": "beginner" | "intermediate" | "advanced",
   "hints": ["..."],
-  "code_generation_brief": "..."
-}
+  "code_generation_brief": "...",
+  "code_plan": [
+    {{"step": 1, "goal": "...", "produces": ["..."], "uses": []}}
+  ]
+}}
 
 IMPORTANT:
 - "instructions" is what the student sees before starting — describe the task, not the solution.
 - "code_generation_brief" is INTERNAL: a short, precise spec (what function/notebook to build,
   what inputs/outputs, what should be left blank for the student) that a code-generation step
   will use next. Only fill this in if format is "notebook" or "fill_in_blank".
+- "code_plan" is a MANDATORY, ordered plan for the code — think of it as a flowchart written as
+  JSON. It MUST have EXACTLY one entry per topic listed below, IN THE SAME ORDER:
+{topics_list_text}
+  For each step:
+  - "goal": one sentence describing what that step accomplishes.
+  - "produces": the exact Python identifier names (function names, class names, or key variable
+    names) this step is responsible for defining — e.g. "TypeSpecificProjection", "train_model".
+    Not descriptions, actual names a coder would type. Leave empty if the step is purely
+    explanatory and defines nothing new.
+  - "uses": names from an EARLIER step's "produces" that this step depends on. Empty if none.
+  Only include a name in "produces" if the step genuinely defines something — don't pad the list.
 - "difficulty" should match the module's stated difficulty unless the lesson content clearly
   suggests otherwise.
 - "hints" should be 2-4 short nudges, not step-by-step answers."""
@@ -2684,7 +3040,7 @@ def _generate_scaffold(lesson: Dict, module: Dict, source_text: str, repo_text: 
     return parsed if parsed else {"_error": "LLM output could not be parsed"}
 
 
-# ---------- CODE GENERATION (Qwen, local) ----------
+# ---------- CODE GENERATION — single-shot fallback ----------
 
 def _build_code_prompt(scaffold: Dict, source_text: str, repo_text: str) -> str:
     return f"""You are generating code for a student exercise.
@@ -2710,153 +3066,360 @@ and runnable as-is.
 ### SOLUTION
 The complete reference solution filling in every TODO from the starter code.
 
-The generated code must meet these requirements:
-- Both STARTER and SOLUTION must be valid Python code that parses cleanly with
-  Python's `ast` parser.
-- Do not use undefined variables, functions, or names in either code block.
-- Only use imports that are present in the code or clearly implied by the
-  grounding material.
-- If you need a dataset path or external file, keep the code syntactically valid
-  and note the placeholder in a comment, e.g. `# TODO: replace with dataset path`.
-- Do not invent library calls, dataset names, or APIs that are not grounded in
-  the source material. If the grounding material does not specify a dataset or
-  library, choose a well-known common equivalent and keep the code minimal.
+Do not invent library calls, dataset names, or APIs that aren't implied by the
+grounding material above. If the grounding material doesn't specify a dataset
+or library, use a well-known, commonly available equivalent and say so in a
+comment.
 """
 
 
-def _generate_code(scaffold: Dict, source_text: str, repo_text: str) -> Dict:
+def _generate_code_single_shot(scaffold: Dict, source_text: str, repo_text: str, model_name: str, difficulty: str = "intermediate") -> Dict:
+    """
+    Fallback for lessons with no `sections` breakdown to decompose by
+    (older course data, or an edge case). Same validate+repair treatment
+    as the per-topic path, just without the topic-by-topic scoping.
+    """
     prompt = _build_code_prompt(scaffold, source_text, repo_text)
-    raw = _qwen_invoke_safe(prompt)
+    raw = _coder_invoke_safe(prompt, model_name)
 
     starter_match = re.search(r"###\s*STARTER\s*(.*?)###\s*SOLUTION", raw, re.DOTALL | re.IGNORECASE)
     solution_match = re.search(r"###\s*SOLUTION\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
-
     starter_code = _extract_code_block(starter_match.group(1)) if starter_match else ""
     solution_code = _extract_code_block(solution_match.group(1)) if solution_match else ""
 
     if not starter_code or not solution_code:
-        print("[lab] Qwen output didn't match expected STARTER/SOLUTION shape, storing raw output.")
+        print(f"[lab] {model_name} output didn't match STARTER/SOLUTION shape, storing raw output.")
         return {
             "starter_code": starter_code,
             "solution_code": solution_code,
             "_raw": raw,
             "validation": {
-                "starter": _validate_python_code(starter_code) if starter_code else {
+                "starter": _validate_python_code(starter_code) if starter_code else {          # noqa: F821
                     "valid": False, "syntax_ok": False,
-                    "syntax_error": "missing starter code", "undefined_names": []
+                    "syntax_error": "missing starter code", "undefined_names": [], "used_before_defined": [],
                 },
-                "solution": _validate_python_code(solution_code) if solution_code else {
+                "solution": _validate_python_code(solution_code) if solution_code else {        # noqa: F821
                     "valid": False, "syntax_ok": False,
-                    "syntax_error": "missing solution code", "undefined_names": []
-                }
-            }
+                    "syntax_error": "missing solution code", "undefined_names": [], "used_before_defined": [],
+                },
+            },
         }
 
-    starter_validation = _validate_python_code(starter_code)
-    solution_validation = _validate_python_code(solution_code)
+    return _validate_and_repair(starter_code, solution_code, model_name, difficulty)
 
-    # Repair only the piece(s) that actually failed, with the real error
-    # fed back to Qwen — not a blind full regeneration of both blocks.
+
+# ---------- CODE GENERATION — per-topic decomposition (default path) ----------
+
+def _build_topic_code_prompt(
+    scaffold: Dict,
+    topic_name: str,
+    explanation: str,
+    evidence: str,
+    code_so_far: str,
+    repo_text: str,
+    is_first: bool,
+    step_plan: Optional[Dict] = None,
+) -> str:
+    if is_first:
+        context_note = "This is the FIRST step — include whatever imports and setup THIS step needs."
+    else:
+        context_note = (
+            "Code from PREVIOUS steps (already correct and complete — it already ran successfully; "
+            "do NOT repeat it, only add what THIS step needs):\n```python\n"
+            + (code_so_far or "# nothing yet")
+            + "\n```"
+        )
+
+    plan_note = ""
+    if step_plan:
+        produces = step_plan.get("produces", [])
+        uses = step_plan.get("uses", [])
+        plan_note = f"\nThis step's plan: {step_plan.get('goal', '')}\n"
+        plan_note += (
+            f"You MUST define exactly these name(s) in this step: {produces}\n"
+            if produces else
+            "This step is explanatory only — it should not define any new names.\n"
+        )
+        if uses:
+            plan_note += f"This step depends on these name(s) from earlier steps: {uses}\n"
+
+    return f"""You are generating code for ONE STEP of a larger student exercise, built one step at a time.
+
+Exercise: {scaffold.get('exercise_title', '')}
+Overall brief: {scaffold.get('code_generation_brief', '')}
+
+{context_note}
+
+Now implement ONLY this step: "{topic_name}"
+{plan_note}
+What this step should teach/do: {explanation or 'Not specified — infer from the topic name and overall brief.'}
+Grounding evidence from the source material: {evidence or 'None available.'}
+
+Grounding material — matched real implementation (if relevant to this step):
+{repo_text or 'None available.'}
+
+Produce TWO Python code blocks for JUST this step, clearly separated, and nothing else:
+
+### STARTER
+The NEW code for this step only, with the core learning action replaced by `# TODO: ...`
+comments. Do NOT repeat code already written in a previous step.
+
+### SOLUTION
+The complete reference implementation for JUST this step's new code.
+
+Rules:
+- Assume all code from previous steps already ran successfully — its variables, functions, and
+  imports are available to you. Do not redefine or reimport anything already established above.
+- Do not invent variable names that conflict with anything already defined above.
+- Do not invent library calls, class names, or APIs that aren't implied by the grounding material.
+  If you must guess a dataset or library, use a well-known real one and say so in a comment.
+- Stick to the plan for this step: define ONLY what's listed above, nothing extra and nothing
+  unrelated — don't add helper classes/functions the plan didn't ask for.
+"""
+
+
+def _build_debug_hint(validation: Dict, difficulty: str) -> str:
+    """
+    Turns a validation report into a student-facing hint, calibrated to
+    difficulty. Only ever called when the validator ACTUALLY knows what's
+    wrong (syntax error, undefined name, use-before-define, or a wasteful
+    duplicate definition) — never used for issues the system can't see
+    (wrong-but-valid API calls, hallucinated content), since those can't
+    be honestly framed as "here's a bug, go find it."
+    """
+    issues = []
+    if not validation.get("syntax_ok", True):
+        issues.append("a syntax error")
+    if validation.get("undefined_names"):
+        issues.append("a variable or name that's used but never created")
+    if validation.get("used_before_defined"):
+        issues.append("a variable that's used before the line that actually creates it")
+    if any(d.get("likely_wasteful_repeat") for d in validation.get("duplicate_definitions", [])):
+        issues.append("a class or function that gets redefined instead of reused")
+    plan_issue = validation.get("plan_compliance")
+    if plan_issue and not plan_issue.get("valid", True):
+        if plan_issue.get("missing_produces"):
+            issues.append("a planned part of this exercise that was never actually implemented")
+        if plan_issue.get("unplanned_definitions"):
+            issues.append("code that doesn't match what this exercise was supposed to cover")
+
+    if not issues:
+        return "This code has at least one issue — read through it carefully."
+
+    if len(issues) <= 2:
+        issue_text = " and ".join(issues)
+    else:
+        issue_text = ", ".join(issues[:-1]) + f", and {issues[-1]}"
+
+    if difficulty == "beginner":
+        lines = sorted(set(
+            item.get("used_line") for item in validation.get("used_before_defined", [])
+            if item.get("used_line")
+        ))
+        line_hint = f" Check around line{'s' if len(lines) != 1 else ''} {', '.join(map(str, lines))}." if lines else ""
+        return f"This code contains {issue_text}.{line_hint}"
+    elif difficulty == "advanced":
+        return "This code runs without a syntax error, but something in it is broken. Find it."
+    else:
+        return f"This code contains {issue_text} somewhere — find and fix it."
+
+
+def _validate_and_repair(
+    starter_code: str,
+    solution_code: str,
+    model_name: str,
+    difficulty: str = "intermediate",
+    code_plan: Optional[List[Dict]] = None,
+) -> Dict:
+    """
+    Shared validate -> repair-if-needed -> re-validate step, used by both
+    the single-shot and per-topic code paths.
+
+    If code_plan is provided, also runs the structural plan-compliance
+    check (_check_plan_compliance) against the SOLUTION only — starter
+    code intentionally omits implementation via TODOs, so "produces"
+    names legitimately won't all exist there, and checking it would just
+    produce noise.
+
+    If the SOLUTION still fails after repair is exhausted, we no longer
+    have a verified correct answer to hand a teacher — but we DO know
+    exactly why it's broken (that's what static validation gives us), so
+    the result is repackaged as an honest "debug this" exercise instead
+    of silently discarded. This conversion only happens for failure types
+    the validator actually understands — see _build_debug_hint.
+    """
+    starter_validation = _validate_python_code(starter_code)      # noqa: F821
+    solution_validation = _validate_python_code(solution_code)    # noqa: F821
+
     if not starter_validation["valid"]:
-        repair = _repair_code(starter_code, starter_validation, "starter code")
+        repair = _repair_code(starter_code, starter_validation, "starter code", model_name)  # noqa: F821
         starter_code = repair["code"]
         starter_validation = repair["validation"]
         starter_validation["repair_attempts"] = repair["attempts_used"]
 
     if not solution_validation["valid"]:
-        repair = _repair_code(solution_code, solution_validation, "solution code")
+        repair = _repair_code(solution_code, solution_validation, "solution code", model_name)  # noqa: F821
         solution_code = repair["code"]
         solution_validation = repair["validation"]
         solution_validation["repair_attempts"] = repair["attempts_used"]
 
-    validation = {"starter": starter_validation, "solution": solution_validation}
+    # Plan compliance is checked (and repaired) SEPARATELY from the base
+    # syntax/undefined-name checks above, since it needs the code_plan
+    # and can only be evaluated after the base repair loop has already
+    # produced its best attempt.
+    if code_plan:
+        compliance = _check_plan_compliance(solution_code, code_plan)  # noqa: F821
+        solution_validation["plan_compliance"] = compliance
+        if not compliance["valid"]:
+            solution_validation["valid"] = False
+            plan_repair = _repair_code(                                # noqa: F821
+                solution_code,
+                {**solution_validation, "plan_compliance": compliance},
+                "solution code (plan compliance)",
+                model_name,
+                max_attempts=1,
+            )
+            solution_code = plan_repair["code"]
+            solution_validation = _validate_python_code(solution_code)  # noqa: F821
+            recompliance = _check_plan_compliance(solution_code, code_plan)  # noqa: F821
+            solution_validation["plan_compliance"] = recompliance
+            solution_validation["repair_attempts"] = plan_repair["attempts_used"]
+            if not recompliance["valid"]:
+                solution_validation["valid"] = False
 
-    if not starter_validation["valid"] or not solution_validation["valid"]:
-        print(f"[lab] Qwen code still invalid after repair attempts: "
-              f"starter_valid={starter_validation['valid']} solution_valid={solution_validation['valid']}")
-
-    return {
+    result = {
         "starter_code": starter_code,
         "solution_code": solution_code,
-        "validation": validation,
+        "validation": {"starter": starter_validation, "solution": solution_validation},
     }
-def _build_repair_prompt(code: str, validation: Dict, label: str) -> str:
-    """Turns a validation report into a precise instruction for Qwen to fix
-    just the specific problem found, instead of regenerating from scratch."""
-    problems = []
-    if not validation.get("syntax_ok", True):
-        problems.append(f"Syntax error: {validation.get('syntax_error')}")
-    if validation.get("undefined_names"):
-        names = ", ".join(validation["undefined_names"])
-        problems.append(
-            f"These names are used but never defined anywhere in the code: {names}. "
-            f"Either properly define them (e.g. create the missing variable/loader/dataset) "
-            f"or remove the reference if it isn't actually needed."
+
+    if not solution_validation["valid"] and solution_validation.get("repair_attempts", 0) >= 1:
+        result["debug_mode"] = True
+        result["debug_hint"] = _build_debug_hint(solution_validation, difficulty)
+        result["buggy_code"] = solution_code
+        # Deliberately no verified solution_code above this point — the
+        # code IS the exercise now, there's nothing to compare it against.
+
+    return result
+
+
+def _generate_code_per_topic(
+    lesson: Dict,
+    scaffold: Dict,
+    source_text: str,
+    repo_text: str,
+    model_name: str = DEFAULT_CODE_MODEL,
+    difficulty: str = "intermediate",
+) -> Dict:
+    topics = lesson.get("sections", [])
+    if not topics:
+        return _generate_code_single_shot(scaffold, source_text, repo_text, model_name, difficulty)
+
+    code_plan = scaffold.get("code_plan", []) or []
+    plan_aligned = len(code_plan) == len(topics)
+    if code_plan and not plan_aligned:
+        print(f"[lab] code_plan length ({len(code_plan)}) doesn't match topic count ({len(topics)}) "
+              f"— proceeding without per-step plan contracts for this lesson.")
+
+    cells = []
+    accumulated_starter = ""
+    accumulated_solution = ""
+
+    for i, section in enumerate(topics):
+        topic_name = section.get("topic", f"Step {i + 1}")
+        explanation = (section.get("explanation") or "")[:500]
+        evidence = (section.get("example_or_evidence") or "")[:400]
+        step_plan = code_plan[i] if plan_aligned else None
+
+        prompt = _build_topic_code_prompt(
+            scaffold, topic_name, explanation, evidence,
+            accumulated_solution, repo_text, is_first=(i == 0), step_plan=step_plan,
         )
+        raw = _coder_invoke_safe(prompt, model_name)
 
-    if validation.get("used_before_defined"):
-        details = ", ".join(
-            f"'{item['name']}' (used around line {item['used_line']})"
-            for item in validation["used_before_defined"]
-        )
-        problems.append(
-            f"These variables are used BEFORE the line that actually creates them: {details}. "
-            f"Move the line that creates each variable to before its first use, or reorder "
-            f"the code so it exists by the time it's referenced."
-        )
-    problems_text = "\n".join(f"- {p}" for p in problems)
+        starter_match = re.search(r"###\s*STARTER\s*(.*?)###\s*SOLUTION", raw, re.DOTALL | re.IGNORECASE)
+        solution_match = re.search(r"###\s*SOLUTION\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
+        step_starter = _extract_code_block(starter_match.group(1)) if starter_match else ""
+        step_solution = _extract_code_block(solution_match.group(1)) if solution_match else ""
 
-    return f"""The following Python code ({label}) has errors. Fix ONLY these specific problems,
-keep everything else in the code unchanged, and do not add new functionality.
+        if not step_starter or not step_solution:
+            print(f"[lab] {model_name} output for topic '{topic_name}' didn't match expected shape, skipping step.")
+            continue
 
-Problems found:
-{problems_text}
+        cells.append({"topic": topic_name, "starter": step_starter, "solution": step_solution})
+        accumulated_starter += ("\n\n" if accumulated_starter else "") + f"# --- {topic_name} ---\n" + step_starter
+        accumulated_solution += ("\n\n" if accumulated_solution else "") + f"# --- {topic_name} ---\n" + step_solution
 
-Code to fix:
-```python
-{code}
-```
+    if not cells:
+        return {"starter_code": "", "solution_code": "", "_error": "No code steps could be generated"}
 
-Return ONLY the corrected code in a single code block, nothing else — no explanation, no text before or after.
-"""
+    result = _validate_and_repair(
+        accumulated_starter, accumulated_solution, model_name, difficulty,
+        code_plan=code_plan if plan_aligned else None,
+    )
+
+    # Only expose the per-topic cell breakdown if nothing needed repair —
+    # once repair rewrites the flat code, the original cells no longer
+    # reliably match it, so it's safer to fall back to one combined view
+    # (in export_lab_to_notebook) than show cells that may now be stale.
+    starter_ok = result["validation"]["starter"]["valid"]
+    solution_ok = result["validation"]["solution"]["valid"]
+    if starter_ok and solution_ok and "repair_attempts" not in result["validation"]["starter"] \
+            and "repair_attempts" not in result["validation"]["solution"]:
+        result["cells"] = cells
+
+    return result
 
 
-def _repair_code(code: str, validation: Dict, label: str, max_attempts: int = 2) -> Dict:
+# ---------- MODEL COMPARISON HELPER ----------
+
+def compare_lab_code_models(
+    lesson: Dict,
+    module: Dict,
+    papers_with_analysis: List[Dict],
+    similar_projects_scored: Optional[List[Tuple[float, Dict]]] = None,
+    similarity_threshold: float = 0.35,
+    models: Tuple[str, ...] = ("qwen2.5-coder:7b", "deepseek-coder-v2:16b"),
+) -> Dict:
     """
-    Feeds the specific validation error back to Qwen and re-checks, up to
-    max_attempts times. Same shape as _verify_dropped_papers in Gap Detection:
-    targeted, bounded re-check — not a blind full regeneration.
+    Generates the pedagogical scaffold ONCE (Groq, model-independent), then
+    runs the per-topic code generation once per coder model listed in
+    `models`, so results are directly comparable — same exercise spec, same
+    grounding material, only the coder model differs.
+
+    Returns {"scaffold": ..., "results": {model_name: code_result, ...}}.
+    Inspect each model's result["validation"] and result.get("cells") to
+    compare correctness and how much repair each needed.
     """
-    current_code = code
-    current_validation = validation
-    attempts_used = 0
-    print(f"thefirst{code}")
+    source_text = _get_paper_analysis_by_title(   # noqa: F821
+        papers_with_analysis, module.get("based_on_papers", [])
+    )[:4000]
 
-    for attempt in range(1, max_attempts + 1):
-        if current_validation.get("valid"):
-            break
-        attempts_used = attempt
-        print(f"[lab] repairing {label}, attempt {attempt}/{max_attempts} — "
-              f"syntax_ok={current_validation.get('syntax_ok')}, "
-              f"undefined_names={current_validation.get('undefined_names')}")
+    repo_text = ""
+    if similar_projects_scored:
+        relevant = [(s, p) for s, p in similar_projects_scored if s >= similarity_threshold]
+        if relevant:
+            relevant.sort(key=lambda x: x[0], reverse=True)
+            score, matched_repo = relevant[0]
+            repo_text = (
+                f"[{matched_repo.get('source','')}] {matched_repo.get('name','')} "
+                f"(similarity: {score:.0%})\n"
+                f"About: {matched_repo.get('description','') or 'N/A'}\n"
+                f"README excerpt: {(matched_repo.get('readme') or '')[:800]}"
+            )
 
-        prompt = _build_repair_prompt(current_code, current_validation, label)
-        try:
-            raw = _qwen_invoke_safe(prompt)
-        except Exception as e:
-            print(f"[lab] repair attempt {attempt} for {label} could not reach Qwen: {e}")
-            break
+    scaffold = _generate_scaffold(lesson, module, source_text, repo_text)
+    if scaffold.get("_error") or scaffold.get("format") not in ("notebook", "fill_in_blank"):
+        return {"_error": "No code-generating scaffold available for this lesson.", "scaffold": scaffold}
 
-        fixed_code = _extract_code_block(raw)
-        if not fixed_code.strip():
-            print(f"[lab] repair attempt {attempt} for {label} returned empty output, keeping previous version.")
-            break
+    results = {}
+    for model_name in models:
+        print(f"[compare] generating code for '{scaffold.get('exercise_title','')}' with {model_name}...")
+        results[model_name] = _generate_code_per_topic(lesson, scaffold, source_text, repo_text, model_name)
 
-        current_code = fixed_code
-        print(f"fixed{current_code}")
-        current_validation = _validate_python_code(current_code)
+    return {"scaffold": scaffold, "results": results}
 
-    return {"code": current_code, "validation": current_validation, "attempts_used": attempts_used}
+
 # ---------- MAIN ENTRY POINT ----------
 
 def generate_lab_exercise(
@@ -2866,6 +3429,7 @@ def generate_lab_exercise(
     similar_projects_scored: Optional[List[Tuple[float, Dict]]] = None,
     similarity_threshold: float = 0.35,
     generate_code: bool = True,
+    code_model: str = DEFAULT_CODE_MODEL,
 ) -> Dict:
     """
     lesson: one lesson dict from generate_lesson_for_module / course["modules"][i]["lessons"][j]
@@ -2873,8 +3437,10 @@ def generate_lab_exercise(
     papers_with_analysis: same shared list used everywhere else in the pipeline
     similar_projects_scored: List[(score, project_dict)] from compute_similarity_scores,
         same relevance-gate pattern as Technical Plan Agent — pass None/[] if not available.
-    generate_code: if False, stops after the Groq scaffold (skips the Qwen call). Useful for
-        a cheap "preview" pass before committing local-compute time to code + notebook export.
+    generate_code: if False, stops after the Groq scaffold (skips the coder-model call).
+    code_model: which local Ollama model to use for the code step — swap this to compare
+        e.g. "qwen2.5-coder:7b" vs "deepseek-coder-v2:16b" (see compare_lab_code_models
+        for a helper that runs both against the identical scaffold in one call).
     """
     source_text = _get_paper_analysis_by_title(   # noqa: F821 — provided by tools.py
         papers_with_analysis, module.get("based_on_papers", [])
@@ -2911,30 +3477,47 @@ def generate_lab_exercise(
             "name": matched_repo.get("name", ""),
             "url": matched_repo.get("url", ""),
         } if matched_repo else None,
+        "code_plan": scaffold.get("code_plan", []),
     }
 
     if generate_code and scaffold.get("format") in ("notebook", "fill_in_blank"):
-        code = _generate_code(scaffold, source_text, repo_text)
+        code = _generate_code_per_topic(
+            lesson, scaffold, source_text, repo_text, code_model, difficulty=result["difficulty"]
+        )
+        result["code_model"] = code_model
 
-        # Always attach whatever code was produced
-        result["starter_code"] = code.get("starter_code")
-        result["solution_code"] = code.get("solution_code")
-
-        # Attach validation results if present and fail-fast on invalid code
-        if code.get("validation"):
-            result["validation"] = code.get("validation")
-            starter_valid = bool(code["validation"].get("starter", {}).get("valid", False))
-            solution_valid = bool(code["validation"].get("solution", {}).get("valid", False))
-            if not (starter_valid and solution_valid):
-                result["_error"] = "code_validation_failed"
-                result["error_detail"] = {
-                    "starter_valid": starter_valid,
-                    "solution_valid": solution_valid,
-                }
+        if code.get("debug_mode"):
+            # Repair was exhausted, but the validator knows exactly what's
+            # still wrong — reframe as an honest "find the bug" exercise
+            # instead of discarding a generation that's actually usable.
+            result["debug_mode"] = True
+            result["debug_hint"] = code["debug_hint"]
+            result["starter_code"] = code["buggy_code"]
+            result["solution_code"] = None  # no verified answer key — be explicit, don't fake one
+            result["instructions"] = (
+                result["instructions"].rstrip()
+                + f"\n\nNote: this exercise's code contains at least one known issue. {code['debug_hint']}"
+            )
+            result["validation"] = code["validation"]
+            if code.get("cells"):
+                result["cells"] = code["cells"]
         else:
-            # No validation produced; include raw output for debugging
-            if code.get("_raw"):
-                result["_raw_qwen_output"] = code.get("_raw")
+            result["starter_code"] = code.get("starter_code")
+            result["solution_code"] = code.get("solution_code")
+            if code.get("cells"):
+                result["cells"] = code["cells"]
+
+            if code.get("validation"):
+                result["validation"] = code["validation"]
+                starter_valid = bool(code["validation"].get("starter", {}).get("valid", False))
+                solution_valid = bool(code["validation"].get("solution", {}).get("valid", False))
+                if not (starter_valid and solution_valid):
+                    result["_error"] = "code_validation_failed"
+                    result["error_detail"] = {"starter_valid": starter_valid, "solution_valid": solution_valid}
+            elif code.get("_error"):
+                result["_error"] = code["_error"]
+            elif code.get("_raw"):
+                result["_raw_output"] = code["_raw"]
 
     return result
 
@@ -2945,6 +3528,13 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
     """
     Renders a lab exercise into two .ipynb files: one for the student
     (starter code, blanks intact) and one for the teacher (solution).
+
+    If the lab has a per-topic `cells` breakdown (the normal case — see
+    _generate_code_per_topic), each topic gets its own markdown header +
+    code cell, matching the lesson's own topic structure. Otherwise falls
+    back to a single combined code cell (single-shot path, or if repair
+    rewrote the flat code and cells were dropped as stale).
+
     Returns None if the lab has no code (format == "conceptual").
     """
     if lab.get("format") not in ("notebook", "fill_in_blank") or not lab.get("starter_code"):
@@ -2954,7 +3544,7 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
 
     os.makedirs(output_dir, exist_ok=True)
 
-    def _build(code: str) -> "nbf.NotebookNode":
+    def _build(use_solution: bool) -> "nbf.NotebookNode":
         nb = nbf.v4.new_notebook()
         intro = f"# {lab.get('exercise_title','Exercise')}\n\n" \
                 f"**Objective:** {lab.get('learning_objective','')}\n\n" \
@@ -2963,10 +3553,41 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
         if lab.get("based_on_repo"):
             intro += f"\n\n**Reference implementation:** [{lab['based_on_repo']['name']}]({lab['based_on_repo']['url']})"
         cells = [nbf.v4.new_markdown_cell(intro)]
+
+        if lab.get("debug_mode"):
+            cells.append(nbf.v4.new_markdown_cell(
+                "### ⚠ This exercise is a debugging challenge\n\n"
+                f"{lab.get('debug_hint', 'This code contains at least one bug.')}\n\n"
+                "Automated generation could not produce a verified working version of this "
+                "exercise — your task is to find and fix the issue(s) yourself."
+            ))
+            if use_solution:
+                v = lab.get("validation", {}).get("solution", {})
+                cells.append(nbf.v4.new_markdown_cell(
+                    "### Automated validator findings (unverified — instructor reference only)\n\n"
+                    "Automated repair could not fully resolve this, so there is no confirmed "
+                    "correct answer key — only what the static checker detected:\n\n"
+                    f"```json\n{json.dumps(v, indent=2)}\n```"
+                ))
+            cells.append(nbf.v4.new_code_cell(lab.get("starter_code", "")))
+            nb["cells"] = cells
+            return nb
+
         if lab.get("hints"):
             hints_md = "**Hints:**\n" + "\n".join(f"- {h}" for h in lab["hints"])
             cells.append(nbf.v4.new_markdown_cell(hints_md))
-        cells.append(nbf.v4.new_code_cell(code))
+
+        topic_cells = lab.get("cells")
+        if topic_cells:
+            for step in topic_cells:
+                cells.append(nbf.v4.new_markdown_cell(f"### {step['topic']}"))
+                code = step["solution"] if use_solution else step["starter"]
+                cells.append(nbf.v4.new_code_cell(code))
+        else:
+            code = lab.get("solution_code" if use_solution else "starter_code", "") \
+                or "# solution not generated"
+            cells.append(nbf.v4.new_code_cell(code))
+
         nb["cells"] = cells
         return nb
 
@@ -2974,8 +3595,8 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
     solution_path = os.path.join(output_dir, f"{filename_base}_solution.ipynb")
 
     with open(student_path, "w", encoding="utf-8") as f:
-        nbf.write(_build(lab["starter_code"]), f)
+        nbf.write(_build(use_solution=False), f)
     with open(solution_path, "w", encoding="utf-8") as f:
-        nbf.write(_build(lab.get("solution_code", "# solution not generated")), f)
+        nbf.write(_build(use_solution=True), f)
 
     return {"student_notebook": student_path, "solution_notebook": solution_path}

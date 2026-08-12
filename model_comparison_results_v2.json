@@ -1,0 +1,259 @@
+{
+  "scaffold": {
+    "exercise_title": "Implementing HetTransformer for Fake News Detection",
+    "format": "notebook",
+    "learning_objective": "To understand and implement the HetTransformer model for fake news detection, leveraging its encoder-decoder structure, heterogeneous neighbor sampling, and type-specific transformation matrices.",
+    "instructions": "Your task is to implement the key components of the HetTransformer model based on the provided lesson and paper content. Focus on designing the encoder-decoder structure, implementing heterogeneous neighbor sampling with RWR-based strategies, defining type-specific transformation matrices, and aggregating multi-modal semantics. Ensure your implementation aligns with the paper's contributions and addresses the problem of fake news detection in heterogeneous social networks.",
+    "difficulty": "intermediate",
+    "hints": [
+      "Start by defining the encoder-decoder structure, focusing on how news content and neighborhood information are encoded and decoded.",
+      "For heterogeneous neighbor sampling, consider how RWR-based strategies can be used to determine the order of neighbors.",
+      "Type-specific transformation matrices should be designed to handle the heterogeneity in node and edge types.",
+      "Multi-modal semantic aggregation is crucial for capturing both local content semantics and global structural propagation patterns."
+    ],
+    "code_generation_brief": "Generate a Python notebook that implements the HetTransformer model, including its encoder-decoder structure, heterogeneous neighbor sampling, type-specific transformation matrices, and multi-modal semantic aggregation. The notebook should be executable and demonstrate the model's effectiveness in fake news detection.",
+    "code_plan": [
+      {
+        "step": 1,
+        "goal": "Define the encoder-decoder structure for news content and neighborhood encoding.",
+        "produces": [
+          "Encoder",
+          "Decoder"
+        ],
+        "uses": []
+      },
+      {
+        "step": 2,
+        "goal": "Implement heterogeneous neighbor sampling using RWR-based strategies.",
+        "produces": [
+          "heterogeneous_neighbor_sampling"
+        ],
+        "uses": [
+          "Encoder"
+        ]
+      },
+      {
+        "step": 3,
+        "goal": "Design and apply type-specific transformation matrices for handling node and edge heterogeneity.",
+        "produces": [
+          "TypeSpecificTransformation"
+        ],
+        "uses": [
+          "heterogeneous_neighbor_sampling"
+        ]
+      },
+      {
+        "step": 4,
+        "goal": "Aggregate multi-modal semantics to capture local content and global structural representations.",
+        "produces": [
+          "MultiModalAggregator"
+        ],
+        "uses": [
+          "TypeSpecificTransformation",
+          "Decoder"
+        ]
+      }
+    ]
+  },
+  "summary": [
+    {
+      "model_name": "groq",
+      "debug_mode": false,
+      "starter_valid": true,
+      "solution_valid": true,
+      "starter_repair_attempts": 0,
+      "solution_repair_attempts": 0,
+      "undefined_names": [],
+      "used_before_defined": [],
+      "wasteful_duplicate_defs": [],
+      "plan_compliance_valid": true,
+      "plan_missing_produces": [],
+      "plan_unplanned_definitions": [],
+      "kept_per_topic_cells": true,
+      "error": null
+    },
+    {
+      "model_name": "gemini",
+      "debug_mode": false,
+      "starter_valid": true,
+      "solution_valid": true,
+      "starter_repair_attempts": 0,
+      "solution_repair_attempts": 1,
+      "undefined_names": [],
+      "used_before_defined": [],
+      "wasteful_duplicate_defs": [],
+      "plan_compliance_valid": true,
+      "plan_missing_produces": [],
+      "plan_unplanned_definitions": [],
+      "kept_per_topic_cells": false,
+      "error": null
+    },
+    {
+      "model_name": "qwen2.5-coder:7b",
+      "debug_mode": false,
+      "starter_valid": true,
+      "solution_valid": true,
+      "starter_repair_attempts": 0,
+      "solution_repair_attempts": 1,
+      "undefined_names": [],
+      "used_before_defined": [],
+      "wasteful_duplicate_defs": [],
+      "plan_compliance_valid": true,
+      "plan_missing_produces": [],
+      "plan_unplanned_definitions": [],
+      "kept_per_topic_cells": false,
+      "error": null
+    },
+    {
+      "model_name": "deepseek-coder-v2:16b",
+      "debug_mode": false,
+      "starter_valid": true,
+      "solution_valid": true,
+      "starter_repair_attempts": 0,
+      "solution_repair_attempts": 1,
+      "undefined_names": [],
+      "used_before_defined": [],
+      "wasteful_duplicate_defs": [],
+      "plan_compliance_valid": true,
+      "plan_missing_produces": [],
+      "plan_unplanned_definitions": [],
+      "kept_per_topic_cells": false,
+      "error": null
+    }
+  ],
+  "full_results": {
+    "groq": {
+      "starter_code": "# --- Encoder-decoder structure for news content and neighborhood encoding ---\nimport torch\nimport torch.nn as nn\n\n# Define the Encoder class\nclass Encoder(nn.Module):\n    # TODO: Initialize the encoder with the input dimension, hidden dimension, and number of layers\n    def __init__(self, input_dim, hidden_dim, num_layers):\n        super(Encoder, self).__init__()\n        # TODO: Define the encoder layers (e.g., TransformerEncoderLayer)\n        self.encoder_layers = nn.ModuleList([nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim, dropout=0.1) for _ in range(num_layers)])\n        \n    # TODO: Define the forward pass through the encoder\n    def forward(self, x):\n        # TODO: Apply the encoder layers to the input\n        for layer in self.encoder_layers:\n            x = layer(x)\n        return x\n\n# Define the Decoder class\nclass Decoder(nn.Module):\n    # TODO: Initialize the decoder with the input dimension, hidden dimension, and number of layers\n    def __init__(self, input_dim, hidden_dim, num_layers):\n        super(Decoder, self).__init__()\n        # TODO: Define the decoder layers (e.g., TransformerDecoderLayer)\n        self.decoder_layers = nn.ModuleList([nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim, dropout=0.1) for _ in range(num_layers)])\n        \n    # TODO: Define the forward pass through the decoder\n    def forward(self, x):\n        # TODO: Apply the decoder layers to the input\n        for layer in self.decoder_layers:\n            x = layer(x)\n        return x\n\n# --- Heterogeneous neighbor sampling and RWR-based strategies ---\ndef heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    # TODO: Implement Random Walk with Restart (RWR) to determine neighbor importance\n    # TODO: Sample neighbors based on their importance and the given number of samples\n    # TODO: Return the sampled neighbors in the order of their importance\n    pass\n\n# --- Type-specific transformation matrices ---\n# Define the TypeSpecificTransformation class\nclass TypeSpecificTransformation:\n    def __init__(self, num_node_types, num_attribute_types, embedding_size):\n        # TODO: Initialize type-specific transformation matrices for each node type and attribute type\n        pass\n\n    def forward(self, node_embeddings, node_types):\n        # TODO: Apply type-specific transformation matrices to project node embeddings into a unified dimension size\n        pass\n\n# --- Multi-modal semantic aggregation ---\nclass MultiModalAggregator(nn.Module):\n    def __init__(self, embedding_size, num_heads):\n        super(MultiModalAggregator, self).__init__()\n        # TODO: Initialize the Multi-Head Attention mechanism for multi-modal semantic aggregation\n        # TODO: Define the layers for concatenating content embeddings with positional and type embeddings\n        self.type_specific_transformation = TypeSpecificTransformation(num_node_types=5, num_attribute_types=3, embedding_size=embedding_size)\n        self.decoder = Decoder(input_dim=embedding_size, hidden_dim=embedding_size, num_layers=2)\n\n    def forward(self, node_embeddings, node_types, positional_embeddings):\n        # TODO: Apply type-specific transformation matrices to project node embeddings into a unified dimension size\n        # TODO: Concatenate content embeddings with positional and type embeddings\n        # TODO: Use the Multi-Head Attention mechanism to weigh the importance of different modalities and neighbors\n        # TODO: Pass the aggregated embeddings through the decoder to obtain the final representation\n        pass",
+      "solution_code": "# --- Encoder-decoder structure for news content and neighborhood encoding ---\nimport torch\nimport torch.nn as nn\n\n# Define the Encoder class\nclass Encoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, num_layers):\n        super(Encoder, self).__init__()\n        self.encoder_layers = nn.ModuleList([nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim, dropout=0.1) for _ in range(num_layers)])\n        \n    def forward(self, x):\n        for layer in self.encoder_layers:\n            x = layer(x)\n        return x\n\n# Define the Decoder class\nclass Decoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, num_layers):\n        super(Decoder, self).__init__()\n        self.decoder_layers = nn.ModuleList([nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim, dropout=0.1) for _ in range(num_layers)])\n        \n    def forward(self, x):\n        for layer in self.decoder_layers:\n            x = layer(x)\n        return x\n\n# --- Heterogeneous neighbor sampling and RWR-based strategies ---\nimport numpy as np\n\ndef heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    \"\"\"\n    Perform heterogeneous neighbor sampling using Random Walk with Restart (RWR).\n    \n    Args:\n    graph (dict): The graph structure, where each key is a node and its corresponding value is a list of its neighbors.\n    node (int): The node for which to sample neighbors.\n    num_samples (int): The number of neighbors to sample.\n    restart_prob (float): The probability of restarting the random walk at the given node.\n    \n    Returns:\n    list: A list of sampled neighbors in the order of their importance.\n    \"\"\"\n    # Initialize the probability distribution for the random walk\n    prob_dist = {node: 1.0}\n    \n    # Perform the random walk with restart\n    for _ in range(100):  # Assuming 100 iterations is sufficient for convergence\n        new_prob_dist = {}\n        for n in prob_dist:\n            # Calculate the probability of staying at the current node\n            stay_prob = restart_prob * prob_dist[n]\n            new_prob_dist[n] = stay_prob\n            \n            # Calculate the probability of moving to each neighbor\n            move_prob = (1 - restart_prob) * prob_dist[n] / len(graph[n])\n            for neighbor in graph[n]:\n                if neighbor not in new_prob_dist:\n                    new_prob_dist[neighbor] = 0.0\n                new_prob_dist[neighbor] += move_prob\n        prob_dist = new_prob_dist\n    \n    # Sample neighbors based on their importance\n    sampled_neighbors = np.random.choice(list(prob_dist.keys()), size=num_samples, replace=False, p=list(prob_dist.values()))\n    \n    return sampled_neighbors\n\n# --- Type-specific transformation matrices ---\n# Define the TypeSpecificTransformation class\nclass TypeSpecificTransformation(nn.Module):\n    def __init__(self, num_node_types, num_attribute_types, embedding_size):\n        super(TypeSpecificTransformation, self).__init__()\n        # Initialize type-specific transformation matrices for each node type and attribute type\n        self.transformation_matrices = nn.ModuleList([nn.Linear(embedding_size, embedding_size) for _ in range(num_node_types * num_attribute_types)])\n\n    def forward(self, node_embeddings, node_types):\n        # Apply type-specific transformation matrices to project node embeddings into a unified dimension size\n        transformed_embeddings = []\n        for i, (embedding, node_type) in enumerate(zip(node_embeddings, node_types)):\n            # Get the type-specific transformation matrix for the current node type\n            transformation_matrix = self.transformation_matrices[node_type]\n            # Apply the transformation matrix to the node embedding\n            transformed_embedding = transformation_matrix(embedding)\n            transformed_embeddings.append(transformed_embedding)\n        return torch.stack(transformed_embeddings)\n\n# --- Multi-modal semantic aggregation ---\nclass MultiModalAggregator(nn.Module):\n    def __init__(self, embedding_size, num_heads):\n        super(MultiModalAggregator, self).__init__()\n        self.multi_head_attention = nn.MultiHeadAttention(embed_dim=embedding_size, num_heads=num_heads, dropout=0.1)\n        self.concat_layer = nn.Linear(embedding_size * 3, embedding_size)\n        self.type_specific_transformation = TypeSpecificTransformation(num_node_types=5, num_attribute_types=3, embedding_size=embedding_size)\n        self.decoder = Decoder(input_dim=embedding_size, hidden_dim=embedding_size, num_layers=2)\n\n    def forward(self, node_embeddings, node_types, positional_embeddings):\n        transformed_embeddings = self.type_specific_transformation(node_embeddings, node_types)\n        concatenated_embeddings = torch.cat((transformed_embeddings, positional_embeddings, node_embeddings), dim=-1)\n        aggregated_embeddings = self.concat_layer(concatenated_embeddings)\n        attention_output = self.multi_head_attention(aggregated_embeddings, aggregated_embeddings)\n        final_representation = self.decoder(attention_output)\n        return final_representation",
+      "validation": {
+        "starter": {
+          "syntax_ok": true,
+          "syntax_error": null,
+          "undefined_names": [],
+          "used_before_defined": [],
+          "duplicate_definitions": [],
+          "valid": true
+        },
+        "solution": {
+          "syntax_ok": true,
+          "syntax_error": null,
+          "undefined_names": [],
+          "used_before_defined": [],
+          "duplicate_definitions": [],
+          "valid": true,
+          "plan_compliance": {
+            "missing_produces": [],
+            "unplanned_definitions": [],
+            "valid": true
+          }
+        }
+      },
+      "cells": [
+        {
+          "topic": "Encoder-decoder structure for news content and neighborhood encoding",
+          "starter": "import torch\nimport torch.nn as nn\n\n# Define the Encoder class\nclass Encoder(nn.Module):\n    # TODO: Initialize the encoder with the input dimension, hidden dimension, and number of layers\n    def __init__(self, input_dim, hidden_dim, num_layers):\n        super(Encoder, self).__init__()\n        # TODO: Define the encoder layers (e.g., TransformerEncoderLayer)\n        self.encoder_layers = nn.ModuleList([nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim, dropout=0.1) for _ in range(num_layers)])\n        \n    # TODO: Define the forward pass through the encoder\n    def forward(self, x):\n        # TODO: Apply the encoder layers to the input\n        for layer in self.encoder_layers:\n            x = layer(x)\n        return x\n\n# Define the Decoder class\nclass Decoder(nn.Module):\n    # TODO: Initialize the decoder with the input dimension, hidden dimension, and number of layers\n    def __init__(self, input_dim, hidden_dim, num_layers):\n        super(Decoder, self).__init__()\n        # TODO: Define the decoder layers (e.g., TransformerDecoderLayer)\n        self.decoder_layers = nn.ModuleList([nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim, dropout=0.1) for _ in range(num_layers)])\n        \n    # TODO: Define the forward pass through the decoder\n    def forward(self, x):\n        # TODO: Apply the decoder layers to the input\n        for layer in self.decoder_layers:\n            x = layer(x)\n        return x",
+          "solution": "import torch\nimport torch.nn as nn\n\n# Define the Encoder class\nclass Encoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, num_layers):\n        super(Encoder, self).__init__()\n        self.encoder_layers = nn.ModuleList([nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim, dropout=0.1) for _ in range(num_layers)])\n        \n    def forward(self, x):\n        for layer in self.encoder_layers:\n            x = layer(x)\n        return x\n\n# Define the Decoder class\nclass Decoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, num_layers):\n        super(Decoder, self).__init__()\n        self.decoder_layers = nn.ModuleList([nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim, dropout=0.1) for _ in range(num_layers)])\n        \n    def forward(self, x):\n        for layer in self.decoder_layers:\n            x = layer(x)\n        return x"
+        },
+        {
+          "topic": "Heterogeneous neighbor sampling and RWR-based strategies",
+          "starter": "def heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    # TODO: Implement Random Walk with Restart (RWR) to determine neighbor importance\n    # TODO: Sample neighbors based on their importance and the given number of samples\n    # TODO: Return the sampled neighbors in the order of their importance\n    pass",
+          "solution": "import numpy as np\n\ndef heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    \"\"\"\n    Perform heterogeneous neighbor sampling using Random Walk with Restart (RWR).\n    \n    Args:\n    graph (dict): The graph structure, where each key is a node and its corresponding value is a list of its neighbors.\n    node (int): The node for which to sample neighbors.\n    num_samples (int): The number of neighbors to sample.\n    restart_prob (float): The probability of restarting the random walk at the given node.\n    \n    Returns:\n    list: A list of sampled neighbors in the order of their importance.\n    \"\"\"\n    # Initialize the probability distribution for the random walk\n    prob_dist = {node: 1.0}\n    \n    # Perform the random walk with restart\n    for _ in range(100):  # Assuming 100 iterations is sufficient for convergence\n        new_prob_dist = {}\n        for n in prob_dist:\n            # Calculate the probability of staying at the current node\n            stay_prob = restart_prob * prob_dist[n]\n            new_prob_dist[n] = stay_prob\n            \n            # Calculate the probability of moving to each neighbor\n            move_prob = (1 - restart_prob) * prob_dist[n] / len(graph[n])\n            for neighbor in graph[n]:\n                if neighbor not in new_prob_dist:\n                    new_prob_dist[neighbor] = 0.0\n                new_prob_dist[neighbor] += move_prob\n        prob_dist = new_prob_dist\n    \n    # Sample neighbors based on their importance\n    sampled_neighbors = np.random.choice(list(prob_dist.keys()), size=num_samples, replace=False, p=list(prob_dist.values()))\n    \n    return sampled_neighbors"
+        },
+        {
+          "topic": "Type-specific transformation matrices",
+          "starter": "# Define the TypeSpecificTransformation class\nclass TypeSpecificTransformation:\n    def __init__(self, num_node_types, num_attribute_types, embedding_size):\n        # TODO: Initialize type-specific transformation matrices for each node type and attribute type\n        pass\n\n    def forward(self, node_embeddings, node_types):\n        # TODO: Apply type-specific transformation matrices to project node embeddings into a unified dimension size\n        pass",
+          "solution": "# Define the TypeSpecificTransformation class\nclass TypeSpecificTransformation(nn.Module):\n    def __init__(self, num_node_types, num_attribute_types, embedding_size):\n        super(TypeSpecificTransformation, self).__init__()\n        # Initialize type-specific transformation matrices for each node type and attribute type\n        self.transformation_matrices = nn.ModuleList([nn.Linear(embedding_size, embedding_size) for _ in range(num_node_types * num_attribute_types)])\n\n    def forward(self, node_embeddings, node_types):\n        # Apply type-specific transformation matrices to project node embeddings into a unified dimension size\n        transformed_embeddings = []\n        for i, (embedding, node_type) in enumerate(zip(node_embeddings, node_types)):\n            # Get the type-specific transformation matrix for the current node type\n            transformation_matrix = self.transformation_matrices[node_type]\n            # Apply the transformation matrix to the node embedding\n            transformed_embedding = transformation_matrix(embedding)\n            transformed_embeddings.append(transformed_embedding)\n        return torch.stack(transformed_embeddings)"
+        },
+        {
+          "topic": "Multi-modal semantic aggregation",
+          "starter": "class MultiModalAggregator(nn.Module):\n    def __init__(self, embedding_size, num_heads):\n        super(MultiModalAggregator, self).__init__()\n        # TODO: Initialize the Multi-Head Attention mechanism for multi-modal semantic aggregation\n        # TODO: Define the layers for concatenating content embeddings with positional and type embeddings\n        self.type_specific_transformation = TypeSpecificTransformation(num_node_types=5, num_attribute_types=3, embedding_size=embedding_size)\n        self.decoder = Decoder(input_dim=embedding_size, hidden_dim=embedding_size, num_layers=2)\n\n    def forward(self, node_embeddings, node_types, positional_embeddings):\n        # TODO: Apply type-specific transformation matrices to project node embeddings into a unified dimension size\n        # TODO: Concatenate content embeddings with positional and type embeddings\n        # TODO: Use the Multi-Head Attention mechanism to weigh the importance of different modalities and neighbors\n        # TODO: Pass the aggregated embeddings through the decoder to obtain the final representation\n        pass",
+          "solution": "class MultiModalAggregator(nn.Module):\n    def __init__(self, embedding_size, num_heads):\n        super(MultiModalAggregator, self).__init__()\n        self.multi_head_attention = nn.MultiHeadAttention(embed_dim=embedding_size, num_heads=num_heads, dropout=0.1)\n        self.concat_layer = nn.Linear(embedding_size * 3, embedding_size)\n        self.type_specific_transformation = TypeSpecificTransformation(num_node_types=5, num_attribute_types=3, embedding_size=embedding_size)\n        self.decoder = Decoder(input_dim=embedding_size, hidden_dim=embedding_size, num_layers=2)\n\n    def forward(self, node_embeddings, node_types, positional_embeddings):\n        transformed_embeddings = self.type_specific_transformation(node_embeddings, node_types)\n        concatenated_embeddings = torch.cat((transformed_embeddings, positional_embeddings, node_embeddings), dim=-1)\n        aggregated_embeddings = self.concat_layer(concatenated_embeddings)\n        attention_output = self.multi_head_attention(aggregated_embeddings, aggregated_embeddings)\n        final_representation = self.decoder(attention_output)\n        return final_representation"
+        }
+      ]
+    },
+    "gemini": {
+      "starter_code": "# --- Encoder-decoder structure for news content and neighborhood encoding ---\nimport torch\nimport torch.nn as nn\n\nclass Encoder(nn.Module):\n    # TODO: Define the encoder architecture for news content and neighborhood encoding\n    def __init__(self):\n        super(Encoder, self).__init__()\n        # TODO: Initialize the encoder layers\n        pass\n\n    def forward(self, x):\n        # TODO: Implement the forward pass through the encoder\n        pass\n\nclass Decoder(nn.Module):\n    # TODO: Define the decoder architecture for news content and neighborhood encoding\n    def __init__(self):\n        super(Decoder, self).__init__()\n        # TODO: Initialize the decoder layers\n        pass\n\n    def forward(self, x):\n        # TODO: Implement the forward pass through the decoder\n        pass\n\n# --- Heterogeneous neighbor sampling and RWR-based strategies ---\ndef heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    # TODO: Implement Random Walk with Restart (RWR) to determine neighbor importance\n    # TODO: Sample neighbors based on their importance and the number of samples required\n    # TODO: Return the sampled neighbors in the order of their importance\n    pass\n\nclass HetTransformer(nn.Module):\n    def __init__(self, encoder, num_samples, restart_prob):\n        super(HetTransformer, self).__init__()\n        self.encoder = encoder\n        self.num_samples = num_samples\n        self.restart_prob = restart_prob\n\n    def forward(self, graph, node):\n        # TODO: Use the heterogeneous_neighbor_sampling function to sample neighbors\n        # TODO: Feed the sampled neighbors into the encoder to get their representations\n        # TODO: Aggregate the representations to get the final output\n        pass\n\n# --- Type-specific transformation matrices ---\nclass TypeSpecificTransformation(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(TypeSpecificTransformation, self).__init__()\n        # TODO: Define the type-specific transformation matrix\n        self.transformation_matrix = None\n\n    def forward(self, x):\n        # TODO: Apply the type-specific transformation matrix to the input\n        return None\n\n# TODO: Define a function to apply type-specific transformation matrices to the sampled neighbors\ndef apply_type_specific_transformation(sampled_neighbors, transformation_matrices):\n    # TODO: Loop through each sampled neighbor and apply the corresponding transformation matrix\n    return None\n\n# --- Multi-modal semantic aggregation ---\nclass MultiModalAggregator(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(MultiModalAggregator, self).__init__()\n        # TODO: Define the Transformer's Multi-Head Attention mechanism\n        # TODO: Initialize the weights for concatenating content embeddings with positional and type embeddings\n\n    def forward(self, content_embeddings, positional_embeddings, type_embeddings):\n        # TODO: Implement the multi-modal semantic aggregation process\n        # TODO: Use the Transformer's Multi-Head Attention mechanism to weigh the importance of different modalities and neighbors\n        # TODO: Concatenate content embeddings with positional and type embeddings\n        return  # TODO: Return the aggregated representation",
+      "solution_code": "# --- Encoder-decoder structure for news content and neighborhood encoding ---\nimport torch\nimport torch.nn as nn\n\nclass Encoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, output_dim):\n        super(Encoder, self).__init__()\n        self.fc1 = nn.Linear(input_dim, hidden_dim)\n        self.fc2 = nn.Linear(hidden_dim, output_dim)\n\n    def forward(self, x):\n        x = torch.relu(self.fc1(x))\n        x = self.fc2(x)\n        return x\n\nclass Decoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, output_dim):\n        super(Decoder, self).__init__()\n        self.fc1 = nn.Linear(input_dim, hidden_dim)\n        self.fc2 = nn.Linear(hidden_dim, output_dim)\n\n    def forward(self, x):\n        x = torch.relu(self.fc1(x))\n        x = self.fc2(x)\n        return x\n\n# --- Heterogeneous neighbor sampling and RWR-based strategies ---\nimport numpy as np\n\ndef heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    \"\"\"\n    Sample neighbors using Random Walk with Restart (RWR) strategy.\n\n    Args:\n    - graph (dict): Adjacency list representation of the graph.\n    - node (int): The node for which to sample neighbors.\n    - num_samples (int): The number of neighbors to sample.\n    - restart_prob (float): The probability of restarting the random walk.\n\n    Returns:\n    - sampled_neighbors (list): The sampled neighbors in the order of their importance.\n    \"\"\"\n    # Initialize the probability distribution over all nodes\n    prob_dist = {node: 1.0}\n\n    # Perform RWR to determine neighbor importance\n    for _ in range(100):  # arbitrary number of iterations\n        new_prob_dist = {}\n        for node_id, prob in prob_dist.items():\n            if np.random.rand() < restart_prob:\n                new_prob_dist[node_id] = prob\n            else:\n                for neighbor in graph[node_id]:\n                    if neighbor not in new_prob_dist:\n                        new_prob_dist[neighbor] = 0.0\n                    new_prob_dist[neighbor] += prob / len(graph[node_id])\n        prob_dist = new_prob_dist\n\n    # Sample neighbors based on their importance\n    sampled_neighbors = np.random.choice(list(prob_dist.keys()), size=num_samples, replace=False, p=list(prob_dist.values()))\n\n    return sampled_neighbors\n\n# --- Type-specific transformation matrices ---\nclass TypeSpecificTransformation(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(TypeSpecificTransformation, self).__init__()\n        self.transformation_matrix = nn.Linear(input_dim, output_dim)\n\n    def forward(self, x):\n        return self.transformation_matrix(x)\n\n# --- Multi-modal semantic aggregation ---\nclass MultiModalAggregator(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(MultiModalAggregator, self).__init__()\n        self.multi_head_attention = nn.MultiHeadAttention(input_dim, num_heads=8)\n        self.positional_embedding = nn.Embedding(100, input_dim)  # Assuming a maximum sequence length of 100\n        self.type_embedding = TypeSpecificTransformation(input_dim, input_dim)\n\n    def forward(self, content_embeddings, positional_embeddings, type_embeddings):\n        # Apply multi-head attention to weigh the importance of different modalities and neighbors\n        attention_output = self.multi_head_attention(content_embeddings, content_embeddings)\n\n        # Concatenate content embeddings with positional and type embeddings\n        aggregated_embeddings = torch.cat((attention_output, positional_embeddings, type_embeddings), dim=1)\n\n        # Apply a linear transformation to the aggregated embeddings\n        output = self.type_embedding(aggregated_embeddings)\n\n        # Use a decoder to generate the final output\n        output = Decoder(input_dim=input_dim, hidden_dim=128, output_dim=output_dim)(output)\n\n        return output",
+      "validation": {
+        "starter": {
+          "syntax_ok": true,
+          "syntax_error": null,
+          "undefined_names": [],
+          "used_before_defined": [],
+          "duplicate_definitions": [],
+          "valid": true
+        },
+        "solution": {
+          "syntax_ok": true,
+          "syntax_error": null,
+          "undefined_names": [],
+          "used_before_defined": [],
+          "duplicate_definitions": [],
+          "valid": true,
+          "plan_compliance": {
+            "missing_produces": [],
+            "unplanned_definitions": [],
+            "valid": true
+          },
+          "repair_attempts": 1
+        }
+      }
+    },
+    "qwen2.5-coder:7b": {
+      "starter_code": "# --- Encoder-decoder structure for news content and neighborhood encoding ---\nimport torch\nimport torch.nn as nn\n\n# Define the Encoder class\nclass Encoder(nn.Module):\n    # TODO: Define the encoder architecture for news content and neighborhood encoding\n    def __init__(self):\n        super(Encoder, self).__init__()\n        # TODO: Initialize the encoder layers\n        pass\n\n    def forward(self, x):\n        # TODO: Implement the forward pass for the encoder\n        pass\n\n# Define the Decoder class\nclass Decoder(nn.Module):\n    # TODO: Define the decoder architecture for news content and neighborhood encoding\n    def __init__(self):\n        super(Decoder, self).__init__()\n        # TODO: Initialize the decoder layers\n        pass\n\n    def forward(self, x):\n        # TODO: Implement the forward pass for the decoder\n        pass\n\n# --- Heterogeneous neighbor sampling and RWR-based strategies ---\ndef heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    # TODO: Implement Random Walk with Restart (RWR) to determine neighbor importance\n    # TODO: Sample neighbors based on their importance and the number of samples required\n    # TODO: Return the sampled neighbors in the order of their importance\n    pass\n\nclass HetTransformer(nn.Module):\n    def __init__(self, encoder, num_samples, restart_prob):\n        super(HetTransformer, self).__init__()\n        self.encoder = encoder\n        self.num_samples = num_samples\n        self.restart_prob = restart_prob\n\n    def forward(self, node, graph):\n        # TODO: Use the heterogeneous_neighbor_sampling function to sample neighbors\n        # TODO: Use the sampled neighbors to compute the node representation\n        # TODO: Return the node representation\n        pass\n\n# --- Type-specific transformation matrices ---\nclass TypeSpecificTransformation(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(TypeSpecificTransformation, self).__init__()\n        # TODO: Define the type-specific transformation matrix\n        # TODO: Initialize the transformation matrix with a suitable initialization method\n        pass\n\n    def forward(self, x):\n        # TODO: Apply the type-specific transformation to the input\n        # TODO: Return the transformed output\n        pass\n\n# --- Multi-modal semantic aggregation ---\nclass MultiModalAggregator(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(MultiModalAggregator, self).__init__()\n        # Define the multi-modal aggregation mechanism\n        self.type_specific_transformation = TypeSpecificTransformation(input_dim, output_dim)\n        self.decoder = Decoder(input_dim, output_dim, output_dim)\n        \n        # TODO: Define the multi-head attention mechanism to weigh the importance of different modalities and neighbors\n        # TODO: Implement the concatenation of content embeddings with positional and type embeddings\n        \n    def forward(self, x):\n        # Apply the type-specific transformation to the input\n        transformed_x = self.type_specific_transformation(x)\n        \n        # TODO: Apply the multi-head attention mechanism to the transformed input\n        # TODO: Concatenate the content embeddings with positional and type embeddings\n        # TODO: Return the aggregated multi-modal representation\n        pass",
+      "solution_code": "# --- Encoder-decoder structure for news content and neighborhood encoding ---\nimport torch\nimport torch.nn as nn\n\n# Define the Encoder class\nclass Encoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, output_dim):\n        super(Encoder, self).__init__()\n        self.fc1 = nn.Linear(input_dim, hidden_dim)\n        self.fc2 = nn.Linear(hidden_dim, output_dim)\n\n    def forward(self, x):\n        x = torch.relu(self.fc1(x))\n        x = self.fc2(x)\n        return x\n\n# Define the Decoder class\nclass Decoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, output_dim):\n        super(Decoder, self).__init__()\n        self.fc1 = nn.Linear(input_dim, hidden_dim)\n        self.fc2 = nn.Linear(hidden_dim, output_dim)\n\n    def forward(self, x):\n        x = torch.relu(self.fc1(x))\n        x = self.fc2(x)\n        return x\n\n# --- Heterogeneous neighbor sampling and RWR-based strategies ---\nimport numpy as np\n\ndef heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    \"\"\"\n    Sample neighbors using Random Walk with Restart (RWR) strategy.\n\n    Args:\n    - graph: The graph structure represented as an adjacency matrix.\n    - node: The node for which to sample neighbors.\n    - num_samples: The number of neighbors to sample.\n    - restart_prob: The probability of restarting the random walk.\n\n    Returns:\n    - sampled_neighbors: A list of sampled neighbors in the order of their importance.\n    \"\"\"\n    # Initialize the probability distribution for the random walk\n    prob_dist = np.zeros(graph.shape[0])\n    prob_dist[node] = 1.0\n\n    # Perform the random walk with restart\n    for _ in range(num_samples):\n        # Compute the transition probabilities\n        transition_probs = graph / graph.sum(axis=1, keepdims=True)\n\n        # Update the probability distribution\n        prob_dist = (1 - restart_prob) * np.dot(transition_probs, prob_dist) + restart_prob * np.eye(graph.shape[0])[node]\n\n    # Sample neighbors based on their importance\n    sampled_neighbors = np.argsort(-prob_dist)[:num_samples]\n\n    return sampled_neighbors\n\n# --- Type-specific transformation matrices ---\nclass TypeSpecificTransformation(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(TypeSpecificTransformation, self).__init__()\n        # Define the type-specific transformation matrix\n        self.transformation_matrix = nn.Linear(input_dim, output_dim)\n        # Initialize the transformation matrix with a suitable initialization method\n        nn.init.xavier_uniform_(self.transformation_matrix.weight)\n\n    def forward(self, x):\n        # Apply the type-specific transformation to the input\n        transformed_x = self.transformation_matrix(x)\n        # Return the transformed output\n        return transformed_x\n\n# --- Multi-modal semantic aggregation ---\nclass MultiModalAggregator(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(MultiModalAggregator, self).__init__()\n        # Define the multi-modal aggregation mechanism\n        self.type_specific_transformation = TypeSpecificTransformation(input_dim, output_dim)\n        self.decoder = Decoder(input_dim, output_dim, output_dim)\n        \n        # Define the multi-head attention mechanism to weigh the importance of different modalities and neighbors\n        self.multi_head_attention = nn.MultiHeadAttention(embed_dim=output_dim, num_heads=8)\n        \n    def forward(self, x):\n        # Apply the type-specific transformation to the input\n        transformed_x = self.type_specific_transformation(x)\n        \n        # Apply the multi-head attention mechanism to the transformed input\n        attention_output = self.multi_head_attention(transformed_x, transformed_x)\n        \n        # Concatenate the content embeddings with positional and type embeddings\n        # For simplicity, assume we have positional and type embeddings available\n        positional_embeddings = torch.randn_like(transformed_x)\n        type_embeddings = torch.randn_like(transformed_x)\n        aggregated_representation = torch.cat((attention_output, positional_embeddings, type_embeddings), dim=1)\n        \n        # Return the aggregated multi-modal representation\n        return self.decoder(aggregated_representation)",
+      "validation": {
+        "starter": {
+          "syntax_ok": true,
+          "syntax_error": null,
+          "undefined_names": [],
+          "used_before_defined": [],
+          "duplicate_definitions": [],
+          "valid": true
+        },
+        "solution": {
+          "syntax_ok": true,
+          "syntax_error": null,
+          "undefined_names": [],
+          "used_before_defined": [],
+          "duplicate_definitions": [],
+          "valid": true,
+          "plan_compliance": {
+            "missing_produces": [],
+            "unplanned_definitions": [],
+            "valid": true
+          },
+          "repair_attempts": 1
+        }
+      }
+    },
+    "deepseek-coder-v2:16b": {
+      "starter_code": "# --- Encoder-decoder structure for news content and neighborhood encoding ---\nimport torch\nimport torch.nn as nn\n\nclass Encoder(nn.Module):\n    # TODO: Define the encoder component to map heterogeneous node attributes into a unified latent space\n    def __init__(self):\n        super(Encoder, self).__init__()\n        # TODO: Initialize the encoder layers and parameters\n        pass\n\n    def forward(self, x):\n        # TODO: Implement the forward pass of the encoder\n        pass\n\nclass Decoder(nn.Module):\n    # TODO: Define the decoder component to process the encoded news content and neighborhood information\n    def __init__(self):\n        super(Decoder, self).__init__()\n        # TODO: Initialize the decoder layers and parameters\n        pass\n\n    def forward(self, x):\n        # TODO: Implement the forward pass of the decoder\n        pass\n\n# --- Heterogeneous neighbor sampling and RWR-based strategies ---\nimport numpy as np\n\ndef heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    # TODO: Implement Random Walk with Restart (RWR) to determine neighbor importance\n    # TODO: Sample neighbors based on their importance and the number of samples required\n    # TODO: Return the sampled neighbors and their corresponding importance scores\n    pass\n\nclass RWRStrategy:\n    def __init__(self, graph, restart_prob):\n        # TODO: Initialize the RWR strategy with the graph and restart probability\n        pass\n\n    def sample_neighbors(self, node, num_samples):\n        # TODO: Use the RWR strategy to sample neighbors for the given node\n        pass\n\n# --- Type-specific transformation matrices ---\nclass TypeSpecificTransformation(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(TypeSpecificTransformation, self).__init__()\n        # TODO: Define the type-specific transformation matrix\n        self.transformation_matrix = None  # TODO: Initialize the transformation matrix\n\n    def forward(self, x):\n        # TODO: Apply the type-specific transformation matrix to the input\n        transformed_x = None  # TODO: Perform the transformation\n        return transformed_x\n\n# TODO: Define a function to apply the type-specific transformation matrices to the sampled neighbors\ndef apply_type_specific_transformations(sampled_neighbors, importance_scores):\n    # TODO: Apply the type-specific transformation matrices to the sampled neighbors\n    transformed_neighbors = None  # TODO: Perform the transformation\n    return transformed_neighbors\n\n# --- Multi-modal semantic aggregation ---\nclass MultiModalAggregator(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(MultiModalAggregator, self).__init__()\n        # TODO: Define the multi-modal aggregator architecture\n        # TODO: Initialize the necessary layers and modules for multi-modal semantic aggregation\n        pass\n\n    def forward(self, content_embeddings, positional_embeddings, type_embeddings):\n        # TODO: Implement the forward pass for the multi-modal aggregator\n        # TODO: Combine the content, positional, and type embeddings using the Transformer's Multi-Head Attention mechanism\n        pass",
+      "solution_code": "# --- Encoder-decoder structure for news content and neighborhood encoding ---\nimport torch\nimport torch.nn as nn\n\nclass Encoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, output_dim):\n        super(Encoder, self).__init__()\n        self.fc1 = nn.Linear(input_dim, hidden_dim)\n        self.fc2 = nn.Linear(hidden_dim, output_dim)\n\n    def forward(self, x):\n        x = torch.relu(self.fc1(x))\n        x = self.fc2(x)\n        return x\n\nclass Decoder(nn.Module):\n    def __init__(self, input_dim, hidden_dim, output_dim):\n        super(Decoder, self).__init__()\n        self.fc1 = nn.Linear(input_dim, hidden_dim)\n        self.fc2 = nn.Linear(hidden_dim, output_dim)\n\n    def forward(self, x):\n        x = torch.relu(self.fc1(x))\n        x = self.fc2(x)\n        return x\n\n# --- Heterogeneous neighbor sampling ---\nimport numpy as np\n\ndef heterogeneous_neighbor_sampling(graph, node, num_samples, restart_prob):\n    \"\"\"\n    Sample neighbors for the given node using Random Walk with Restart (RWR).\n    \n    Args:\n    graph (numpy array): Adjacency matrix of the graph.\n    node (int): Index of the node for which to sample neighbors.\n    num_samples (int): Number of neighbors to sample.\n    restart_prob (float): Restart probability for the RWR.\n    \n    Returns:\n    sampled_neighbors (list): List of sampled neighbor indices.\n    importance_scores (list): List of importance scores for the sampled neighbors.\n    \"\"\"\n    # Initialize the RWR probabilities\n    rwr_prob = np.zeros(graph.shape[0])\n    rwr_prob[node] = 1.0\n    \n    # Perform RWR\n    for _ in range(100):  # Assuming 100 iterations is sufficient\n        new_rwr_prob = (1 - restart_prob) * np.dot(graph, rwr_prob) + restart_prob * rwr_prob\n        if np.allclose(rwr_prob, new_rwr_prob):\n            break\n        rwr_prob = new_rwr_prob\n    \n    # Sample neighbors based on their importance scores\n    importance_scores = rwr_prob / np.sum(rwr_prob)\n    sampled_neighbors = np.random.choice(graph.shape[0], size=num_samples, replace=False, p=importance_scores)\n    \n    return sampled_neighbors, importance_scores\n\n# --- Type-specific transformation matrices ---\nclass TypeSpecificTransformation(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(TypeSpecificTransformation, self).__init__()\n        self.transformation_matrix = nn.Linear(input_dim, output_dim)\n\n    def forward(self, x):\n        transformed_x = self.transformation_matrix(x)\n        return transformed_x\n\n# --- Multi-modal semantic aggregation ---\nclass MultiModalAggregator(nn.Module):\n    def __init__(self, input_dim, output_dim):\n        super(MultiModalAggregator, self).__init__()\n        self.multi_head_attention = nn.MultiHeadAttention(input_dim, num_heads=8)\n        self.type_specific_transformation = TypeSpecificTransformation(input_dim, output_dim)\n        self.decoder = Decoder(input_dim, output_dim, output_dim)\n\n    def forward(self, content_embeddings, positional_embeddings, type_embeddings):\n        # Combine the content, positional, and type embeddings\n        combined_embeddings = torch.cat((content_embeddings, positional_embeddings, type_embeddings), dim=1)\n        \n        # Apply the multi-head attention mechanism\n        attention_output = self.multi_head_attention(combined_embeddings, combined_embeddings)\n        \n        # Apply the type-specific transformation\n        transformed_output = self.type_specific_transformation(attention_output)\n        \n        # Decode the transformed output\n        decoded_output = self.decoder(transformed_output)\n        \n        return decoded_output",
+      "validation": {
+        "starter": {
+          "syntax_ok": true,
+          "syntax_error": null,
+          "undefined_names": [],
+          "used_before_defined": [],
+          "duplicate_definitions": [],
+          "valid": true
+        },
+        "solution": {
+          "syntax_ok": true,
+          "syntax_error": null,
+          "undefined_names": [],
+          "used_before_defined": [],
+          "duplicate_definitions": [],
+          "valid": true,
+          "plan_compliance": {
+            "missing_produces": [],
+            "unplanned_definitions": [],
+            "valid": true
+          },
+          "repair_attempts": 1
+        }
+      }
+    }
+  }
+}
