@@ -4,7 +4,7 @@ import os, shutil
 import requests
 from dotenv import load_dotenv
 from ingestion.pdf_processor import process_pdf, UPLOAD_DIR
-from agents.tools import _hash_text, retrieve_from_knowledge_base,broaden_idea,get_papers_with_analysis
+from agents.tools import _hash_text,generate_experiment_set, retrieve_from_knowledge_base,broaden_idea,get_papers_with_analysis
 from agents.tools import search_papers, filter_relevant_papers,filter_papers_hybrid, summarize_papers_with_groq
 from agents.tools import search_papers_formatted,fetch_full_text,extract_text_from_pdf_bytes
 load_dotenv()
@@ -442,3 +442,32 @@ async def generate_lab_endpoint(
         "modules": modules_output,
         "papers_used": [p["title"] for p in papers_with_analysis],
     }
+
+
+@app.post("/generate_experiments")
+async def generate_experiments_endpoint(
+    idea: str = Form(...),
+    max_papers: int = Form(3),
+    max_experiments: int = Form(6),
+):
+    papers_with_analysis = get_papers_with_analysis(idea, max_papers)
+    if not papers_with_analysis:
+        return {"error": "No papers could be analyzed for this idea."}
+
+    gaps_result = detect_gaps(idea, papers_with_analysis)
+
+    # CHANGED: no compute_similarity_scores(idea, similar) here anymore —
+    # that idea-level scoring is what caused every gap to get the same repo.
+    # Just fetch the raw candidate pool once (still one search per idea,
+    # same cost as before) and let per-gap scoring happen downstream.
+    similar_raw = search_similar_projects(idea, max_results=15)
+
+    experiment_set = generate_experiment_set(
+        idea=idea,
+        gaps=gaps_result.get("gaps", []),
+        papers_with_analysis=papers_with_analysis,
+        similar_projects_raw=similar_raw,   # <-- renamed, raw not scored
+        max_experiments=max_experiments,
+    )
+
+    return experiment_set

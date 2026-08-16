@@ -66,13 +66,20 @@ def _get_groq_llm():
     return ChatOpenAI(
         base_url="https://api.groq.com/openai/v1",
         api_key=api_key,
-        #moonshotai/kimi-k2-instruct vc qwen/qwen3.6-27b
-        model="moonshotai/kimi-k2-instruct",
+        model="qwen/qwen3.6-27b",
         temperature=0.2,
-        timeout=60,        
-        max_retries=1,      
+        timeout=60,
+        max_retries=1,
+        extra_body={
+            "reasoning_format": "hidden",   # strips <think> server-side, .content is clean JSON
+            "reasoning_effort": "none",     # optional: skip deep reasoning entirely for
+                                             # extraction-style tasks (splitting, section analysis,
+                                             # gap extraction) — faster + cheaper on tokens.
+                                             # Leave this off (or "default") for detect_gaps/
+                                             # generate_technical_plan where the harder reasoning
+                                             # is actually worth paying for.
+        },
     )
-
 
 _gemini_llm = None
 _groq_llm = None
@@ -974,15 +981,44 @@ Text:
     return aggregated
 
 
-def _safe_json_parse(raw: str) -> Dict:
-    """Strip markdown fences and parse JSON, return {} on failure."""
-    cleaned = raw.strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+def _safe_json_parse(raw_text: str) -> dict:
+    """
+    Drop-in replacement. Strips a leading <think>...</think> reasoning
+    block (Groq reasoning models: qwen3, deepseek-r1-distill, etc.) and
+    markdown code fences before attempting to parse JSON. Returns {} on
+    failure, same contract as before — callers that already check for an
+    empty dict (analyze_all_sections, detect_gaps's per-chunk loop, etc.)
+    don't need to change.
+    """
+    if not raw_text:
+        return {}
+ 
+    cleaned = raw_text.strip()
+ 
+    # Strip a <think>...</think> block if present, anywhere it appears —
+    # some reasoning models don't close it if truncated, so also handle
+    # the case where only an opening <think> tag exists with no closing tag.
+    think_match = re.search(r"<think>.*?</think>", cleaned, flags=re.DOTALL)
+    if think_match:
+        cleaned = cleaned[think_match.end():].strip()
+    elif cleaned.lstrip().startswith("<think>"):
+        # Unclosed think block — nothing usable follows it in this response.
+        return {}
+ 
+    # Existing markdown-fence stripping.
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("```")[1]
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+        # handle trailing ``` if the split above left it dangling
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+ 
     try:
         return json.loads(cleaned)
-    except Exception as e:
-        print(f"JSON parse error: {e}, raw content: {cleaned[:200]}")
+    except Exception:
         return {}
 ESSENTIAL_SECTIONS = {
     "methodology",
@@ -3833,3 +3869,345 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
         nbf.write(_build(use_solution=True), f)
 
     return {"student_notebook": student_path, "solution_notebook": solution_path}
+
+
+
+
+"""
+Experiment & Suggested-Study Agent
+===================================
+
+Scope (explicitly, per PROJECT_MASTER_CONTEXT.md §2.3 "Experiment-replication
+scoping decision" and §3.1): this agent SUGGESTS experiments for a teacher to
+assign — dataset, baseline, metric, protocol, variations. It never executes
+code and never runs anything itself. The student is the one who carries the
+experiment out; this agent's job ends at producing a grounded, actionable
+experiment design. This keeps it in the same "structured LLM output" pattern
+as every other agent in the codebase (no sandboxing, no execution risk).
+
+Drop this into agents/tools.py (or keep as its own module and import into
+tools.py / main.py — either works, just make sure the shared helpers below
+resolve to the real implementations already in tools.py).
+
+Assumed already present in tools.py (per PROJECT_MASTER_CONTEXT.md):
+    - _groq_invoke_safe(prompt: str) -> str        (Groq call, retry+fallback, normalized .content)
+    - _safe_json_parse(raw_text: str) -> dict        (strips md fences, {} on failure)
+    - chunk_text(text: str, max_chars: int = 3000) -> list[str]
+    - _hash_text(text: str) -> str
+    - GROUNDING_RULES_BLOCK (str)                    (the v3 grounding block, reused verbatim
+                                                       across Technical Plan / Teaching Plan /
+                                                       Course Generator per §13.2 — reuse the
+                                                       SAME constant here rather than redefining it)
+
+If GROUNDING_RULES_BLOCK doesn't exist as a shared constant yet, the fallback
+below defines it locally so this module still works standalone — but per
+§13.4 ("a single merged grounding-rules block, reused verbatim, is more
+effective and maintainable than each agent inventing its own"), you should
+delete the fallback and import the real one once this is merged into tools.py.
+"""
+
+import json
+
+try:
+    from agents.tools import _groq_invoke_safe, _safe_json_parse, chunk_text, _hash_text
+except ImportError:
+    # Standalone fallback stubs — replace with real imports once merged into tools.py.
+    def _groq_invoke_safe(prompt: str) -> str:
+        raise NotImplementedError("Wire this up to the real _groq_invoke_safe in tools.py")
+
+    def _safe_json_parse(raw_text: str) -> dict:
+        try:
+            cleaned = raw_text.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```")[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+            return json.loads(cleaned)
+        except Exception:
+            return {}
+
+    def chunk_text(text: str, max_chars: int = 3000):
+        return [text[i:i + max_chars] for i in range(0, len(text), max_chars)]
+
+    def _hash_text(text: str) -> str:
+        import hashlib
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+try:
+    from agents.tools import GROUNDING_RULES_BLOCK
+except ImportError:
+    GROUNDING_RULES_BLOCK = """CRITICAL — grounding rules:
+- Base every technical claim ONLY on the exact text provided below. Do not supplement
+  with general knowledge about the field, even if it seems like a reasonable or common
+  suggestion.
+- Only cite a technology/technique/dataset as coming from a specific source if it literally
+  appears in that source's text provided below. Do not attribute something to a source
+  that doesn't mention it, even if the fact is true elsewhere.
+- If the provided data doesn't mention something specific, do not name one — describe
+  the point in terms of the underlying problem instead of an unverified solution."""
+
+
+# Same threshold used by Technical Plan Agent's relevance gate (§2.7 / §13.2 v4) —
+# reused here rather than reinvented, per the "single reused grounding pattern" lesson.
+SIMILARITY_THRESHOLD = 0.35
+
+# Same silent-truncation lesson as generate_technical_plan's gaps[:8] (flagged as a bug
+# in §7.6 for lacking visibility) — capped here too, but with a logged warning instead
+# of a silent cap, so this doesn't repeat that exact mistake.
+MAX_GAPS_PER_EXPERIMENT_SET = 6
+
+
+# ---------------------------------------------------------------------------
+# Extraction: pull only the fields relevant to experiment design out of a
+# paper's structured section-analysis, mirroring _extract_gap_relevant_text
+# and _extract_teaching_relevant_text (§6.3 / §6.5) — same field-selective
+# pattern, different field set.
+# ---------------------------------------------------------------------------
+def _extract_experiment_relevant_text(paper: dict, max_chars: int = 1500) -> str:
+    """
+    Pulls dataset/metric/baseline/protocol-relevant fields out of one paper's
+    analysis dict. Distinct from the gap-focused and teaching-focused
+    extractors because experiment design cares about *how the paper measured
+    things*, not just what it claimed or how it explained the problem.
+    """
+    analysis = paper.get("analysis", {}) or {}
+    parts = [f"Paper: {paper.get('title', 'Unknown')}"]
+
+    methodology = analysis.get("methodology", {}) or {}
+    if methodology.get("algorithms"):
+        parts.append(f"Algorithms: {methodology['algorithms']}")
+    if methodology.get("hyperparameters"):
+        parts.append(f"Hyperparameters: {methodology['hyperparameters']}")
+    if methodology.get("implementation_notes"):
+        parts.append(f"Implementation notes: {methodology['implementation_notes']}")
+
+    results = analysis.get("results", {}) or {}
+    if results.get("metrics"):
+        parts.append(f"Metrics used: {results['metrics']}")
+    if results.get("baselines_compared"):
+        parts.append(f"Baselines compared: {results['baselines_compared']}")
+    if results.get("reported_numbers"):
+        parts.append(f"Reported numbers: {results['reported_numbers']}")
+
+    discussion = analysis.get("discussion", {}) or analysis.get("conclusion", {}) or {}
+    if discussion.get("limitations"):
+        parts.append(f"Limitations: {discussion['limitations']}")
+    if discussion.get("future_work"):
+        parts.append(f"Future work: {discussion['future_work']}")
+
+    text = "\n".join(str(p) for p in parts)
+    return text[:max_chars]
+
+
+
+def _relevant_repo_reference(gap: dict, similar_projects_raw: list) -> dict | None:
+    """
+    Re-scores the SAME candidate repo pool (already fetched once per idea via
+    search_similar_projects) against this specific gap's text, rather than
+    reusing one global idea-level best match. This is deliberately NOT a new
+    search — same relevance-gate discipline as Technical Plan Agent (§2.7):
+    the candidate pool is fixed and idea-anchored, only the scoring query
+    changes per gap.
+ 
+    Args:
+        gap: one gap dict ({"gap_description", "opportunity", ...}).
+        similar_projects_raw: the RAW (unscored) project list from
+            search_similar_projects(idea) — NOT the idea-scored tuples.
+            Passing the raw list is what lets us re-score per gap; if you
+            pass an already (idea, projects)-scored list here you're just
+            back to the old global-match behavior.
+ 
+    Returns:
+        Same shape as before, or None if nothing clears SIMILARITY_THRESHOLD
+        for THIS gap specifically.
+    """
+    if not similar_projects_raw:
+        return None
+ 
+    gap_query = f"{gap.get('gap_description', '')} {gap.get('opportunity', '')}".strip()
+    if not gap_query:
+        return None
+ 
+    scored_for_gap = compute_similarity_scores(gap_query, similar_projects_raw)
+    if not scored_for_gap:
+        return None
+ 
+    best_score, best_proj = max(scored_for_gap, key=lambda t: t[0], default=(0, None))
+    if best_proj is None or best_score < SIMILARITY_THRESHOLD:
+        return None
+ 
+    return {
+        "name": best_proj.get("name"),
+        "url": best_proj.get("url"),
+        "source": best_proj.get("source"),
+        "similarity_score": round(best_score * 100, 1),
+        "matched_against": "gap",  
+    }
+
+
+# ---------------------------------------------------------------------------
+# Single-experiment generation, grounded in ONE gap
+# ---------------------------------------------------------------------------
+_EXPERIMENT_SCHEMA_INSTRUCTIONS = """
+Respond with ONLY a JSON object in this exact shape:
+{
+  "title": "short experiment title",
+  "addresses_gap": "restatement of the gap this experiment targets",
+  "objective": "1-2 sentences: what the student is trying to find out",
+  "dataset": {
+    "name": "dataset name",
+    "source": "where to get it (e.g. a public repo, Kaggle, a benchmark suite)",
+    "notes": "any relevant notes about the dataset",
+    "grounded": true or false
+  },
+  "baseline_methods": ["method 1", "method 2"],
+  "evaluation_metrics": ["metric 1", "metric 2"],
+  "protocol_steps": ["step 1", "step 2", "step 3"],
+  "variations_to_try": ["optional variation 1", "optional variation 2"],
+  "expected_outcome_or_hypothesis": "what the student should expect, and why",
+  "risks_or_confounds": ["thing that could confound the result"],
+  "related_paper_evidence": [
+    {"paper": "exact paper title from the source text", "claim": "the exact claim being tested or built on"}
+  ],
+  "student_deliverable": "what the student should hand in (e.g. a short report with metric table + discussion)",
+  "difficulty": "beginner" | "intermediate" | "advanced",
+  "estimated_time": "e.g. 3-5 hours"
+}
+
+IMPORTANT — dataset honesty rule:
+- Set "dataset.grounded" to true ONLY if the dataset name comes directly from the
+  provided paper text below.
+- If no specific dataset is mentioned in the provided text, you MAY suggest a
+  widely-known, standard public benchmark dataset appropriate to this problem type,
+  but you MUST set "dataset.grounded" to false and say so plainly in "notes"
+  (e.g. "Not mentioned in the source papers; suggested as a standard benchmark
+  for this problem area."). Never present a suggested dataset as if the literature
+  specified it.
+
+IMPORTANT — no execution:
+- This experiment is DESIGNED for a student to run themselves. Do not write code,
+  do not assume any tool/library beyond naming it, and do not claim any result was
+  actually observed. "expected_outcome_or_hypothesis" is a hypothesis, not a result.
+
+IMPORTANT — evidence honesty:
+- "related_paper_evidence" entries must reference the EXACT paper titles given below.
+  Do not invent a paper title, and do not attribute a claim to a paper that doesn't
+  make it in the text provided.
+""".strip()
+
+
+def generate_experiment_plan(
+    idea: str,
+    gap: dict,
+    papers_with_analysis: list,
+    similar_projects_raw: list | None = None,   # <-- renamed + now raw, not pre-scored
+    difficulty: str = "intermediate",
+) -> dict:
+    involved_titles = set(gap.get("papers_involved", []) or [])
+    relevant_papers = [p for p in papers_with_analysis if p.get("title") in involved_titles]
+    if not relevant_papers:
+        relevant_papers = papers_with_analysis
+ 
+    source_text = "\n\n---\n\n".join(
+        _extract_experiment_relevant_text(p) for p in relevant_papers
+    )[:6000]
+ 
+    # CHANGED: score against this gap, not a pre-computed idea-level list.
+    repo_ref = _relevant_repo_reference(gap, similar_projects_raw or [])
+    repo_block = (
+        f"A relevant existing implementation was found for THIS specific gap "
+        f"(similarity {repo_ref['similarity_score']}%): "
+        f"{repo_ref['name']} ({repo_ref['url']}). You may reference it as an implementation "
+        f"starting point, but do not assume the student's experiment reproduces it exactly."
+        if repo_ref else
+        "No sufficiently similar existing implementation was found for this specific gap "
+        "(below the relevance threshold). Do not reference a specific repo."
+    )
+
+    prompt = f"""You are designing ONE grounded student experiment for a course built on real research literature.
+
+User's project idea: {idea}
+
+Gap this experiment must address:
+- Description: {gap.get('gap_description', '')}
+- Supporting evidence: {gap.get('supporting_evidence', '')}
+- Opportunity: {gap.get('opportunity', '')}
+- Papers involved: {', '.join(involved_titles) if involved_titles else 'none specified'}
+
+Target difficulty level: {difficulty}
+
+Source material from the involved papers (use ONLY this for anything you claim is grounded):
+{source_text}
+
+Similar-project context:
+{repo_block}
+
+{GROUNDING_RULES_BLOCK}
+
+{_EXPERIMENT_SCHEMA_INSTRUCTIONS}
+"""
+
+    raw = _groq_invoke_safe(prompt)
+    parsed = _safe_json_parse(raw)
+
+    if not parsed:
+        return {"_error": "Failed to generate or parse experiment plan.", "gap": gap.get("gap_description", "")}
+
+    # Same ground-truth-override principle as detect_gaps' papers_involved fix (§7.3):
+    # don't trust the model's free-text claim about which paper it used when we already
+    # know it in code. Filter related_paper_evidence against the real involved-paper set.
+    known_titles = {p.get("title") for p in relevant_papers}
+    if isinstance(parsed.get("related_paper_evidence"), list):
+        parsed["related_paper_evidence"] = [
+            entry for entry in parsed["related_paper_evidence"]
+            if isinstance(entry, dict) and entry.get("paper") in known_titles
+        ]
+
+    # Attach the repo reference as verified structured data rather than trusting
+    # the model to have transcribed it correctly into free text.
+    parsed["related_repo_reference"] = repo_ref
+    parsed["addresses_gap_source"] = gap.get("gap_description", "")
+
+    return parsed
+
+
+# ---------------------------------------------------------------------------
+# Top-level entry point — mirrors detect_gaps / generate_technical_plan /
+# generate_teaching_plan as the "main" callable for this agent.
+# ---------------------------------------------------------------------------
+
+def generate_experiment_set(
+    idea: str,
+    gaps: list,
+    papers_with_analysis: list,
+    similar_projects_raw: list | None = None,   # <-- renamed, now raw
+    module_difficulty: str | None = None,
+    max_experiments: int | None = None,
+) -> dict:
+    cap = max_experiments if max_experiments is not None else MAX_GAPS_PER_EXPERIMENT_SET
+    if len(gaps) > cap:
+        print(f"[generate_experiment_set] Truncating {len(gaps)} gaps down to {cap}. "
+              f"Dropped gaps: {[g.get('gap_description', '')[:60] for g in gaps[cap:]]}")
+    gaps_to_use = gaps[:cap]
+ 
+    experiments = []
+    for gap in gaps_to_use:
+        try:
+            exp = generate_experiment_plan(
+                idea=idea,
+                gap=gap,
+                papers_with_analysis=papers_with_analysis,
+                similar_projects_raw=similar_projects_raw,   # <-- renamed
+                difficulty=module_difficulty or "intermediate",
+            )
+        except Exception as e:
+            exp = {"_error": str(e), "gap": gap.get("gap_description", "")}
+        experiments.append(exp)
+ 
+    return {
+        "idea": idea,
+        "experiments": experiments,
+        "gaps_used": [g.get("gap_description", "") for g in gaps_to_use],
+        "papers_used": [p.get("title") for p in papers_with_analysis],
+    }
