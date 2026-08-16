@@ -66,7 +66,8 @@ def _get_groq_llm():
     return ChatOpenAI(
         base_url="https://api.groq.com/openai/v1",
         api_key=api_key,
-        model="llama-3.3-70b-versatile",
+        #moonshotai/kimi-k2-instruct vc qwen/qwen3.6-27b
+        model="moonshotai/kimi-k2-instruct",
         temperature=0.2,
         timeout=60,        
         max_retries=1,      
@@ -2344,6 +2345,16 @@ def _build_repair_prompt(code: str, validation: Dict, label: str) -> str:
                 f"{unplanned}. Remove them unless genuinely necessary — do not add unrelated classes "
                 f"or functions beyond what the plan calls for."
             )
+    quality_issue = validation.get("quality_issue")
+    if quality_issue and quality_issue.get("issues"):
+        details = "; ".join(quality_issue["issues"])
+        problems.append(
+            f"This is meant to be a COMPLETE solution, but still contains unfinished placeholder "
+            f"content: {details}. Replace every placeholder with a real, working implementation — "
+            f"no TODOs, no empty 'pass' bodies, no NotImplementedError."
+        )
+
+        
     problems_text = "\n".join(f"- {p}" for p in problems)
 
     return f"""The following Python code ({label}) has errors. Fix ONLY these specific problems,
@@ -2405,9 +2416,10 @@ def _repair_code(code: str, validation: Dict, label: str, model_name: str, max_a
         current_validation = rewrite["validation"]
         current_validation["repair_attempts"] = attempts_used
         current_validation["rewrite_attempted"] = True
+        current_validation["rewrite_attempts"] = rewrite.get("attempts_used", 0)
     else:
-        current_validation["rewrite_attempts"] = attempts_used
         current_validation["rewrite_attempted"] = False
+        current_validation["rewrite_attempts"] = 0
 
     return {"code": current_code, "validation": current_validation, "attempts_used": attempts_used}
 
@@ -2460,19 +2472,18 @@ def _rewrite_code(code: str, validation: Dict, label: str, model_name: str) -> D
         raw = _coder_invoke_safe(prompt, model_name)
     except Exception as e:
         print(f"[lab] rewrite attempt for {label} failed: {e}")
-        return {"code": code, "validation": validation}
+        return {"code": code, "validation": validation, "attempts_used": 0}
 
     rewritten = _extract_code_block(raw)
     if not rewritten.strip():
         print(f"[lab] rewrite attempt for {label} returned empty output, keeping previous version.")
-        return {"code": code, "validation": validation}
+        return {"code": code, "validation": validation, "attempts_used": 0}
 
     new_validation = _validate_python_code(rewritten)
-    return {"code": rewritten, "validation": new_validation}
+    return {"code": rewritten, "validation": new_validation, "attempts_used": 1}
 
 
 import difflib  # add to your existing imports at the top of tools.py
-
 def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
     """
     Pure structural (non-LLM) comparison between generated code and the
@@ -2529,7 +2540,16 @@ def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
     return {
         "missing_produces": missing_produces,
         "unplanned_definitions": unplanned_definitions,
-        "valid": not missing_produces and not unplanned_definitions,
+        # Only a genuinely SKIPPED deliverable blocks the lab. An unplanned
+        # top-level def is recorded for visibility, but does NOT invalidate
+        # the code on its own — testing showed this was flagging ordinary,
+        # necessary helper functions (a preprocessing function feeding a
+        # planned training function, etc.) at a near-100% false-positive
+        # rate. Telling those apart from a genuinely orphaned, disconnected
+        # addition (the original Qwen3-reference case) needs actual
+        # connectivity analysis — not yet built; until then, don't block
+        # on this signal alone.
+        "valid": not missing_produces,
     }
 def _find_duplicate_definitions(code: str, tree: "ast.AST" = None) -> List[Dict]:
     """
@@ -2783,6 +2803,69 @@ def _validate_python_code(code: str) -> Dict[str, object]:
                 if node.name:
                     defs.add(node.name)
 
+
+            # Add these methods inside the `Own(ast.NodeVisitor)` class within
+        # `_own_uses_and_defs`, alongside the existing visit_If/visit_For/etc.
+        #
+        # Comprehensions (list/set/dict/generator) create their OWN scope in
+        # Python 3 — a name bound by `for x in ...` inside a comprehension is
+        # local to that comprehension and always valid within it, regardless
+        # of module-level ordering. Without this, `[f(x) for x in y]` gets
+        # misread as "x used, then x defined" as two separate module-level
+        # events in the wrong order — a real false positive found via a
+        # genuine test (a Friedman-test line using `[col for col in cols]`
+        # was wrongly flagged and pushed into debug_mode over nothing).
+
+        def visit_ListComp(self, node):
+            self._visit_comprehension(node)
+
+        def visit_SetComp(self, node):
+            self._visit_comprehension(node)
+
+        def visit_DictComp(self, node):
+            self._visit_comprehension(node)
+
+        def visit_GeneratorExp(self, node):
+            self._visit_comprehension(node)
+
+        def _visit_comprehension(self, node):
+            # Names bound by any `for ... in ...` clause inside the
+            # comprehension are local to it — never report them as this
+            # statement's own uses/defs.
+            bound_locally = set()
+            for gen in node.generators:
+                for n in ast.walk(gen.target):
+                    if isinstance(n, ast.Name):
+                        bound_locally.add(n.id)
+
+            outer = self  # the Own visitor — its `uses`/`defs` sets
+
+            class _Inner(ast.NodeVisitor):
+                def visit_Name(self, n):
+                    if n.id in bound_locally:
+                        return  # locally bound within the comprehension — ignore
+                    if isinstance(n.ctx, ast.Load):
+                        uses.add(n.id)
+                    elif isinstance(n.ctx, ast.Store):
+                        defs.add(n.id)
+                    self.generic_visit(n)
+
+            # The element/key/value expressions can reference the locally
+            # bound comprehension variable(s) — those get filtered above.
+            if isinstance(node, ast.DictComp):
+                _Inner().visit(node.key)
+                _Inner().visit(node.value)
+            else:
+                _Inner().visit(node.elt)
+
+            for gen in node.generators:
+                # The ITERABLE genuinely references the enclosing scope
+                # (e.g. `cols` in `for col in cols`) — that one still needs
+                # real order-checking, so visit it normally, not filtered.
+                outer.visit(gen.iter)
+                for cond in gen.ifs:
+                    _Inner().visit(cond)
+
         Own().visit(stmt)
         return uses, defs
 
@@ -2858,8 +2941,7 @@ def _validate_python_code(code: str) -> Dict[str, object]:
 
     return validation
 
-"""
-Lab Generator Agent (v2)
+""" Lab Generator Agent (v2)
 --------------------------
 Turns one course lesson (from Course Generator) into a hands-on exercise:
 fill-in-the-blank code, or a small Kaggle-style notebook, grounded in the
@@ -2898,6 +2980,7 @@ rest of the project). Students/teachers run the notebooks themselves.
 import os
 import re
 import json
+import ast
 from typing import Dict, List, Tuple, Optional
 
 from langchain_ollama import ChatOllama
@@ -2925,11 +3008,32 @@ def _get_coder_llm(model_name: str):
 
 def _coder_invoke_safe(prompt: str, model_name: str = DEFAULT_CODE_MODEL, retries: int = 2) -> str:
     """
-    Local model, no external rate limit, but Ollama can be unreachable
-    (server not running, or the model isn't pulled) or briefly busy —
-    retry a couple times, then fail loudly rather than silently falling
-    back to a cloud model for the code-generation step.
-    
+    "groq" and "gemini" route to the existing cloud clients from tools.py;
+    anything else is treated as a local Ollama model name. This lets
+    compare_lab_code_models() (and generate_lab_exercise itself) run cloud
+    and local models through the IDENTICAL decomposition + validate +
+    repair + plan-compliance pipeline for a fair comparison — not raw,
+    un-decomposed first-draft output.
+
+    Local models can be unreachable (Ollama not running, model not pulled)
+    or briefly busy; cloud models can hit rate limits. Either way: retry a
+    couple times, then fail loudly rather than silently falling back.
+    """
+    if model_name in ("groq", "gemini"):
+        invoke_fn = _invoke_groq if model_name == "groq" else _invoke_gemini  # noqa: F821 — from tools.py
+        last_err = None
+        for attempt in range(retries):
+            try:
+                response = invoke_fn(prompt)
+                content = response.content
+                if isinstance(content, list):
+                    content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
+                return content
+            except Exception as e:
+                last_err = e
+                print(f"[{model_name}] attempt {attempt+1} failed: {e}")
+        raise RuntimeError(f"{model_name} unreachable after {retries} attempts: {last_err}")
+
     llm = _get_coder_llm(model_name)
     last_err = None
     for attempt in range(retries):
@@ -2945,8 +3049,7 @@ def _coder_invoke_safe(prompt: str, model_name: str = DEFAULT_CODE_MODEL, retrie
             last_err = e
             print(f"[{model_name}] attempt {attempt+1} failed: {e}")
     raise RuntimeError(f"{model_name} (Ollama) unreachable after {retries} attempts: {last_err}")
-""" 
-    return _groq_invoke_safe(prompt)  #
+
 
 def _extract_code_block(text: str) -> str:
     """
@@ -3175,17 +3278,64 @@ Rules:
   If you must guess a dataset or library, use a well-known real one and say so in a comment.
 - Stick to the plan for this step: define ONLY what's listed above, nothing extra and nothing
   unrelated — don't add helper classes/functions the plan didn't ask for.
+- In the STARTER version specifically: a body made ONLY of `# TODO` comments is NOT valid Python
+  and will crash. Always include a `pass` statement after the TODO comment(s) so the code still
+  runs, e.g.:
+  def some_function():
+      # TODO: implement this
+      pass
 """
+
+
+def _score_solution_quality(code: str) -> Dict:
+    """
+    Solution code should be COMPLETE — unlike starter code, it should never
+    contain a leftover TODO, a bare `pass` body, or NotImplementedError.
+
+    IMPORTANT: only ever call this on SOLUTION code, never starter code —
+    starter code's placeholders are intentional by design (that's what
+    makes it a fill-in-the-blank exercise), so running this against
+    starter code would reject every valid exercise.
+    """
+    issues = []
+    if re.search(r"#\s*TODO", code, re.IGNORECASE):
+        issues.append("a leftover TODO comment")
+    if re.search(r"placeholder", code, re.IGNORECASE):
+        issues.append("a comment admitting the code is a placeholder, not a real implementation")
+    if re.search(r"\bdummy\b", code, re.IGNORECASE):
+        issues.append("dummy/fake logic instead of a real implementation")
+    if re.search(r"NotImplementedError", code):
+        issues.append("raises/returns NotImplementedError instead of a real implementation")
+
+    try:
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                body = node.body
+                if len(body) == 1 and isinstance(body[0], ast.Pass):
+                    issues.append(f"'{node.name}' has an empty (pass-only) body")
+                elif (
+                    len(body) == 1
+                    and isinstance(body[0], ast.Expr)
+                    and isinstance(getattr(body[0], "value", None), ast.Constant)
+                    and isinstance(body[0].value.value, str)
+                ):
+                    issues.append(f"'{node.name}' has only a docstring, no real implementation")
+    except SyntaxError:
+        pass  # syntax errors are already handled by _validate_python_code
+
+    return {"issues": issues, "valid": not issues}
 
 
 def _build_debug_hint(validation: Dict, difficulty: str) -> str:
     """
     Turns a validation report into a student-facing hint, calibrated to
     difficulty. Only ever called when the validator ACTUALLY knows what's
-    wrong (syntax error, undefined name, use-before-define, or a wasteful
-    duplicate definition) — never used for issues the system can't see
-    (wrong-but-valid API calls, hallucinated content), since those can't
-    be honestly framed as "here's a bug, go find it."
+    wrong (syntax error, undefined name, use-before-define, wasteful
+    duplicate definition, plan mismatch, or leftover stub content) — never
+    used for issues the system can't see (wrong-but-valid API calls,
+    hallucinated content), since those can't be honestly framed as "here's
+    a bug, go find it."
     """
     issues = []
     if not validation.get("syntax_ok", True):
@@ -3202,6 +3352,9 @@ def _build_debug_hint(validation: Dict, difficulty: str) -> str:
             issues.append("a planned part of this exercise that was never actually implemented")
         if plan_issue.get("unplanned_definitions"):
             issues.append("code that doesn't match what this exercise was supposed to cover")
+    quality_issue = validation.get("quality")
+    if quality_issue and not quality_issue.get("valid", True):
+        issues.append("unfinished placeholder code left in what should be the complete solution")
 
     if not issues:
         return "This code has at least one issue — read through it carefully."
@@ -3287,6 +3440,34 @@ def _validate_and_repair(
             if not recompliance["valid"]:
                 solution_validation["valid"] = False
 
+    # Quality check: solution code should never contain leftover stub
+    # markers (TODO, bare `pass`, NotImplementedError) — same repair
+    # mechanism, one dedicated attempt, run last since it needs whatever
+    # the code_plan repair above produced.
+    quality = _score_solution_quality(solution_code)
+    solution_validation["quality"] = quality
+    if not quality["valid"]:
+        solution_validation["valid"] = False
+        quality_repair = _repair_code(                                  # noqa: F821
+            solution_code,
+            {**solution_validation, "quality_issue": quality},
+            "solution code (completeness)",
+            model_name,
+            max_attempts=1,
+        )
+        solution_code = quality_repair["code"]
+        solution_validation = _validate_python_code(solution_code)      # noqa: F821
+        if code_plan:
+            recompliance2 = _check_plan_compliance(solution_code, code_plan)  # noqa: F821
+            solution_validation["plan_compliance"] = recompliance2
+            if not recompliance2["valid"]:
+                solution_validation["valid"] = False
+        requality = _score_solution_quality(solution_code)
+        solution_validation["quality"] = requality
+        solution_validation["repair_attempts"] = quality_repair["attempts_used"]
+        if not requality["valid"]:
+            solution_validation["valid"] = False
+
     result = {
         "starter_code": starter_code,
         "solution_code": solution_code,
@@ -3303,6 +3484,34 @@ def _validate_and_repair(
     return result
 
 
+def _score_full_candidate(accumulated_solution_so_far: str, candidate_step_solution: str, topic_name: str) -> float:
+    """
+    Scores ONE candidate for a single step, cheaply and purely via static
+    analysis — no extra LLM calls. Builds what the FULL accumulated
+    solution would look like with this candidate slotted in, so cross-step
+    issues (undefined names, use-before-define against earlier steps) are
+    scored accurately, not just the isolated new snippet.
+    """
+    full_solution = (
+        accumulated_solution_so_far
+        + ("\n\n" if accumulated_solution_so_far else "")
+        + f"# --- {topic_name} ---\n"
+        + candidate_step_solution
+    )
+    validation = _validate_python_code(full_solution)  # noqa: F821
+    quality = _score_solution_quality(candidate_step_solution)
+
+    score = 100.0
+    if not validation.get("syntax_ok", True):
+        score -= 60
+    score -= 15 * len(validation.get("undefined_names", []))
+    score -= 12 * len(validation.get("used_before_defined", []))
+    score -= 10 * sum(1 for d in validation.get("duplicate_definitions", []) if d.get("likely_wasteful_repeat"))
+    if not quality["valid"]:
+        score -= 30
+    return score
+
+
 def _generate_code_per_topic(
     lesson: Dict,
     scaffold: Dict,
@@ -3310,7 +3519,16 @@ def _generate_code_per_topic(
     repo_text: str,
     model_name: str = DEFAULT_CODE_MODEL,
     difficulty: str = "intermediate",
+    num_candidates: int = 1,
 ) -> Dict:
+    """
+    num_candidates > 1 enables rejection sampling PER STEP: generate that
+    many independent completions for the same step, score each with
+    _score_full_candidate (pure static analysis, no extra LLM calls), and
+    keep only the best-scoring one before moving to the next step. Costs
+    nothing extra for local models (no rate limit); for cloud models
+    (Groq/Gemini) this multiplies call volume, so use sparingly there.
+    """
     topics = lesson.get("sections", [])
     if not topics:
         return _generate_code_single_shot(scaffold, source_text, repo_text, model_name, difficulty)
@@ -3335,17 +3553,27 @@ def _generate_code_per_topic(
             scaffold, topic_name, explanation, evidence,
             accumulated_solution, repo_text, is_first=(i == 0), step_plan=step_plan,
         )
-        raw = _coder_invoke_safe(prompt, model_name)
 
-        starter_match = re.search(r"###\s*STARTER\s*(.*?)###\s*SOLUTION", raw, re.DOTALL | re.IGNORECASE)
-        solution_match = re.search(r"###\s*SOLUTION\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
-        step_starter = _extract_code_block(starter_match.group(1)) if starter_match else ""
-        step_solution = _extract_code_block(solution_match.group(1)) if solution_match else ""
+        best = None
+        for candidate_num in range(max(1, num_candidates)):
+            raw = _coder_invoke_safe(prompt, model_name)
+            starter_match = re.search(r"###\s*STARTER\s*(.*?)###\s*SOLUTION", raw, re.DOTALL | re.IGNORECASE)
+            solution_match = re.search(r"###\s*SOLUTION\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
+            cand_starter = _extract_code_block(starter_match.group(1)) if starter_match else ""
+            cand_solution = _extract_code_block(solution_match.group(1)) if solution_match else ""
+            if not cand_starter or not cand_solution:
+                continue
+            cand_score = _score_full_candidate(accumulated_solution, cand_solution, topic_name)
+            if num_candidates > 1:
+                print(f"[lab] topic '{topic_name}' candidate {candidate_num + 1}/{num_candidates}: score={cand_score:.0f}")
+            if best is None or cand_score > best["score"]:
+                best = {"starter": cand_starter, "solution": cand_solution, "score": cand_score}
 
-        if not step_starter or not step_solution:
-            print(f"[lab] {model_name} output for topic '{topic_name}' didn't match expected shape, skipping step.")
+        if best is None:
+            print(f"[lab] no usable candidate for topic '{topic_name}' after {num_candidates} attempt(s), skipping step.")
             continue
 
+        step_starter, step_solution = best["starter"], best["solution"]
         cells.append({"topic": topic_name, "starter": step_starter, "solution": step_solution})
         accumulated_starter += ("\n\n" if accumulated_starter else "") + f"# --- {topic_name} ---\n" + step_starter
         accumulated_solution += ("\n\n" if accumulated_solution else "") + f"# --- {topic_name} ---\n" + step_solution
@@ -3430,6 +3658,7 @@ def generate_lab_exercise(
     similarity_threshold: float = 0.35,
     generate_code: bool = True,
     code_model: str = DEFAULT_CODE_MODEL,
+    num_candidates: int = 1,
 ) -> Dict:
     """
     lesson: one lesson dict from generate_lesson_for_module / course["modules"][i]["lessons"][j]
@@ -3441,6 +3670,9 @@ def generate_lab_exercise(
     code_model: which local Ollama model to use for the code step — swap this to compare
         e.g. "qwen2.5-coder:7b" vs "deepseek-coder-v2:16b" (see compare_lab_code_models
         for a helper that runs both against the identical scaffold in one call).
+    num_candidates: generate this many independent candidates per topic step and keep the
+        best-scoring one (static analysis only, no extra LLM calls to judge). Free for local
+        models; multiplies call volume for cloud models (Groq/Gemini) — use sparingly there.
     """
     source_text = _get_paper_analysis_by_title(   # noqa: F821 — provided by tools.py
         papers_with_analysis, module.get("based_on_papers", [])
@@ -3482,7 +3714,8 @@ def generate_lab_exercise(
 
     if generate_code and scaffold.get("format") in ("notebook", "fill_in_blank"):
         code = _generate_code_per_topic(
-            lesson, scaffold, source_text, repo_text, code_model, difficulty=result["difficulty"]
+            lesson, scaffold, source_text, repo_text, code_model,
+            difficulty=result["difficulty"], num_candidates=num_candidates,
         )
         result["code_model"] = code_model
 

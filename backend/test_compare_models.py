@@ -21,9 +21,9 @@ Test on ONE lesson first, not a full course.
 
 import json
 import os
-
+from typing import List, Dict
 from agents.tools import (
-    compare_lab_code_models,   # from lab_generator.py, once merged into tools.py
+    generate_lab_exercise,
     detect_gaps,
     generate_course,
     generate_teaching_plan,
@@ -35,7 +35,7 @@ from agents.tools import (
 IDEA = "fake news detection using transformer models"
 CACHE_FILE = "test_pipeline_cache.json"
 MODULE_TITLE_CONTAINS = "Transformer"
-MODELS = ("groq", "gemini", "qwen2.5-coder:7b", "deepseek-coder-v2:16b")
+CODE_MODEL = "qwen2.5-coder:7b"
 
 
 def get_or_build_pipeline_output():
@@ -64,6 +64,43 @@ def get_or_build_pipeline_output():
         json.dump(data, f, indent=2)
     print(f"[cache] saved pipeline output to {CACHE_FILE}")
     return data
+
+
+def run_one_shot_lab_generator_cache(cache_path: str = "lab_generator_cache.json", model_name: str = "qwen2.5-coder:7b") -> Dict:
+    """Run the existing lab generation path once (scaffold + per-topic code generation + repair)
+    and save the output to a cache file for faster repeated tests.
+
+    This avoids re-running the expensive Groq scaffold+analysis steps on every test run.
+    """
+    if os.path.exists(cache_path):
+        print(f"[lab cache] loading lab generator cache from {cache_path}")
+        with open(cache_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    print("[lab cache] no lab cache found — running the lab generator once...")
+    data = get_or_build_pipeline_output()
+    scored_similar = [tuple(item) for item in data["scored_similar"]]
+    module, lesson = find_module_and_lesson(data["teaching_plan"], data["course"], MODULE_TITLE_CONTAINS)
+
+    # Use the production compare path but only keep the RESULTS for a single model run
+    chosen = model_name or MODELS[0]
+    comparison = compare_lab_code_models(
+        lesson=lesson,
+        module=module,
+        papers_with_analysis=data["papers_with_analysis"],
+        similar_projects_scored=scored_similar,
+        models=(chosen,),
+    )
+
+    if comparison.get("_error"):
+        print(f"Lab generator run failed: {comparison.get('_error')}")
+        return {"_error": comparison.get("_error")}
+
+    result = {"scaffold": comparison.get("scaffold"), "result": comparison.get("results", {}).get(chosen)}
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+    print(f"[lab cache] saved lab generator output to {cache_path}")
+    return result
 
 
 def find_module_and_lesson(teaching_plan, course, title_contains):
@@ -125,32 +162,29 @@ if __name__ == "__main__":
     print(f"\nTesting on module: {module.get('title')}")
     print(f"Lesson: {lesson.get('lesson_title')}\n")
 
-    comparison = compare_lab_code_models(
+    # Run the full lab generation for a single coder model (debug mode)
+    print(f"[debug] generating lab with code model: {CODE_MODEL} ...")
+    lab = generate_lab_exercise(
         lesson=lesson,
         module=module,
         papers_with_analysis=data["papers_with_analysis"],
         similar_projects_scored=scored_similar,
-        models=MODELS,
+        generate_code=True,
+        code_model=CODE_MODEL,
     )
 
-    if comparison.get("_error"):
-        print(f"Could not run comparison: {comparison['_error']}")
+    if lab.get("_error"):
+        print(f"Lab generation failed: {lab.get('_error')}")
         raise SystemExit(1)
 
-    summaries = []
-    print("--- RESULTS (post-decomposition, post-repair, post-plan-compliance) ---")
-    for model_name, code_result in comparison["results"].items():
-        s = summarize(model_name, code_result)
-        summaries.append(s)
-        print(
-            f"{model_name}: starter_valid={s['starter_valid']} | solution_valid={s['solution_valid']} | "
-            f"debug_mode={s['debug_mode']} | repairs={s['starter_repair_attempts'] + s['solution_repair_attempts']} | "
-            f"plan_ok={s['plan_compliance_valid']} | wasteful_dupes={len(s['wasteful_duplicate_defs'])}"
-        )
+    # Save lab output and an endpoint-like wrapper
+    out_name = f"lab_debug_{CODE_MODEL.replace(':','_')}.json"
+    with open(out_name, "w", encoding="utf-8") as f:
+        json.dump(lab, f, indent=2)
+    print(f"Saved lab output to {out_name}")
 
-    with open("model_comparison_results_v2.json", "w", encoding="utf-8") as f:
-        json.dump(
-            {"scaffold": comparison.get("scaffold"), "summary": summaries, "full_results": comparison["results"]},
-            f, indent=2,
-        )
-    print("\nFull results (including all generated code) saved to model_comparison_results_v2.json")
+    endpoint_like = {"idea": IDEA, "modules": [{"module_title": module.get("title", ""), "lessons": [{"lab": lab, "notebook_files": None}]}], "papers_used": [p.get("title") for p in data.get("papers_with_analysis", [])]}
+    endpoint_file = f"endpoint_like_{CODE_MODEL.replace(':','_')}.json"
+    with open(endpoint_file, "w", encoding="utf-8") as f:
+        json.dump(endpoint_like, f, indent=2)
+    print(f"Saved endpoint-like output to {endpoint_file}")

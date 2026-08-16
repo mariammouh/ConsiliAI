@@ -1,0 +1,494 @@
+{
+  "papers_with_analysis": [
+    {
+      "title": "Multilingual Fake News Detection using Transformer Models",
+      "analysis": {
+        "abstract": {
+          "summary": null
+        }
+      }
+    },
+    {
+      "title": "A hybrid framework for fake news detection using transformer models with MASHAP",
+      "analysis": {
+        "abstract": {
+          "summary": null
+        }
+      }
+    },
+    {
+      "title": "An Efficient Model for Fake News Detection Using Transformer",
+      "analysis": {
+        "abstract": {
+          "summary": "The public discourse is seriously threatened by the massive circulation of false information via social media and other platforms. This study investigates the potential of transformer models to effectively identify fake news, comparing their performance to mores Deep Learning (DL) and Machine Learning (ML) approaches. While DL and ML models have shown promise in this domain, they often struggle to capture the nuances of language context. Transformers, a more recent advancement indeep learning, excel at understanding the contextual relationships within text. By training transformer models on real-world datasets and evaluating their accuracy in identifying fake news, The objective of this study is to aid in the advancement of false news identification systems that are more dependable and precise. Through a critical analysis of transformer models in comparison to existing techniques, this study seeks to pave the way for future advancements in natural language processing (NLP) and the creation of a more trustworthy online information ecosystem."
+        }
+      }
+    }
+  ],
+  "teaching_plan": {
+    "course_title": "Fake News Detection using Transformer Models",
+    "target_audience": "Students with a background in natural language processing and machine learning",
+    "learning_objectives": [
+      "Understand the problem of fake news detection and its importance",
+      "Learn about the application of transformer models in fake news detection",
+      "Analyze the performance of different transformer models in detecting fake news",
+      "Explore the limitations and potential research gaps in the current state of fake news detection"
+    ],
+    "prerequisites": [
+      "Introduction to natural language processing",
+      "Machine learning fundamentals"
+    ],
+    "modules": [
+      {
+        "title": "Introduction to Fake News Detection",
+        "problem_addressed": "The spread of false information via social media and other platforms threatens public discourse",
+        "solution_approach": "Using machine learning and natural language processing techniques to identify fake news",
+        "description": "This module introduces the problem of fake news detection, its importance, and the current state of research in the field",
+        "topics": [
+          "Definition and types of fake news",
+          "Impact of fake news on society"
+        ],
+        "based_on_papers": [
+          "An Efficient Model for Fake News Detection Using Transformer"
+        ],
+        "difficulty": "beginner"
+      },
+      {
+        "title": "Transformer Models for Fake News Detection",
+        "problem_addressed": "The need for effective models to detect fake news in multilingual datasets",
+        "solution_approach": "Applying transformer models to detect fake news",
+        "description": "This module covers the application of transformer models in fake news detection, including their architecture and training",
+        "topics": [
+          "Transformer model architecture",
+          "Training transformer models for fake news detection"
+        ],
+        "based_on_papers": [
+          "Multilingual Fake News Detection using Transformer Models"
+        ],
+        "difficulty": "intermediate"
+      },
+      {
+        "title": "Hybrid Framework for Fake News Detection",
+        "problem_addressed": "The need for a hybrid approach to improve fake news detection accuracy",
+        "solution_approach": "Combining transformer models with other techniques, such as MASHAP",
+        "description": "This module explores the use of hybrid frameworks for fake news detection, including the integration of MASHAP with transformer models",
+        "topics": [
+          "Hybrid framework architecture",
+          "MASHAP integration with transformer models"
+        ],
+        "based_on_papers": [
+          "A hybrid framework for fake news detection using transformer models with MASHAP"
+        ],
+        "difficulty": "advanced"
+      }
+    ],
+    "frontier_topics": [
+      {
+        "topic": "Language Complexity and Transformer Model Performance",
+        "addresses_gap": "The paper does not provide a comprehensive analysis of the impact of language complexity on the performance of transformer models in detecting fake news",
+        "rationale": "Investigating the relationship between language complexity and transformer model performance can lead to more accurate models"
+      },
+      {
+        "topic": "Dataset Bias in Multilingual Fake News Detection",
+        "addresses_gap": "The paper assumes that the availability of large-scale multilingual datasets is sufficient for training effective transformer models, without exploring the potential for dataset bias",
+        "rationale": "Examining the effects of dataset bias on transformer model performance can help mitigate these effects and improve model robustness"
+      },
+      {
+        "topic": "Comparing Transformer Models for Multilingual Fake News Detection",
+        "addresses_gap": "The paper does not provide a detailed comparison of the performance of different transformer models in detecting fake news across multiple languages",
+        "rationale": "Comparing the performance of different transformer models can help identify the most effective models for specific languages or language groups"
+      },
+      {
+        "topic": "Detecting Diverse Types of Fake News",
+        "addresses_gap": "The paper does not provide a comprehensive evaluation of the hybrid framework's performance on different types of fake news, such as satire, propaganda, or disinformation",
+        "rationale": "Investigating the effectiveness of the hybrid framework in detecting diverse types of fake news can improve its robustness and generalizability"
+      },
+      {
+        "topic": "Integrating Multimodal Features for Fake News Detection",
+        "addresses_gap": "The paper does not explore the potential of using multimodal features, such as images or videos, in addition to text features for fake news detection",
+        "rationale": "Incorporating multimodal features can potentially improve fake news detection accuracy"
+      }
+    ],
+    "suggested_duration": "12 weeks"
+  },
+  "course": {
+    "course_title": "Fake News Detection using Transformer Models",
+    "target_audience": "Students with a background in natural language processing and machine learning",
+    "learning_objectives": [
+      "Understand the problem of fake news detection and its importance",
+      "Learn about the application of transformer models in fake news detection",
+      "Analyze the performance of different transformer models in detecting fake news",
+      "Explore the limitations and potential research gaps in the current state of fake news detection"
+    ],
+    "modules": [
+      {
+        "module_title": "Introduction to Fake News Detection",
+        "difficulty": "beginner",
+        "problem_addressed": "The spread of false information via social media and other platforms threatens public discourse",
+        "solution_approach": "Using machine learning and natural language processing techniques to identify fake news",
+        "based_on_papers": [
+          "An Efficient Model for Fake News Detection Using Transformer"
+        ],
+        "lessons": [
+          {
+            "lesson_title": "Introduction to Fake News Detection",
+            "objectives_covered": [
+              "Definition and types of fake news",
+              "Impact of fake news on society"
+            ],
+            "sections": [
+              {
+                "topic": "Definition and types of fake news",
+                "explanation": "The spread of false information via social media and other platforms is a significant threat to public discourse. Fake news can take many forms, including but not limited to, false or misleading information spread intentionally or unintentionally. The definition of fake news is crucial in understanding the problem and developing effective solutions. According to the study, the massive circulation of false information via social media and other platforms threatens public discourse, highlighting the need for a clear understanding of what constitutes fake news. This understanding is essential in developing machine learning and natural language processing techniques to identify fake news.",
+                "example_or_evidence": "The study investigates the potential of transformer models to effectively identify fake news, which implies that fake news is a significant problem that requires advanced techniques to detect.",
+                "key_terms": [
+                  "fake news",
+                  "false information",
+                  "public discourse"
+                ]
+              },
+              {
+                "topic": "Impact of fake news on society",
+                "explanation": "The impact of fake news on society is significant, as it can lead to the erosion of trust in institutions, the spread of misinformation, and the manipulation of public opinion. The study highlights that the public discourse is seriously threatened by the massive circulation of false information via social media and other platforms. This threat has significant implications for society, including the potential to undermine democratic processes and social cohesion. The impact of fake news on society is a critical concern that requires immediate attention and effective solutions.",
+                "example_or_evidence": "The study states that the public discourse is seriously threatened by the massive circulation of false information via social media and other platforms, which demonstrates the significant impact of fake news on society.",
+                "key_terms": [
+                  "public discourse",
+                  "fake news",
+                  "society"
+                ]
+              }
+            ],
+            "check_understanding": [
+              "What is the primary threat posed by the spread of false information via social media and other platforms?",
+              "How does the spread of fake news impact society, according to the study?"
+            ],
+            "summary": "This lesson introduces the concept of fake news, its types, and its impact on society. The spread of false information via social media and other platforms threatens public discourse, and understanding the definition and types of fake news is crucial in developing effective solutions. The impact of fake news on society is significant, and it requires immediate attention and effective solutions to mitigate its effects."
+          }
+        ]
+      },
+      {
+        "module_title": "Transformer Models for Fake News Detection",
+        "difficulty": "intermediate",
+        "problem_addressed": "The need for effective models to detect fake news in multilingual datasets",
+        "solution_approach": "Applying transformer models to detect fake news",
+        "based_on_papers": [
+          "Multilingual Fake News Detection using Transformer Models"
+        ],
+        "lessons": [
+          {
+            "lesson_title": "Applying Transformer Models for Fake News Detection",
+            "objectives_covered": [
+              "Transformer model architecture",
+              "Training transformer models for fake news detection"
+            ],
+            "sections": [
+              {
+                "topic": "Transformer Model Architecture",
+                "explanation": "The transformer model architecture is a type of neural network designed primarily for natural language processing tasks. It relies on self-attention mechanisms to weigh the importance of different words in a sentence, allowing it to handle long-range dependencies more effectively than traditional recurrent neural networks. In the context of fake news detection, this architecture is particularly useful because it can capture subtle nuances in language that may indicate deception. Building on the introduction to fake news detection, the transformer's ability to understand complex linguistic patterns can help identify fake news articles by analyzing the language used.",
+                "example_or_evidence": "The paper 'Multilingual Fake News Detection using Transformer Models' utilizes a transformer-based approach, leveraging the model's ability to learn contextualized representations of words, which is crucial for detecting fake news. The paper highlights the transformer's capacity to generalize across languages, making it an effective choice for multilingual datasets.",
+                "key_terms": [
+                  "Transformer",
+                  "Self-Attention",
+                  "Natural Language Processing"
+                ]
+              },
+              {
+                "topic": "Training Transformer Models for Fake News Detection",
+                "explanation": "Training transformer models for fake news detection involves fine-tuning pre-trained models on datasets specifically curated for fake news detection. This process adapts the model to recognize patterns and linguistic cues indicative of fake news. The training dataset should be diverse, including examples from various sources and languages to ensure the model's robustness. Effective training also requires careful consideration of hyperparameters and the use of appropriate evaluation metrics to assess the model's performance. The goal is to achieve high accuracy in distinguishing between genuine and fake news articles, which is critical for mitigating the spread of misinformation.",
+                "example_or_evidence": "The 'Multilingual Fake News Detection using Transformer Models' paper discusses the fine-tuning of transformer models on a multilingual dataset for fake news detection, achieving significant improvements in detection accuracy. The paper emphasizes the importance of dataset diversity and proper hyperparameter tuning for optimal performance.",
+                "key_terms": [
+                  "Fine-Tuning",
+                  "Pre-Trained Models",
+                  "Hyperparameters"
+                ]
+              }
+            ],
+            "check_understanding": [
+              "How does the transformer model architecture's use of self-attention mechanisms contribute to its effectiveness in fake news detection?",
+              "What are the key considerations when training transformer models for fake news detection, and how do these impact the model's performance?"
+            ],
+            "summary": "This lesson covers the application of transformer models for fake news detection, focusing on the transformer model architecture and the process of training these models. By understanding how transformer models work and how to train them effectively, individuals can develop robust tools for detecting fake news, contributing to a more informed and less misled public discourse."
+          }
+        ]
+      },
+      {
+        "module_title": "Hybrid Framework for Fake News Detection",
+        "difficulty": "advanced",
+        "problem_addressed": "The need for a hybrid approach to improve fake news detection accuracy",
+        "solution_approach": "Combining transformer models with other techniques, such as MASHAP",
+        "based_on_papers": [
+          "A hybrid framework for fake news detection using transformer models with MASHAP"
+        ],
+        "lessons": [
+          {
+            "lesson_title": "Hybrid Framework for Fake News Detection",
+            "objectives_covered": [
+              "Hybrid framework architecture",
+              "MASHAP integration with transformer models"
+            ],
+            "sections": [
+              {
+                "topic": "Hybrid framework architecture",
+                "explanation": "The hybrid framework architecture for fake news detection combines the strengths of transformer models with other techniques to improve detection accuracy. Building on the introduction to transformer models for fake news detection, this architecture leverages the ability of transformer models to learn complex patterns in text data. The hybrid approach integrates multiple components, including a transformer-based text encoder, a feature extractor, and a classification module. This architecture allows for the incorporation of diverse features and techniques, such as MASHAP, to enhance the detection of fake news. The hybrid framework architecture is crucial in addressing the limitations of single-technique approaches and improving the overall performance of fake news detection systems.",
+                "example_or_evidence": "The paper 'A hybrid framework for fake news detection using transformer models with MASHAP' presents a hybrid framework that combines a transformer-based text encoder with MASHAP, achieving improved detection accuracy. The experimental results demonstrate the effectiveness of the proposed hybrid framework in detecting fake news.",
+                "key_terms": [
+                  "Hybrid framework",
+                  "Transformer models",
+                  "MASHAP",
+                  "Fake news detection"
+                ]
+              },
+              {
+                "topic": "MASHAP integration with transformer models",
+                "explanation": "MASHAP (Multi-Aspect Sentence Hierarchical Attention Network with Positional encoding) is a technique that can be integrated with transformer models to enhance fake news detection. MASHAP captures the hierarchical structure of text data and incorporates positional encoding to preserve the order of sentences. The integration of MASHAP with transformer models allows for the incorporation of contextual information and the capture of complex relationships between sentences. This integration is essential in improving the detection accuracy of fake news, as it enables the model to better understand the nuances of text data and identify potential deception.",
+                "example_or_evidence": "The paper reports that the integration of MASHAP with transformer models results in a significant improvement in detection accuracy, with the proposed hybrid framework outperforming baseline models. The experimental results demonstrate the effectiveness of the MASHAP integration in capturing complex patterns in text data.",
+                "key_terms": [
+                  "MASHAP",
+                  "Transformer models",
+                  "Hierarchical attention network",
+                  "Positional encoding"
+                ]
+              }
+            ],
+            "check_understanding": [
+              "What are the key components of the hybrid framework architecture for fake news detection, and how do they contribute to improved detection accuracy?",
+              "How does the integration of MASHAP with transformer models enhance the detection of fake news, and what are the benefits of this integration?"
+            ],
+            "summary": "This lesson covers the hybrid framework architecture for fake news detection and the integration of MASHAP with transformer models. The hybrid framework combines the strengths of transformer models with other techniques to improve detection accuracy, while the MASHAP integration enhances the capture of complex patterns in text data. The lesson provides a thorough explanation of these topics, along with examples and evidence from the source paper, to equip learners with a deep understanding of the hybrid framework and its components."
+          }
+        ]
+      }
+    ],
+    "frontier_topics": [
+      {
+        "topic": "Language Complexity and Transformer Model Performance",
+        "addresses_gap": "The paper does not provide a comprehensive analysis of the impact of language complexity on the performance of transformer models in detecting fake news",
+        "rationale": "Investigating the relationship between language complexity and transformer model performance can lead to more accurate models"
+      },
+      {
+        "topic": "Dataset Bias in Multilingual Fake News Detection",
+        "addresses_gap": "The paper assumes that the availability of large-scale multilingual datasets is sufficient for training effective transformer models, without exploring the potential for dataset bias",
+        "rationale": "Examining the effects of dataset bias on transformer model performance can help mitigate these effects and improve model robustness"
+      },
+      {
+        "topic": "Comparing Transformer Models for Multilingual Fake News Detection",
+        "addresses_gap": "The paper does not provide a detailed comparison of the performance of different transformer models in detecting fake news across multiple languages",
+        "rationale": "Comparing the performance of different transformer models can help identify the most effective models for specific languages or language groups"
+      },
+      {
+        "topic": "Detecting Diverse Types of Fake News",
+        "addresses_gap": "The paper does not provide a comprehensive evaluation of the hybrid framework's performance on different types of fake news, such as satire, propaganda, or disinformation",
+        "rationale": "Investigating the effectiveness of the hybrid framework in detecting diverse types of fake news can improve its robustness and generalizability"
+      },
+      {
+        "topic": "Integrating Multimodal Features for Fake News Detection",
+        "addresses_gap": "The paper does not explore the potential of using multimodal features, such as images or videos, in addition to text features for fake news detection",
+        "rationale": "Incorporating multimodal features can potentially improve fake news detection accuracy"
+      }
+    ],
+    "suggested_duration": "12 weeks"
+  },
+  "scored_similar": [
+    [
+      0.7616489261631569,
+      {
+        "name": "chananya-6617/Intelligent-Fake-News-Detection-Using-Transformer-Models",
+        "description": null,
+        "url": "https://github.com/chananya-6617/Intelligent-Fake-News-Detection-Using-Transformer-Models",
+        "source": "github",
+        "topics": [],
+        "readme": "# \ud83d\udcf0 Intelligent Fake News Detection Using Transformer Models\n\nAn AI-powered application that leverages **Transformer-based Natural Language Processing (NLP)** models to accurately classify news articles as **Real** or **Fake**. The system is designed to combat the spread of misinformation by analyzing the contextual meaning of news content and providing reliable predictions.\n\n---\n\n# \ud83d\udccc Project Overview\n\nThe **Intelligent Fake News Detection Using Transformer Models** is a machine learning application developed to identify misleading or fabricated news articles using advanced **Natural Language Processing (NLP)** and **Deep Learning** techniques. The project utilizes **Transformer models**, particularly **BERT (Bidirectional Encoder Representations from Transformers)**, to understand the contextual relationships between words and accurately classify news articles.\n\nThe system processes news content through multiple stages, including **data collection, preprocessing, tokenization, feature"
+      }
+    ],
+    [
+      0.7545451452068593,
+      {
+        "name": "Aftabbs/Fake-News-Detection-Using-NLP-and-BERT",
+        "description": "This project focuses on the detection of fake news using Natural Language Processing (NLP) techniques and BERT (Bidirectional Encoder Representations from Transformers) model. The goal is to build a machine learning model that can accurately classify news articles as either fake or true based on their textual content.",
+        "url": "https://github.com/Aftabbs/Fake-News-Detection-Using-NLP-and-BERT",
+        "source": "github",
+        "topics": [],
+        "readme": "# Fake News Detection Using NLP and Fine Tune With BERT  \n  \n![image](https://github.com/Aftabbs/Fake-News-Detection-Using-NLP-and-BERT/assets/112916888/a6ebc82e-2a36-4a44-aab0-3d62d26664ab)  \n   \n# Introduction         \nThis project focuses on the detection of fake news using Natural Language Processing (NLP) techniques and BERT (Bidirectional Encoder Representations from Transformers) model. The goal is to build a machine learning model that can accurately classify news articles as either fake or true based on their textual content. \n  \n![image](https://github.com/Aftabbs/Fake-News-Detection-Using-NLP-and-BERT/assets/112916888/50b817da-321a-419f-84bd-83ed60fbd074)\n \n# Dataset\nThe project utilizes a dataset consisting of labeled news articles, with a combination of true and fake news samples 44000 rows and 3 columsn. The dataset is divided into a training set, validation set, and test set.After Feature Engg these are the Columns [title,text,subject,date,Target,label].The data is prepr"
+      }
+    ],
+    [
+      0.7360381963990379,
+      {
+        "name": "NS-AlgoHub/Fake_News_Detector_-Transformer_NLP-",
+        "description": "Fake News Detector using Transformer-based NLP models to classify news as real or fake. Leverages deep learning, attention mechanisms, and pretrained transformers for accurate text analysis and misinformation detection.",
+        "url": "https://github.com/NS-AlgoHub/Fake_News_Detector_-Transformer_NLP-",
+        "source": "github",
+        "topics": [],
+        "readme": "\ud83d\udcf0 Fake News Detection System\n\nA machine learning\u2013based fake news detection system that identifies whether a news article is real or fake using Natural Language Processing (NLP) and classification algorithms.\nThis project demonstrates how AI can help combat misinformation in digital media.\n\n\ud83d\udccc Project Overview\n\nThe Fake News Detection System analyzes news text such as headlines and article content to classify news as genuine or misleading.\nIt showcases a complete NLP + ML pipeline, from text preprocessing to model evaluation and prediction.\n\n\ud83e\udde0 Problem Statement\n\nThe rapid spread of fake news can mislead people and cause social harm.\nThis project aims to:\n\nAutomatically detect fake news articles\n\nReduce misinformation spread\n\nApply NLP techniques to real-world problems\n\nBuild an end-to-end text classification system\n\n\u2699\ufe0f Tech Stack\n\nPython\n\nPandas\n\nNumPy\n\nScikit-learn\n\nNLTK / spaCy\n\nTF-IDF / CountVectorizer\n\nStreamlit / Flask (optional UI)\n\n\ud83e\udde9 Approach Used\n\nText cleaning and preprocessing\n"
+      }
+    ],
+    [
+      0.6796225258498944,
+      {
+        "name": "msaakaash/fake-news-detection-distilbert",
+        "description": "This project aims to detect fake news using DistilBERT, a transformer-based NLP model.",
+        "url": "https://github.com/msaakaash/fake-news-detection-distilbert",
+        "source": "github",
+        "topics": [
+          "distilbert",
+          "natural-language-processing",
+          "transformer"
+        ],
+        "readme": "# Fake News Detection using DistilBERT\n\n## \ud83d\udccc Project Overview\nThis project aims to detect **fake news** using **DistilBERT**, a transformer-based NLP model. The model is trained on a dataset of real and fake news articles, enabling it to classify unseen news articles as either **true** or **fake**.\n\n\n\n## \ud83d\udcc2 Repository Structure\n```\n\ud83d\udce6 fake-news-detection-distilbert\n\u251c\u2500\u2500 \ud83d\udcc2 Dataset\n\u2502   \u251c\u2500\u2500Fake.csv\n\u2502   \u251c\u2500\u2500True.csv           \n\u251c\u2500\u2500 README.md\n\u251c\u2500\u2500 fakeNewsDetection_DistilBert.ipynb\n\n```\n\n# \ud83d\udccc Using CUDA in Your Projects  \n\n## **1\ufe0f\u20e3 Install CUDA Dependencies**  \nFor Python projects, install `cupy` for GPU computations:  \n```bash\npip install cupy-cuda12x\n```\n\nFor PyTorch:  \n```bash\npip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121\n```\n\n## **2\ufe0f\u20e3 Check GPU Availability in Python**  \n```python\nimport torch\nprint(torch.cuda.is_available())\nprint(torch.cuda.device_count())\nprint(torch.cuda.get_device_name(0))\n```\n\n\n\n\n\n## \u2699\ufe0f Installation Guide\n\ud83d\udca1 Note: It is highly"
+      }
+    ],
+    [
+      0.6659282681200419,
+      {
+        "name": "krishikesan/fake-news-detection",
+        "description": "Machine learning system for detecting fake news using transformer models",
+        "url": "https://github.com/krishikesan/fake-news-detection",
+        "source": "github",
+        "topics": [],
+        "readme": "# \ud83d\udd0d Fake News Detector\n\n[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)\n[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)\n[![BERT](https://img.shields.io/badge/BERT-Transformer-orange.svg)](https://huggingface.co/transformers/)\n[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)\n\nAI-powered fake news detection system using BERT transformer models. Detect misinformation and fake news with state-of-the-art natural language processing.\n\n![Fake News Detector Demo](https://via.placeholder.com/800x400/1e293b/6366f1?text=Fake+News+Detector)\n\n## \u2728 Features\n\n- \ud83e\udd16 **BERT Transformer Model** - State-of-the-art NLP for accurate classification\n- \ud83c\udfa8 **Modern Web Interface** - Beautiful, responsive UI with dark mode\n- \u26a1 **REST API** - FastAPI-powered backend with auto-generated docs\n- \ud83d\udcca **Batch Processing** - Analyze multiple texts at once\n- \ud83d\udc33 **Docker Ready** -"
+      }
+    ],
+    [
+      0.6562298637634161,
+      {
+        "name": "TayTechie07/transformer-based-fake-news-detection",
+        "description": "An NLP project for fake news detection using Transformer-based deep learning models.",
+        "url": "https://github.com/TayTechie07/transformer-based-fake-news-detection",
+        "source": "github",
+        "topics": [],
+        "readme": "# \ud83d\udcf0 Fake News Detection using Transformers (BERT)\n\nThis project demonstrates an **end-to-end Natural Language Processing (NLP) workflow** to classify news articles as **REAL** or **FAKE** using **Transformer architecture (BERT)**.  \nIt focuses on clean implementation, efficient tokenization, GPU-accelerated training, and interactive inference.\n\n---\n\n## \ud83d\udccc Project Overview\n\nThe objective of this project is to detect fake news by learning contextual representations of text using **self-attention mechanisms**.  \nA pretrained **BERT (bert-base-uncased)** model is fine-tuned for binary text classification following industry-standard deep learning practices.\n\n---\n\n## \ud83e\udde0 NLP Pipeline\n\nThe project follows these key steps:\n\n1. Import required libraries  \n2. Load and preprocess the dataset  \n3. Clean and combine text features  \n4. Split data into training and validation sets  \n5. Tokenize text using BERT tokenizer  \n6. Create custom PyTorch Dataset & DataLoader  \n7. Fine-tune BERT model  \n8. Evalu"
+      }
+    ],
+    [
+      0.6289210827663184,
+      {
+        "name": "vcro45/Fake-News-Classification",
+        "description": "ML-based fake news detection using TF-IDF and DistilBERT transformer models",
+        "url": "https://github.com/vcro45/Fake-News-Classification",
+        "source": "github",
+        "topics": [],
+        "readme": "# Fake News Detection System\n\nA machine learning-based system to detect fake news articles using TF-IDF and Transformer (DistilBERT) models.\n\n## Project Structure\n\n```\nProject170/\n\u251c\u2500\u2500 data/                          # Dataset files (not included - see Data Setup)\n\u2502   \u251c\u2500\u2500 Fake.csv                   # Fake news dataset\n\u2502   \u251c\u2500\u2500 True.csv                   # Real news dataset\n\u2502   \u2514\u2500\u2500 merged_clean.csv           # Preprocessed merged dataset\n\u251c\u2500\u2500 model/                         # Trained model files (not included - see Training)\n\u2502   \u251c\u2500\u2500 tfidf_vectorizer.pkl       # TF-IDF vectorizer\n\u2502   \u251c\u2500\u2500 logistic_model.pkl         # Baseline logistic regression model\n\u2502   \u2514\u2500\u2500 distilbert_classifier.pkl  # Transformer-based classifier\n\u251c\u2500\u2500 src/\n\u2502   \u251c\u2500\u2500 prepare_dataset.py         # Data preprocessing script\n\u2502   \u251c\u2500\u2500 baseline_model.py          # Train TF-IDF + Logistic Regression\n\u2502   \u251c\u2500\u2500 train_transformer.py       # Train DistilBERT + Logistic Regression\n\u2502   \u251c\u2500\u2500 predict.py                 # Baseline prediction pipel"
+      }
+    ],
+    [
+      0.6266792569141536,
+      {
+        "name": "Mannuru-Mahesh/AI-Fake-news-detection-",
+        "description": "AI-powered fake news detection GitHub repositories use Natural Language Processing (NLP) and Machine Learning to automatically distinguish between real and fabricated articles. These systems preprocess textual content, train classification models (like LSTMs, Naive Bayes, or Transformers), and deploy the results into interactive web interfaces",
+        "url": "https://github.com/Mannuru-Mahesh/AI-Fake-news-detection-",
+        "source": "github",
+        "topics": [],
+        "readme": "# Fake News Detection System\n\nA machine learning web application that detects whether a news article is real or fake using Natural Language Processing (NLP) and Logistic Regression classification.\n\n---\n\n## Project Overview\n\nThis project is an AI-powered fake news detection system built using Python, Flask, and Scikit-learn. Users can paste any news article or headline into the web interface and receive an instant prediction with a confidence score indicating whether the content is real or fake.\n\n---\n\n## Features\n\n- Real-time fake news classification using machine learning\n- Confidence score displayed with every prediction\n- Clean and responsive web interface\n- Text preprocessing using NLP techniques\n- TF-IDF vectorization for feature extraction\n- Sample article loader for quick testing\n- Trusted news source links for manual verification\n- Word and character count display\n- Analysis breakdown showing model details\n\n---\n\n## Tech Stack\n\n| Technology     | Purpose                          "
+      }
+    ],
+    [
+      0.6184782174732303,
+      {
+        "name": "bubblemans/fake-news-detection",
+        "description": "This project is to detect fake news by building one ML model using SVC and doc2vec and one DL model using BERT, a transformer-based language model.",
+        "url": "https://github.com/bubblemans/fake-news-detection",
+        "source": "github",
+        "topics": [],
+        "readme": "# fake-news-detection\nMachine learning models to detect fake news using data from [Kaggle](https://www.kaggle.com/c/fake-news/data) with [doc2vec](https://arxiv.org/abs/1405.4053), SVM, and [BERT](https://arxiv.org/abs/1810.04805).\n\n# Install\ngit clone https://github.com/bubblemans/fake-news-detection.git\npip install -r requirements.txt\n\n# Usage\nWe only use the text column from the original column, and we will drop other columns like title and author.\n<br/>\n\nFor SVC, first, preprocess the text by removing punctuactions and lowcasing every token. Second, train doc2vec model to extract feature vectors from text. Last, train a SVM classifier using feature vectors and labels.\n\n<br/>\nFor BERT, similar process is in one file. Please use Google Colab or other tools and run the script.\n\n## Preprocess\n```bash\npython preprocess.py --raw_dir './data/train.csv' --train_dir './data/processed_train.csv' --eval_dir './data/processed_eval.csv'\n```\n## Train doc2vec\n```bash\npython train_doc2vec.py --tra"
+      }
+    ],
+    [
+      0.6148333312934424,
+      {
+        "name": "atahabilder1/FactCheck",
+        "description": "FactCheckAI is an automated fake news detection system that uses natural language processing and machine learning to classify news articles as real or fake. The project evaluates traditional ML models and transformer-based architectures to improve accuracy, robustness, and explainability in identifying misinformation.",
+        "url": "https://github.com/atahabilder1/FactCheck",
+        "source": "github",
+        "topics": [
+          "fake-news-detection",
+          "information-verification",
+          "machine-learning",
+          "natural-language-processing",
+          "supervised-learning",
+          "text-mining"
+        ],
+        "readme": "# FactCheck: Fake News Detection System\n\nA comprehensive machine learning system for detecting fake news articles using Natural Language Processing (NLP) and ensemble learning techniques. This project implements and compares multiple classification algorithms to achieve **99.74% accuracy** in distinguishing between real and fabricated news content.\n\n## Table of Contents\n\n- [Overview](#overview)\n- [Features](#features)\n- [Installation](#installation)\n- [Quick Start](#quick-start)\n- [Project Structure](#project-structure)\n- [Model Performance](#model-performance)\n- [Dataset](#dataset)\n- [Methodology](#methodology)\n- [Usage](#usage)\n- [Documentation](#documentation)\n- [Author](#author)\n- [License](#license)\n\n## Overview\n\nThe spread of misinformation poses a significant threat to public discourse and decision-making. This project addresses this challenge by developing a robust machine learning pipeline capable of automatically classifying news articles as real or fake based on their textua"
+      }
+    ],
+    [
+      0.6127218732182971,
+      {
+        "name": "kowshik14/FakeNewsDetection-TweetGuard",
+        "description": "TweetGuard combines Transformer and Bi-LSTM architectures to detect fake news on Twitter. Using the 'TruthSeeker' dataset and BERTweet tokenization, it outperforms traditional models, setting a new standard for detecting misinformation across multiple datasets.",
+        "url": "https://github.com/kowshik14/FakeNewsDetection-TweetGuard",
+        "source": "github",
+        "topics": [
+          "bert",
+          "bi-lstm",
+          "deep-learning",
+          "fakenewsdetection",
+          "natural-language-processing",
+          "security",
+          "social-security",
+          "transformer-architecture",
+          "twitter"
+        ],
+        "readme": "# TweetGuard: Combining Transformer and Bi-LSTM Architectures for Fake News Detection in Large-Scale Tweets\n\n[![DOI](https://img.shields.io/badge/DOI-10.11648/j.ijdsa.20251102.12-blue.svg)](https://doi.org/10.11648/j.ijdsa.20251102.12)\n[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)\n\n    \n\n> \ud83d\udcc2 **Source code is [here](https://github.com/kowshik14/FakeNewsDetection-TweetGuard/tree/main/src).**  \n> **\u2728 Note:** This project is part of my **\ud83c\udf93 M.Sc. Thesis dissertation**\n\n\n## Abstract\n\nThe proliferation of misinformation on platforms like Twitter, where rapid dissemination can significantly impact public discourse, underscores the urgent need for effective automated fake news detection systems. These systems are crucial in preventing the spread of falsehoods and maintaining informational integrity. Traditionally, one of the challenges in developing such systems has been the lack of comprehensive benchmark datasets, which are essenti"
+      }
+    ],
+    [
+      0.5857362793251556,
+      {
+        "name": "yxw-11/covid19-fake-news-detection-using-BERT",
+        "description": "In this project, we will use and fine tune the pre-trained Bidirectional Encoder Representations from Transformers (BERT) model to train some tweets which are already known for truth or fake for better recognizing those possible false news that may appear in the future.",
+        "url": "https://github.com/yxw-11/covid19-fake-news-detection-using-BERT",
+        "source": "github",
+        "topics": [],
+        "readme": "# covid19-fake-news-detection using BERT\nFrom the past year, the whole world has gone through\nthe COVID-19 pandemic. Twitter, Facebook, Insta-\ngram and many other social platforms update news\non pandemics every day. In this project, we will fine tune\nand add additional layers(LSTM/CNN) to the pre-trained Bidirectional Encoder\nRepresentations from Transformers (BERT) model\nto train social media news posts, which are already\nknown for truth or fake, for better recognizing those\npossible false news that may appear in the future.\n\nProject authors\uff1a Yuxiang Wang, Yongheng Zhang, Xinyao Yu, Xuebo Li\n\nPaper Link: https://scholar.google.com.au/citations?view_op=view_citation&hl=en&user=u04xXdoAAAAJ&citation_for_view=u04xXdoAAAAJ:u5HHmVD_uO8C\n\nCite this paper:\n\n@misc{wang2021covid19fakenewsdetection,\n      title={COVID-19 Fake News Detection Using Bidirectional Encoder Representations from Transformers Based Models}, \n      author={Yuxiang Wang and Yongheng Zhang and Xuebo Li and Xinyao Yu},\n   "
+      }
+    ],
+    [
+      0.5376632328891789,
+      {
+        "name": "HTLinh0604/fake_news_detection",
+        "description": "This project uses NLP to classify fake news headlines (GossipCop/PolitiFact). It compares the performance of BERT embeddings when fed into tuned Machine Learning (like XGBoost) and Deep Learning (LSTM) models, after aggressively balancing the data with TomekLinks and NearMiss.",
+        "url": "https://github.com/HTLinh0604/fake_news_detection",
+        "source": "github",
+        "topics": [
+          "bert-embeddings",
+          "classification",
+          "gridsearchcv",
+          "lstm",
+          "nlp",
+          "python",
+          "transformer"
+        ],
+        "readme": "#  Fake News Detection using NLP and Deep Learning\n*(Ph\u00e1t hi\u1ec7n Tin gi\u1ea3 b\u1eb1ng NLP v\u00e0 H\u1ecdc s\u00e2u)*\n\n![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)\n![Transformers](https://img.shields.io/badge/Transformers-BERT-yellow?logo=huggingface)\n![NLP](https://img.shields.io/badge/NLP-Preprocessing-6AC045?style=flat&logo=nltk)\n![BERT](https://img.shields.io/badge/BERT-Embeddings-7933FF?style=flat&logo=transformers)\n![TensorFlow](https://img.shields.io/badge/TensorFlow-LSTM-FF6F00?logo=tensorflow)\n![Scikit-learn](https://img.shields.io/badge/Scikit--learn-ML%20Models-orange?logo=scikit-learn)\n![XGBoost](https://img.shields.io/badge/XGBoost-Optimized-green?logo=xgboost)\n\n---\n\n##  1. Objective & Context *(M\u1ee5c ti\u00eau & B\u1ed1i c\u1ea3nh)*\n\n* **The Problem:** In the age of rapid social media dissemination, fake news poses a direct threat to social stability, public trust, and national security.\n    *(**V\u1ea5n \u0111\u1ec1:** Trong b\u1ed1i c\u1ea3nh th\u00f4ng tin lan truy\u1ec1n nhanh tr\u00ean m\u1ea1ng x\u00e3 h\u1ed9i, tin gi\u1ea3 (Fake News) l\u00e0 m"
+      }
+    ],
+    [
+      0.5165866605028736,
+      {
+        "name": "MortadhaMannai/XAI-Explainability_of_FND_Models",
+        "description": "This repository aims to explain state-of-the-art Fake News Detection models. Huggingface module is intended for explaining only-text-based fake news detection models in Transformers. GNNFakeNews module is an attempt to explain GNNs that are hybrid models for fake news detection using GNNExplainer ",
+        "url": "https://github.com/MortadhaMannai/XAI-Explainability_of_FND_Models",
+        "source": "github",
+        "topics": [
+          "deep-learning",
+          "deep-neural-networks",
+          "explainable-artificial-intelligence",
+          "xai",
+          "xai-analytics",
+          "xai-shap"
+        ],
+        "readme": "# XAI: Explainability of FND Models \n\nAuthor: Manai Mortadha\n\n## Overview\n\nThis project focuses on eXplainable Artificial Intelligence (XAI) techniques applied to Financial Neural Decision (FND) models. The primary objective is to enhance transparency and interpretability in the decision-making process of FND models, providing insights into how these models arrive at specific conclusions or predictions in financial scenarios.\n\n## Key Features\n\n- Implementation of various XAI techniques.\n- Analysis of interpretability methods for FND models.\n- Visual representation of feature importance and model explanations.\n\n## Project Structure\n\nThe repository is structured as follows:\n\n- `data/`: Contains datasets and data processing scripts.\n- `models/`: Includes the FND models and XAI implementation scripts.\n- `notebooks/`: Jupyter notebooks illustrating XAI techniques applied to FND models.\n- `results/`: Stores generated output, visualizations, and evaluation metrics.\n- `utils/`: Utility functio"
+      }
+    ],
+    [
+      0.4595116504786573,
+      {
+        "name": "RajatShroff13/AI-powered-fake-news-detector-using-RoBERTa-FastAPI-Gemini-and-n8n",
+        "description": "TruthScan is a full-stack fake news detection system that combines a fine-tuned RoBERTa transformer model with a Gemini AI pre-processing pipeline, heuristic signals, and a clean web frontend.",
+        "url": "https://github.com/RajatShroff13/AI-powered-fake-news-detector-using-RoBERTa-FastAPI-Gemini-and-n8n",
+        "source": "github",
+        "topics": [],
+        "readme": "# TruthScan \u2014 AI-Powered Fake News Detector\n\n> RoBERTa \u00b7 FastAPI \u00b7 Gemini 2.5 \u00b7 n8n \u00b7 Python\n\nTruthScan is a full-stack fake news detection system that combines a fine-tuned RoBERTa transformer model with a Gemini AI pre-processing pipeline, heuristic signals, and a clean web frontend.\n\n---\n\n## How It Works\n\n```\nUser pastes URL\n      \u2502\n      \u25bc\nn8n Webhook  \u2500\u2500\u25ba  Gemini 2.5 Flash  \u2500\u2500\u25ba  FastAPI /api/predict-n8n\n                  (summarises article)    (RoBERTa + heuristics)\n                                               \u2502\n                                               \u25bc\n                                        Verdict JSON\n                                  (LIKELY REAL / LIKELY FAKE)\n                                               \u2502\n                                               \u25bc\n                                      TruthScan Frontend\n                              (confidence ring + Gemini summary + flags)\n```\n\nOr paste text directly \u2192 FastAPI /api/predict-text (no n8n needed)\n\n---\n\n## F"
+      }
+    ]
+  ]
+}

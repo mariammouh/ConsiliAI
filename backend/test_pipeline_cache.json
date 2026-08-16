@@ -1,289 +1,2200 @@
 {
   "papers_with_analysis": [
     {
-      "title": "Multilingual Fake News Detection using Transformer Models",
+      "title": "Fake News Detection with Heterogeneous Transformer",
       "analysis": {
         "abstract": {
-          "summary": null
+          "summary": "This paper proposes a novel Transformer-based model, HetTransformer, to detect fake news on social networks. The model aims to capture local multi-modal semantics and global structural representation of news propagation patterns. It utilizes the encoder-decoder structure of Transformer to classify fake news effectively and accurately."
+        },
+        "experimental_setup": {
+          "summary": [
+            "This section introduces the experimental setup for evaluating the performance of the HetTransformer model in fake news detection, including the datasets used (PolitiFact, GossipCop, PHEME) and their statistics, as well as the time complexity of the HetTransformer algorithm",
+            "This section describes the datasets used for experiments, including FakeNewsNet and PHEME, and the baselines for comparison, which are categorized into hand-crafted feature-based methods, GNN-based methods, and Transformer-based methods.",
+            "The evaluation metrics used are Accuracy, Precision, Recall, and F1 score, each defined as a ratio of correctly predicted news, true positives, and relevant elements, and measured on the test set with respect to fake and real news.",
+            "This section describes the experimental setup, including text embedding using BERTweet and T5, image encoding using ResNet, and hyperparameter settings for various models such as HetTransformer, SVM-RBF, DTC, BERT, HMGNN, HGT, HetGNN, and IARNet, as well as the training and evaluation procedures.",
+            "HetTransformer outperforms state-of-the-art baselines on benchmark datasets in accuracy and F1 scores for fake and real news, achieving high accuracies on PolitiFact, GossipCop, and PHEME datasets.",
+            "This section compares the performance of HetTransformer with existing methods on fake news detection, including traditional hand-crafted methods, GNN-based methods, and Transformer-based methods, and shows that HetTransformer outperforms most of them on various evaluation metrics.",
+            "HetTransformer outperforms baseline methods by utilizing multi-modal feature encoders and an encoder-decoder Transformer structure",
+            "It effectively captures textual embedding and news propagation representation in social networks",
+            "Ablation study shows that removing or altering substructures or inputs leads to performance degeneration",
+            "HetTransformer achieves state-of-the-art performance on benchmark datasets, improving accuracy and F1 scores for fake and real news detection",
+            "The performance of HetTransformer on the GossipCop and PHEME datasets is analyzed, with a slight decrease in accuracy observed. The effect of the hyperparameter \u03b3 on the performance of HetTransformer is also examined, with results showing that an appropriate value of \u03b3 is crucial for achieving high accuracy. The highest accuracy is achieved when log2(\u03b3) \u2248 4 in the PHEME dataset. Future work includes extending HetTransformer to other scenarios and exploring other settings such as semi-supervised and active learning versions."
+          ]
+        },
+        "introduction": {
+          "problem_statement": [
+            "The dissemination of fake news on social networks due to the difficulty of distinguishing fake news from real news",
+            "The limitation of existing heterogeneous graph models in capturing structural representation and generalizability due to constraints on graph structures and meta-path structures, and the inability to fully model heterogeneity in nodes and edges.",
+            "fake news detection and classification"
+          ],
+          "motivation": [
+            "The need for automatic fake news detection methods to effectively and accurately distinguish fake news on social networks",
+            "The need to improve the generalizability and structural representation of heterogeneous graph models, particularly in the context of fake news detection in social networks."
+          ],
+          "contributions": [
+            "leveraging Transformer structure to aggregate structural representation in social networks",
+            "proposing a novel encoder-decoder structure for news content and neighborhood encoding and decoding",
+            "proposing the HetTransformer model for capturing local multi-modal semantics and global structural representation in heterogeneous social networks",
+            "conducting experiments on three real-world datasets"
+          ]
+        },
+        "results": {
+          "metrics": [
+            "Accuracy",
+            "Precision",
+            "Recall",
+            "F1 Score"
+          ],
+          "baselines_compared": [
+            "Transformer decoder",
+            "Self-attentions + BiLSTM",
+            "Positional embeddings"
+          ],
+          "key_improvements": "superior performance",
+          "reported_numbers": [
+            {
+              "metric": "Accuracy",
+              "value": 0.913,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.905,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.927,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.916,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.921,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.897,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.909,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.925,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.971,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.872,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.919,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.889,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.976,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.93,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.95,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.927,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.974,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.974,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.927,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.95,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.975,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 1.0,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.949,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.974,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.954,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Recall",
+              "value": 1.0,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.976,
+              "dataset": "PolitiFact"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.988,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.967,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.982,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.975,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.994,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.989,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.992,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.989,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.98,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.977,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.992,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.993,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.986,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.958,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.986,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.972,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.996,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.986,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.991,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.99,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.978,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.979,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.993,
+              "dataset": "GossipCop"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.812,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.75,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.747,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.748,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.849,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.851,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.85,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.787,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.728,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.688,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.707,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.819,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.846,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.832,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.796,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.7,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.842,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.764,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.885,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.771,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.824,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.825,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.756,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.784,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Accuracy",
+              "value": 0.77,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.868,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.849,
+              "dataset": "PHEME"
+            },
+            {
+              "metric": "F1 Score",
+              "value": 0.858,
+              "dataset": "PHEME"
+            }
+          ]
+        },
+        "related_work": {
+          "prior_approaches": [
+            "Traditional methods",
+            "Graph Neural Network methods",
+            "Transformer-based methods"
+          ],
+          "positioning": ""
+        },
+        "methodology": {
+          "algorithms": [
+            "GCN",
+            "Bi-GCN",
+            "HetGNNs",
+            "GLAN",
+            "HMGNN",
+            "Transformer",
+            "BERT",
+            "Heterogeneous Graph Transformer (HGT)",
+            "HetTransformer",
+            "DeepWalk",
+            "HetGNN",
+            "RoBERTa",
+            "T5",
+            "ResNet",
+            "Heterogeneous Transformer (HetTransformer)",
+            "MultiHeadAttention",
+            "Random Walk with Restart (RWR)",
+            "MultiHead Attention",
+            "Mean Pooling",
+            "Fully Connected",
+            "RWR",
+            "Heterogeneous neighbor sampling",
+            "Self-attention"
+          ],
+          "hyperparameters": [
+            "p",
+            "T",
+            "\u03b3",
+            "restart rate p",
+            "walks per node T",
+            "number of neighbors \u03b3",
+            "number of epochs epochs",
+            "H",
+            "L",
+            "\u03b4"
+          ],
+          "implementation_notes": [
+            "hierarchical, attention-based HetGNNs",
+            "encoder-decoder structure of Transformer",
+            "random walk with restart (RWR)",
+            "fine-tuning of pre-trained models",
+            "type-speci\ufb01c transformation matrix M \u03c6i k",
+            "uni\ufb01ed dimension size projected to d",
+            "embedding size of attribute type i from node type k dik",
+            "RWR-based strategy for determining neighbor order",
+            "concatenation of content embeddings with positional and type embeddings",
+            "Heterogeneous neighbor sampling is a one-off pre-processing step"
+          ],
+          "potential_biases": [
+            "incapability of GCN to distinguish different types of relations",
+            "inherent homogeneity of GCN",
+            "ignoring multi-modal information of news in social networks",
+            "focusing on graph-level heterogeneity instead of node-level heterogeneity",
+            "not employing a special decoder to refine the representation with the target node and its neighbors",
+            "selection bias in neighbor sampling",
+            "bias in pre-trained models",
+            "selection bias in sampling neighbors",
+            "bias in representation learning due to heterogeneous node types",
+            "potential bias in the RWR-based strategy for determining neighbor order",
+            "bias in the choice of activation functions and loss function"
+          ]
+        },
+        "conclusion": {
+          "limitations": "",
+          "future_work": "",
+          "summary": "This paper proposes HetTransformer, a novel Transformer-based model to detect fake news on heterogeneous social network graph."
+        },
+        "references": {
+          "summary": [
+            "Twitter developer policy",
+            "Rumor detection on social media with bi-directional graph convolutional networks",
+            "Information credibility on twitter",
+            "Pheme: Computing veracity\u2014the fourth challenge of big social data",
+            "Bert: Pre-training of deep bidirectional transformers for language understanding",
+            "Metagraph aggregated heterogeneous graph neural network for illicit traded product identification in underground market",
+            "A new model for learning in graph domains",
+            "Deep residual learning for image recognition",
+            "Heterogeneous graph transformer",
+            "Deep structure learning for rumor detection on twitter",
+            "Exbake: Automatic fake news detection model based on bidirectional encoder representations from transformers (bert)",
+            "Mvae: Multimodal variational autoencoder for fake news detection",
+            "Semi-supervised classification with graph convolutional networks",
+            "Prominent features of rumor propagation in online social media",
+            "This section lists references 3 research papers: Roberta: A Robustly Optimized BERT Pretraining Approach, GCAN: Graph-Aware Co-Attention Networks for Explainable Fake News Detection on Social Media, and Detecting Rumors from Microblogs with Recurrent Neural Networks"
+          ]
         }
       }
     },
     {
-      "title": "A hybrid framework for fake news detection using transformer models with MASHAP",
+      "title": "An Experimental Comparison of the Most Popular Approaches to Fake News Detection",
       "analysis": {
+        "methodology": {
+          "algorithms": [
+            "LR",
+            "SVM",
+            "NB",
+            "CNN",
+            "BiLSTM",
+            "CNN-BERT",
+            "BERT",
+            "DeBERTa",
+            "MERMAID",
+            "Llama3-8B",
+            "Qwen3-32B",
+            "Zephyr-7B-beta",
+            "LLama3-8B",
+            "Zephyr-7B-Beta",
+            "LLaMa3-8B",
+            "LLMs"
+          ],
+          "hyperparameters": [
+            "learning rate not mentioned",
+            "batch size not mentioned",
+            "embedding size: 300",
+            "temperature"
+          ],
+          "implementation_notes": [
+            "TF-IDF used for traditional ML models",
+            "Word2Vec embeddings used for CNN and BiLSTM",
+            "BERT embeddings used for CNN-BERT",
+            "DeBERTa embeddings used for MERMAID",
+            "Adam optimizer used for CNN and BiLSTM",
+            "Huggingface used for fine-tuning BERT and DeBERTa",
+            "temperature set to zero",
+            "thought-generation mechanism disabled for Qwen3-32B",
+            "stratified sampling for few-shot scenario",
+            "fine-tuning large pre-trained models",
+            "random initialization and stochastic optimization",
+            "zero-shot setting",
+            "few-shot prompting",
+            "weight updates not required"
+          ],
+          "potential_biases": [
+            "selection bias in choice of models and hyperparameters",
+            "potential bias in use of pre-trained word2vec embeddings",
+            "potential bias in fine-tuning of BERT and DeBERTa models",
+            "MERMAID's MoE architecture limitation in single-domain settings",
+            "uniform tuning budget may not be optimal for all models",
+            "overfitting to training data",
+            "sensitivity to specific characteristics of training data",
+            "limited generalizability to unseen examples",
+            "dataset complexity and variability",
+            "model performance on specific tasks"
+          ]
+        },
         "abstract": {
-          "summary": null
+          "summary": "This study presents a critical assessment of 12 fake news detection approaches, evaluating their performance on 10 publicly available datasets. The methods are tested in various scenarios, including in-domain, multi-domain, and cross-domain experiments, to simulate real-world situations. The results show that fine-tuned models perform well in-domain but struggle to generalize, while cross-domain architectures and Large Language Models offer promising alternatives."
+        },
+        "introduction": {
+          "problem_statement": [
+            "The lack of control and fact-checking mechanisms on social media platforms facilitates the spread of unverified and false information, which can substantially influence public opinion on crucial issues, and existing fake news detection models suffer from poor cross-domain generalization capabilities",
+            "domain shift problem in fact-checking and labeling policies",
+            "critical failure in generalization for most standard approaches in fake news detection"
+          ],
+          "motivation": "The growing presence of fake news on social media has become a major issue requiring urgent attention, driven by the increasing role of social media as a tool for news dissemination and consumption, and exacerbated by the rise of the first \u201cinfodemic\u201d during the COVID-19 pandemic and the Russo-Ukrainian conflict",
+          "contributions": [
+            "large-scale, systematic empirical benchmark for assessing generalization capabilities of existing approaches",
+            "evaluation of 12 representative methods",
+            "experiments across 10 heterogeneous datasets"
+          ]
+        },
+        "experimental_setup": {
+          "summary": [
+            "This section discusses the limitations of current fake news detection approaches, which primarily rely on supervised learning and do not consider the broader context of misinformation. The authors describe their experimental setup, using 10 representative datasets and 12 methods, and outline four groups of experiments to assess the performance and generalization capability of these methods: Dataset-Specific, Cross-Dataset, Mixed-Training/Single-Test, and an evaluation of decoder-only models in zero-shot and few-shot settings.",
+            "The section describes the experimental setup for few-shot and zero-shot settings, including the Leave-One-Dataset-Out approach, where models are trained on a mixture of datasets except one and tested on the unseen dataset. The experiments assume binary categorization of data into fake or real news.",
+            "The experiments used publicly available English datasets, categorized into generic and narrow datasets, with binary labels indicating fake or real content. The datasets were preprocessed to ensure consistent labeling, and a detailed description is provided in Appendix A. The unique characteristics of each dataset are considered as a domain for cross-domain generalization, and the differences in label semantics are addressed in Appendix B.4.",
+            "This section describes the experimental setup, including the datasets used, the six-class fact-checking taxonomy, and the training, validation, and test sets. It also explains the cross-domain perspective and the creation of a global training set and test set for the third group of experiments, as well as the Leave-One-Dataset-Out experiment to measure model generalization to unseen domains.",
+            "The Leave-One-Dataset-Out experiment aggregates all available instances from N-1 training datasets without downsampling, mirroring real-world imbalance in news volume. This approach enables data-hungry models like MERMAID to converge and learn routing mechanisms effectively. A GitHub repository is provided for transparency, including model code and dataset references.",
+            "Table 5 shows F1-scores for Dataset-Specific experiments, indicating that strong in-domain results do not guarantee cross-domain generalization",
+            "The Cross-Dataset experiments show that traditional ML models and standard DL architectures have limited generalization, while fine-tuned Transformers and decoder-only models perform better, but with varying degrees of success across different datasets and settings, with decoder-only models being statistically similar to each other but different from fully trained models",
+            "The section reports on the performance of various models, including fine-tuned Transformers, on generic and narrow datasets. Fine-tuned Transformers achieve the best results, with training on the same kind of data yielding the best and most consistent results. DeBERTa shows notable improvements when trained on certain datasets, and LLMs operate in a few-shot setting and are not directly comparable to fully trained models.",
+            "The section discusses the impact of genre on model performance, with models trained and tested within the same genre yielding higher and more stable performance, while genre-shift scenarios lead to systematic degradation. The results also show that models trained on article-style datasets transfer more effectively to short-form datasets than the reverse, suggesting that richer, longer inputs provide more robust signals for generalization.",
+            "Genre-shift and topic-shift investigations show a generalization drop in models",
+            "Models trained on a specific genre or topic perform poorly on different genres or topics",
+            "Structural features and stylistic markers learned from one genre do not translate to another",
+            "Topic shift leads to lexical depletion, with models overfitting specific vocabulary",
+            "Annotation shift is another driver of degradation, with models struggling with nuanced fact-checking taxonomies",
+            "Classification-based approaches may be sub-optimal due to overlooking domain, timing, and relationships between news",
+            "The model performs more robustly with larger training sets, but struggles with smaller or heterogeneous sets. Zero-shot performance remains consistent, while few-shot results show marginal or negative changes. Statistical tests reveal that most models do not differ significantly, except for DeBERTa, which is statistically different from most other models.",
+            "The Leave-One-Dataset-Out experiments show that MERMAID achieves robust performance, outperforming other models in 6 out of 10 unseen domains, while DeBERTa is the most consistently high performer among fully-trained models. Results also reveal that not all held-out datasets pose the same type of generalization challenge, with LIAR-PLUS being the most challenging for nearly all models.",
+            "Model performances remain stable despite domain differences",
+            "Large training pools can mask generalization issues, especially for transformer-based models",
+            "LLMs exhibit robustness in zero-shot setting but limitations in few-shot setting",
+            "Decoder-only LLMs are statistically similar to each other, with few exceptions",
+            "Fake news detection remains highly domain-sensitive and models struggle to acquire domain-agnostic knowledge",
+            "The section discusses the robustness of different models across four experimental settings, with results showing that traditional transformers like BERT and DeBERTa perform well in-domain but struggle with domain shift, while cross-domain models like MERMAID and decoder-only LLMs exhibit more stable behavior under distributional drift.",
+            "The section discusses the performance of various models in in-domain and cross-domain settings, with transformers showing strong in-domain performance but struggling in cross-domain settings, and decoder-only LLMs demonstrating robust zero-shot performance but sensitivity to in-context examples from unrelated domains.",
+            "The section discusses the use of similarity-based exemplar selection in few-shot learning for fake news detection, which shows a stabilizing effect and improves performance on some datasets, but its effectiveness depends on the availability of similar training instances, and highlights the limitations of current supervised classifiers under distribution shift",
+            "Models are evaluated on data from the same distribution as the training set, with decoder-only LLMs showing more resilience to domain shifts than fully trained models.",
+            "The standard classification paradigm has a fundamental flaw, as fine-tuned transformers excel in-domain but fail to generalize to unseen topics, with a substantial drop in performance in cross-dataset settings.",
+            "Two paths to improving robustness are identified: specialized cross-domain architectures and decoder-only LLMs in zero-shot and few-shot settings.",
+            "The study highlights the need to explore novel paradigms for fake news detection, focusing on more realistic scenarios where context plays a crucial role.",
+            "Future research will focus on three directions: analyzing information divergence, integrating multimodal and socially grounded information, and evaluating robustness against LLM-generated content.",
+            "This section describes the datasets used in the study, including LIAR-PLUS, NDF, FakeVsSatire, and FakeNewsNet, and how they were preprocessed. It also explains the optimization strategies used for the models, including hyperparameter optimization with Optuna and prompt optimization for decoder-only models.",
+            "This section describes the experimental setup, including the hyperparameters used for various machine learning models such as SVM, NB, CNN, BiLSTM, CNN-BERT, BERT, and DeBERTa. The hyperparameters include penalty, C, loss, dual, alpha, fit_prior, filter size, number of filters, dropout, hidden units, and learning rate. The section also mentions the use of early stopping and F1-score for model selection. Additionally, it provides the best hyperparameter values obtained by each approach on each dataset, as shown in Table B.2.",
+            "This section discusses the seed-sensitivity and batch-sensitivity studies of neural models, including DL and Transformers-based models, across various datasets. The results show low variance across runs for most architectures, with some models displaying near-deterministic behavior. The batch-sensitivity analysis on two datasets, Celebrity and Fakes, reveals that varying batch size does not substantially alter the relative ordering of the models, with Transformer-based models preserving their performance advantage.",
+            "This section discusses the results of an imbalanced mixed-training/single-test setting, where models are trained on a larger and imbalanced dataset and tested on a separate set. The results show that classical machine-learning models and deep learning models trained from scratch benefit from the increased training volume, while pre-trained transformers remain the strongest models. The section also compares the results with the balanced setup and discusses the performance of different models, including MERMAID and decoder-only LLMs.",
+            "The results for Qwen-32 are consistent with previous findings, while dels like Zephyr have different results.",
+            "The section conducts a sensitivity analysis to evaluate the robustness of findings to alternative label harmonization choices, comparing model performance when satire is included or excluded from training data, and reports the F1-scores obtained by all models on each dataset in the Leave-One-Dataset-Out setting.",
+            "The section discusses performance discrepancies in models, which are mostly modest, and average deviations are close to zero. It also describes a prompt optimization process for decoder-only models, where three distinct prompts were evaluated for zero-shot and few-shot settings to identify the most robust prompt for each model across all datasets.",
+            "This section describes the experimental setup for various large language models (LLMs), including Llama3-8B, Qwen3-32B, and Zephyr-7B-beta, with different settings such as zero-shot and few-shot, and provides a summary of the decoding settings and few-shot sampling for each model in Table B.8.",
+            "This section discusses the experimental results, including the stability of decoder-only LLMs with few-shot prompting, and presents tables and figures showing the variability of few-shot performance across different runs and datasets.",
+            "This section presents the results of the experimental setup, including cross-dataset F1-scores for Transformer-based models, zero-shot and few-shot settings, and statistical tests to identify significant performance differences between models. The results show a significant performance gap between models across all strata, with consistent effect sizes. The section also includes heatmaps of p-values from post-hoc Nemenyi tests and stratified statistical analysis across different dataset categories.",
+            "This section presents detailed experimental results and application of statistical tests on the F1-score for the Leave-One-Dataset-Out experiments."
+          ]
+        },
+        "related_work": {
+          "prior_approaches": [
+            "Traditional ML classifiers",
+            "REAL-FND",
+            "DAFNE",
+            "FADED",
+            "MDFEND",
+            "M3FEND",
+            "MERMAID",
+            "Supervised fine-tuning of pretrained language models (e.g. BERT-based architectures)",
+            "zero-shot and few-shot prompting",
+            "instruction tuning",
+            "retrieval-augmented generation (RAG)",
+            "multimodal detection models",
+            "social-context signal approaches",
+            "traditional machine learning methods",
+            "deep learning architectures",
+            "ML approaches",
+            "DL approaches",
+            "Transformer-based models",
+            "LLM-based approaches",
+            "Alghamdi et al. [38]",
+            "Farhangian et al. [41]",
+            "Huang et al. [42]"
+          ],
+          "positioning": [
+            "This paper positions itself as addressing the limitations of prior approaches, specifically their focus on in-domain evaluation and lack of generalizability to new, unseen domains and data.",
+            "This work focuses exclusively on full fine-tuning, zero-shot and few-shot prompting as a controlled evaluation paradigm, positioning itself as a more controlled approach compared to prior methods that reintroduce task-specific supervision or rely on external evidence.",
+            "This work evaluates 12 different approaches across 10 datasets under four experimental paradigms, providing a more comprehensive evaluation protocol than existing studies, which are often limited to specific experimental conditions, model families, or datasets."
+          ]
+        },
+        "results": {
+          "metrics": [
+            "F1-score",
+            "precision",
+            "recall",
+            "coefficient of variation (CV)",
+            "gate entropy",
+            "Median",
+            "IQR",
+            "Standard Deviation",
+            "confidence",
+            "training time",
+            "inference time",
+            "Precision",
+            "Recall",
+            "Kendall's W",
+            "Friedman test p-value",
+            "Friedman Test statistic",
+            "p-value",
+            "Kendall\u2019s W"
+          ],
+          "baselines_compared": [
+            "CNN",
+            "BiLSTM",
+            "NB",
+            "CNN-BERT",
+            "Zephyr-7B-beta",
+            "DeBERTa",
+            "Llama3-8B (FS)",
+            "Qwen3-32B (FS)",
+            "Zephyr-7B-beta (FS)",
+            "LR",
+            "SVM",
+            "BERT",
+            "Llama3-8B",
+            "Qwen3-32B",
+            "MERMAID",
+            "Decoder-only LLMs"
+          ],
+          "key_improvements": [
+            "BERT exhibits statistically significant differences when compared with CNN and BiLSTM",
+            "DeBERTa shows statistically significant differences when compared with NB, CNN, BiLSTM, CNN-BERT, and Zephyr-7B-beta",
+            "MERMAID improves on several datasets as the per-dataset sample size increases",
+            "MERMAID model performance across various datasets and classes",
+            "Statistical significance confirmed via Friedman Test (p < 0.05) followed by post-hoc Nemenyi test to identify model performance differences."
+          ],
+          "reported_numbers": [
+            {
+              "metric": "F1-score",
+              "value": 0.84,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.98,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.48,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.88,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.99,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.57,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.64,
+              "dataset": "Global"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.47,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.52,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.84,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.92,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.56,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.79,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.47,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.87,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.59,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.57,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.78,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.49,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.8,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.54,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.59,
+              "dataset": "Global"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.4,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.91,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.6,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.66,
+              "dataset": "Global"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.68,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.82,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.51,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.82,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.85,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.54,
+              "dataset": "Global"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.85,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.88,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.57,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.52,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.73,
+              "dataset": "Horne"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.81,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.68,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.62,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.81,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.74,
+              "dataset": "Politifact"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.81,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.58,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.53,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.83,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.71,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.63,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.83,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.8,
+              "dataset": "Politifact"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.66,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.89,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.41,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.58,
+              "dataset": "Horne"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.75,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.59,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.79,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.59,
+              "dataset": "Politifact"
+            },
+            {
+              "metric": "Median",
+              "value": 0.84,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "Median",
+              "value": 0.87,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "Median",
+              "value": 0.57,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "Median",
+              "value": 0.52,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "Median",
+              "value": 0.72,
+              "dataset": "Horne"
+            },
+            {
+              "metric": "Median",
+              "value": 0.82,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "Median",
+              "value": 0.67,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "Median",
+              "value": 0.62,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "Median",
+              "value": 0.81,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "Median",
+              "value": 0.74,
+              "dataset": "Politifact"
+            },
+            {
+              "metric": "Median",
+              "value": 0.8,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "Median",
+              "value": 0.92,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "Median",
+              "value": 0.58,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "Median",
+              "value": 0.53,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "Median",
+              "value": 0.73,
+              "dataset": "Horne"
+            },
+            {
+              "metric": "Median",
+              "value": 0.83,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "Median",
+              "value": 0.71,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "Median",
+              "value": 0.63,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "Median",
+              "value": 0.84,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "Median",
+              "value": 0.8,
+              "dataset": "Politifact"
+            },
+            {
+              "metric": "Median",
+              "value": 0.66,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "Median",
+              "value": 0.9,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "Median",
+              "value": 0.41,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "Median",
+              "value": 0.61,
+              "dataset": "Horne"
+            },
+            {
+              "metric": "Median",
+              "value": 0.73,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "Median",
+              "value": 0.59,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "Median",
+              "value": 0.75,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "Median",
+              "value": 0.57,
+              "dataset": "Politifact"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.02,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.03,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.01,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.01,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.01,
+              "dataset": "Horne"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.04,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.03,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.0,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.01,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.02,
+              "dataset": "Politifact"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.16,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.0,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.0,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.02,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.01,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.02,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.03,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.02,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.0,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.06,
+              "dataset": "Horne"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.01,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.05,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "IQR",
+              "value": 0.05,
+              "dataset": "Politifact"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.978,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.966,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.508,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.573,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.786,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.774,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.501,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.516,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.994,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.985,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.521,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.544,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.999,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.558,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "Confidence",
+              "value": 0.617,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "confidence",
+              "value": 0.995,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "confidence",
+              "value": 0.994,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "confidence",
+              "value": 0.512,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "confidence",
+              "value": 0.513,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "confidence",
+              "value": 0.998,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "confidence",
+              "value": 0.996,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "confidence",
+              "value": 0.994,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "training time",
+              "value": 1056,
+              "dataset": "aggregated training set"
+            },
+            {
+              "metric": "inference time",
+              "value": 1,
+              "dataset": ""
+            },
+            {
+              "metric": "inference time",
+              "value": 1.5,
+              "dataset": ""
+            },
+            {
+              "metric": "training time",
+              "value": 7.63,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "training time",
+              "value": 5.91,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "training time",
+              "value": 5.53,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "training time",
+              "value": 192.02,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "training time",
+              "value": 196.97,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "training time",
+              "value": 189.07,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "training time",
+              "value": 237,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.865,
+              "dataset": "E1"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.535,
+              "dataset": "E2"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.645,
+              "dataset": "Leave-One-Dataset-Out"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.59,
+              "dataset": "Celebrity (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.56,
+              "dataset": "Celebrity (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.87,
+              "dataset": "Cidii (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.8,
+              "dataset": "Cidii (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.63,
+              "dataset": "FakeVsSatire (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.77,
+              "dataset": "FakeVsSatire (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.51,
+              "dataset": "Fakes (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.46,
+              "dataset": "Fakes (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.81,
+              "dataset": "Horne (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.35,
+              "dataset": "Horne (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.78,
+              "dataset": "Infodemic (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.73,
+              "dataset": "Infodemic (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.71,
+              "dataset": "Isot (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.63,
+              "dataset": "Isot (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.59,
+              "dataset": "LIAR-PLUS (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.45,
+              "dataset": "LIAR-PLUS (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.86,
+              "dataset": "NDF (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.71,
+              "dataset": "NDF (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.79,
+              "dataset": "Politifact (LR, Class 0)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.46,
+              "dataset": "Politifact (LR, Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.87,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.93,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.0,
+              "dataset": "FakeVsSatire"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.7,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.71,
+              "dataset": "Horne"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.73,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.71,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.88,
+              "dataset": "NDF"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.83,
+              "dataset": "Politifact"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.65,
+              "dataset": "Global"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.84,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.91,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.86,
+              "dataset": "Celebrity"
+            },
+            {
+              "metric": "Precision",
+              "value": 0.92,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "Recall",
+              "value": 0.94,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.69,
+              "dataset": "Global"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.87,
+              "dataset": "Cidii"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.8,
+              "dataset": "Fakes"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.79,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.85,
+              "dataset": "Infodemic"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.77,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.79,
+              "dataset": "Isot"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.61,
+              "dataset": "LIAR-PLUS"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.7,
+              "dataset": "Celebrity (MERMAID Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.58,
+              "dataset": "Cidii (MERMAID Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.75,
+              "dataset": "FakeVsSatire (MERMAID Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.19,
+              "dataset": "Fakes (MERMAID Class 1)"
+            },
+            {
+              "metric": "F1-score",
+              "value": 0.78,
+              "dataset": "Horne (MERMAID Class 1)"
+            },
+            {
+              "metric": "Friedman Test statistic",
+              "value": "49.97",
+              "dataset": "N/A"
+            },
+            {
+              "metric": "p-value",
+              "value": "6.1e-06",
+              "dataset": "N/A"
+            },
+            {
+              "metric": "Kendall\u2019s W",
+              "value": "0.357",
+              "dataset": "N/A"
+            }
+          ]
+        },
+        "conclusion": {
+          "limitations": [
+            "Failure to account for the time of production/diffusion of fake news, which complicates the assessment of temporal influence and potential data leakage from pretraining.",
+            "Lack of explicit analysis regarding LLM-generated fake news.",
+            "Datasets are collected and annotated by different sources using heterogeneous protocols, potentially losing semantic nuances during label harmonization.",
+            "Evaluation excludes community- or propagation-based signals, focusing only on text-based benchmarks.",
+            "Evaluation prioritizes robustness and generalization over computational efficiency.",
+            "Lack of a systematic comparison under a fixed computational budget due to the heterogeneous nature of the architectures.",
+            "Reduced control over temporal and annotation-specific factors due to reliance on existing public benchmarks."
+          ],
+          "future_work": [
+            "Further investigation into the performance decline observed in LLaMa3-8B (FS) during cross-dataset settings.",
+            "Implementation of rigorous leakage-controlled evaluation protocols, including time-based splits and overlap-detection heuristics for lexical or semantic similarity.",
+            "Investigation of LLM-generated fake news as an emerging threat.",
+            "Integrating social-contextual or group-dynamic features into the evaluation.",
+            "Conducting a fully normalized, compute-aware evaluation of model performance."
+          ],
+          "summary": [
+            "The study evaluates various model architectures for fake news detection, finding that while fine-tuned Transformers struggle with cross-domain generalization, decoder-only LLMs offer better robustness and data efficiency. The authors conclude that the field must shift toward data-efficient, cross-domain methods, while noting that current evaluation protocols are constrained by potential data leakage and the lack of temporal analysis.",
+            "The study acknowledges that its findings are constrained by the heterogeneity of existing datasets and a focus on text-only benchmarks. While the research provides robust performance comparisons, it lacks a systematic analysis of computational efficiency and social-contextual signals, both of which are identified as key areas for future investigation.",
+            "The paper presented a large-scale empirical comparison of 12 fake news detection approaches across 10 datasets, focusing on cross-domain generalization."
+          ]
+        },
+        "references": {
+          "summary": [
+            "This section lists 17 references focusing on the study of misinformation, fake news detection, and automated fact-checking. Key themes include the impact of social media on news dissemination, the challenges of the 'post-truth' era, the role of AI and LLMs in generating and detecting deceptive content, and various technical approaches to identifying rumors and misinformation across different domains.",
+            "This section lists references [17] through [34], focusing on methodologies for fake news detection. Key themes include cross-domain detection, adversarial training, multi-view and multi-domain approaches, the application of BERT-based models and Large Language Models (LLMs), retrieval-augmented generation (RAG) for fact-checking, multimodal learning, social context analysis, and graph neural networks.",
+            "This section lists references [34] through [49], focusing on academic literature related to fake news detection. Key topics include surveys and taxonomies of classification techniques, comparative studies of machine learning and deep learning models, the application of transformer-based models and LLMs for misinformation detection, and the development of specific datasets for analyzing fake news, satire, and event-specific disinformation (e.g., COVID-19, Syrian war, Notre-Dame fire).",
+            "This section lists references 49 through 63, focusing on research related to fake news detection, misinformation analysis, and natural language processing. Key topics include fact-checking methodologies, the use of machine learning and deep learning models (such as BERT, DeBERTa, Llama, Qwen, and Bi-LSTM), and the application of social signals and hybrid approaches for identifying unreliable information."
+          ]
         }
       }
     },
     {
-      "title": "An Efficient Model for Fake News Detection Using Transformer",
+      "title": "Exploring Text-transformers in AAAI 2021 Shared Task: COVID-19 Fake News Detection in English",
       "analysis": {
-        "abstract": {
-          "summary": "The public discourse is seriously threatened by the massive circulation of false information via social media and other platforms. This study investigates the potential of transformer models to effectively identify fake news, comparing their performance to mores Deep Learning (DL) and Machine Learning (ML) approaches. While DL and ML models have shown promise in this domain, they often struggle to capture the nuances of language context. Transformers, a more recent advancement indeep learning, excel at understanding the contextual relationships within text. By training transformer models on real-world datasets and evaluating their accuracy in identifying fake news, The objective of this study is to aid in the advancement of false news identification systems that are more dependable and precise. Through a critical analysis of transformer models in comparison to existing techniques, this study seeks to pave the way for future advancements in natural language processing (NLP) and the creation of a more trustworthy online information ecosystem."
+        "introduction": {
+          "problem_statement": "Manual detection of fake news is not feasible due to huge online communication traffic, and individuals responsible for checking such content may suffer from depression and burnout",
+          "motivation": "The COVID-19 pandemic has led to a surge in online communication, and some users might publish unverified news that can lead to irreparable losses, making it desirable to build a system that can automatically detect online fake news about COVID-19",
+          "contributions": ""
+        },
+        "methodology": {
+          "algorithms": [
+            "bidirectional LSTM",
+            "Text-Transformers",
+            "GloVe",
+            "Bert",
+            "Ernie",
+            "Roberta",
+            "XL-net",
+            "Electra",
+            "Text-RNN",
+            "Pseudo Label Algorithm"
+          ],
+          "hyperparameters": "dimension of 200",
+          "implementation_notes": [
+            "using GloVe word vector as embedding layer",
+            "removing stop words",
+            "consider removing URLs from sentences",
+            "five-fold cross-validation",
+            "soft voting",
+            "label smoothing",
+            "learning rate warm up",
+            "learning rate cosine decay"
+          ],
+          "potential_biases": [
+            "unbalanced dataset",
+            "higher frequency of 'https' due to URLs in news",
+            "class imbalance due to pseudo-label algorithm",
+            "overfitting due to small dataset"
+          ]
+        },
+        "results": {
+          "metrics": [
+            "accuracy",
+            "precision",
+            "recall",
+            "weighted F1-score"
+          ],
+          "baselines_compared": [
+            "exponential decay",
+            "step decay",
+            "TextRNN"
+          ],
+          "key_improvements": [
+            "improved training progress with cosine decay",
+            "performance gains with domain pretraining"
+          ],
+          "reported_numbers": [
+            {
+              "metric": "accuracy",
+              "value": 0.924,
+              "dataset": "TextRNN"
+            },
+            {
+              "metric": "precision",
+              "value": 0.935,
+              "dataset": "TextRNN"
+            },
+            {
+              "metric": "recall",
+              "value": 0.924,
+              "dataset": "TextRNN"
+            },
+            {
+              "metric": "weighted F1-score",
+              "value": 0.926,
+              "dataset": "TextRNN"
+            },
+            {
+              "metric": "accuracy",
+              "value": 0.976,
+              "dataset": "Text-Transformers + Five-fold single model cross-validation"
+            },
+            {
+              "metric": "precision",
+              "value": 0.974,
+              "dataset": "Text-Transformers + Five-fold single model cross-validation"
+            },
+            {
+              "metric": "recall",
+              "value": 0.974,
+              "dataset": "Text-Transformers + Five-fold single model cross-validation"
+            },
+            {
+              "metric": "weighted F1-score",
+              "value": 0.976,
+              "dataset": "Text-Transformers + Five-fold single model cross-validation"
+            },
+            {
+              "metric": "accuracy",
+              "value": 0.98,
+              "dataset": "Text-Transformers + Five-fold five model cross-validation"
+            },
+            {
+              "metric": "precision",
+              "value": 0.982,
+              "dataset": "Text-Transformers + Five-fold five model cross-validation"
+            },
+            {
+              "metric": "recall",
+              "value": 0.98,
+              "dataset": "Text-Transformers + Five-fold five model cross-validation"
+            },
+            {
+              "metric": "weighted F1-score",
+              "value": 0.981,
+              "dataset": "Text-Transformers + Five-fold five model cross-validation"
+            },
+            {
+              "metric": "accuracy",
+              "value": 0.985,
+              "dataset": "Text-Transformers + Five-fold five model cross-validation + Pseudo Label Algorithm"
+            },
+            {
+              "metric": "precision",
+              "value": 0.986,
+              "dataset": "Text-Transformers + Five-fold five model cross-validation + Pseudo Label Algorithm"
+            },
+            {
+              "metric": "recall",
+              "value": 0.985,
+              "dataset": "Text-Transformers + Five-fold five model cross-validation + Pseudo Label Algorithm"
+            },
+            {
+              "metric": "weighted F1-score",
+              "value": 0.985,
+              "dataset": "Text-Transformers + Five-fold five model cross-validation + Pseudo Label Algorithm"
+            }
+          ]
+        },
+        "related_work": {
+          "prior_approaches": [
+            "Elmo",
+            "GPT",
+            "BERT",
+            "Roberta",
+            "Ernie",
+            "Ernie 2.0",
+            "K-fold cross-validation",
+            "topic models",
+            "Bag of Words (BoW)",
+            "credibility of publishers and users"
+          ],
+          "positioning": "outperforms the common K-fold cross-validation method and establishes a reliable automated detection program for COVID-19 fake news detection"
+        },
+        "conclusion": {
+          "limitations": "",
+          "future_work": "use generative models such as T5 to generate labels directly",
+          "summary": "the transformer-based model achieved better results in the competition, and pseudo label algorithm can effectively improve the performance"
+        },
+        "references": {
+          "summary": "The references section lists 6 sources from 2016 to 2020, including papers on language understanding, neural networks, and fake news detection, published in various conferences and journals such as AAAI, arXiv, and Advances in Neural Information Processing Systems."
         }
       }
     }
   ],
   "teaching_plan": {
     "course_title": "Fake News Detection using Transformer Models",
-    "target_audience": "Students with a background in natural language processing and machine learning",
+    "target_audience": "Students with a background in machine learning and natural language processing",
     "learning_objectives": [
       "Understand the problem of fake news detection and its importance",
-      "Learn about the application of transformer models in fake news detection",
-      "Analyze the performance of different transformer models in detecting fake news",
-      "Explore the limitations and potential research gaps in the current state of fake news detection"
+      "Learn about the existing approaches to fake news detection",
+      "Understand the role of transformer models in fake news detection",
+      "Be able to evaluate and compare different fake news detection models"
     ],
     "prerequisites": [
-      "Introduction to natural language processing",
-      "Machine learning fundamentals"
+      "Machine learning fundamentals",
+      "Natural language processing basics"
     ],
     "modules": [
       {
         "title": "Introduction to Fake News Detection",
-        "problem_addressed": "The spread of false information via social media and other platforms threatens public discourse",
-        "solution_approach": "Using machine learning and natural language processing techniques to identify fake news",
-        "description": "This module introduces the problem of fake news detection, its importance, and the current state of research in the field",
+        "problem_addressed": "The dissemination of fake news on social networks due to the difficulty of distinguishing fake news from real news",
+        "solution_approach": "Overview of existing approaches to fake news detection",
+        "description": "This module introduces the problem of fake news detection and its importance, and provides an overview of existing approaches to fake news detection",
         "topics": [
-          "Definition and types of fake news",
-          "Impact of fake news on society"
+          "Definition of fake news",
+          "Importance of fake news detection",
+          "Overview of existing approaches"
         ],
         "based_on_papers": [
-          "An Efficient Model for Fake News Detection Using Transformer"
+          "Fake News Detection with Heterogeneous Transformer",
+          "An Experimental Comparison of the Most Popular Approaches to Fake News Detection"
         ],
         "difficulty": "beginner"
       },
       {
         "title": "Transformer Models for Fake News Detection",
-        "problem_addressed": "The need for effective models to detect fake news in multilingual datasets",
-        "solution_approach": "Applying transformer models to detect fake news",
-        "description": "This module covers the application of transformer models in fake news detection, including their architecture and training",
+        "problem_addressed": "The limitation of existing heterogeneous graph models in capturing structural representation and generalizability",
+        "solution_approach": "Using transformer models to capture local multi-modal semantics and global structural representation",
+        "description": "This module delves into the use of transformer models for fake news detection, including the HetTransformer model",
         "topics": [
-          "Transformer model architecture",
-          "Training transformer models for fake news detection"
+          "Introduction to transformer models",
+          "HetTransformer model",
+          "Encoder-decoder structure"
         ],
         "based_on_papers": [
-          "Multilingual Fake News Detection using Transformer Models"
+          "Fake News Detection with Heterogeneous Transformer"
         ],
         "difficulty": "intermediate"
       },
       {
-        "title": "Hybrid Framework for Fake News Detection",
-        "problem_addressed": "The need for a hybrid approach to improve fake news detection accuracy",
-        "solution_approach": "Combining transformer models with other techniques, such as MASHAP",
-        "description": "This module explores the use of hybrid frameworks for fake news detection, including the integration of MASHAP with transformer models",
+        "title": "Evaluation of Fake News Detection Models",
+        "problem_addressed": "The lack of control and fact-checking mechanisms on social media platforms facilitates the spread of unverified and false information",
+        "solution_approach": "Evaluating fake news detection models using metrics such as accuracy, precision, recall, and F1 score",
+        "description": "This module covers the evaluation of fake news detection models, including the use of metrics and datasets",
         "topics": [
-          "Hybrid framework architecture",
-          "MASHAP integration with transformer models"
+          "Evaluation metrics",
+          "Datasets for fake news detection",
+          "Comparison of different models"
         ],
         "based_on_papers": [
-          "A hybrid framework for fake news detection using transformer models with MASHAP"
+          "An Experimental Comparison of the Most Popular Approaches to Fake News Detection"
         ],
-        "difficulty": "advanced"
+        "difficulty": "intermediate"
       }
     ],
     "frontier_topics": [
       {
-        "topic": "Language Complexity and Transformer Model Performance",
-        "addresses_gap": "The paper does not provide a comprehensive analysis of the impact of language complexity on the performance of transformer models in detecting fake news",
-        "rationale": "Investigating the relationship between language complexity and transformer model performance can lead to more accurate models"
+        "topic": "Investigating the Robustness of HetTransformer to Changes in Social Network Structures",
+        "addresses_gap": "The paper does not discuss the potential impact of evolving social network structures on the performance of the proposed HetTransformer model",
+        "rationale": "Understanding the robustness of the HetTransformer model to changes in social network structures is crucial for its long-term effectiveness"
       },
       {
-        "topic": "Dataset Bias in Multilingual Fake News Detection",
-        "addresses_gap": "The paper assumes that the availability of large-scale multilingual datasets is sufficient for training effective transformer models, without exploring the potential for dataset bias",
-        "rationale": "Examining the effects of dataset bias on transformer model performance can help mitigate these effects and improve model robustness"
+        "topic": "Developing Rigorous Leakage-Controlled Evaluation Protocols for Fake News Detection Models",
+        "addresses_gap": "The paper highlights the lack of control over temporal and annotation-specific factors due to reliance on existing public benchmarks",
+        "rationale": "Developing rigorous evaluation protocols is essential for accurately assessing the performance of fake news detection models"
       },
       {
-        "topic": "Comparing Transformer Models for Multilingual Fake News Detection",
-        "addresses_gap": "The paper does not provide a detailed comparison of the performance of different transformer models in detecting fake news across multiple languages",
-        "rationale": "Comparing the performance of different transformer models can help identify the most effective models for specific languages or language groups"
-      },
-      {
-        "topic": "Detecting Diverse Types of Fake News",
-        "addresses_gap": "The paper does not provide a comprehensive evaluation of the hybrid framework's performance on different types of fake news, such as satire, propaganda, or disinformation",
-        "rationale": "Investigating the effectiveness of the hybrid framework in detecting diverse types of fake news can improve its robustness and generalizability"
-      },
-      {
-        "topic": "Integrating Multimodal Features for Fake News Detection",
-        "addresses_gap": "The paper does not explore the potential of using multimodal features, such as images or videos, in addition to text features for fake news detection",
-        "rationale": "Incorporating multimodal features can potentially improve fake news detection accuracy"
+        "topic": "Exploring the Integration of Social-Contextual or Group-Dynamic Features into Fake News Detection Models",
+        "addresses_gap": "The evaluation excludes community- or propagation-based signals, focusing only on text-based benchmarks",
+        "rationale": "Integrating social-contextual or group-dynamic features can improve the performance of fake news detection models in real-world scenarios"
       }
     ],
     "suggested_duration": "12 weeks"
   },
   "course": {
     "course_title": "Fake News Detection using Transformer Models",
-    "target_audience": "Students with a background in natural language processing and machine learning",
+    "target_audience": "Students with a background in machine learning and natural language processing",
     "learning_objectives": [
       "Understand the problem of fake news detection and its importance",
-      "Learn about the application of transformer models in fake news detection",
-      "Analyze the performance of different transformer models in detecting fake news",
-      "Explore the limitations and potential research gaps in the current state of fake news detection"
+      "Learn about the existing approaches to fake news detection",
+      "Understand the role of transformer models in fake news detection",
+      "Be able to evaluate and compare different fake news detection models"
     ],
     "modules": [
       {
         "module_title": "Introduction to Fake News Detection",
         "difficulty": "beginner",
-        "problem_addressed": "The spread of false information via social media and other platforms threatens public discourse",
-        "solution_approach": "Using machine learning and natural language processing techniques to identify fake news",
+        "problem_addressed": "The dissemination of fake news on social networks due to the difficulty of distinguishing fake news from real news",
+        "solution_approach": "Overview of existing approaches to fake news detection",
         "based_on_papers": [
-          "An Efficient Model for Fake News Detection Using Transformer"
+          "Fake News Detection with Heterogeneous Transformer",
+          "An Experimental Comparison of the Most Popular Approaches to Fake News Detection"
         ],
         "lessons": [
           {
             "lesson_title": "Introduction to Fake News Detection",
             "objectives_covered": [
-              "Definition and types of fake news",
-              "Impact of fake news on society"
+              "Definition of fake news",
+              "Importance of fake news detection",
+              "Overview of existing approaches"
             ],
             "sections": [
               {
-                "topic": "Definition and types of fake news",
-                "explanation": "The spread of false information via social media and other platforms is a significant threat to public discourse. Fake news can take many forms, including but not limited to, false or misleading information spread intentionally or unintentionally. The definition of fake news is crucial in understanding the problem and developing effective solutions. According to the study, the massive circulation of false information via social media and other platforms threatens public discourse, highlighting the need for a clear understanding of what constitutes fake news. This understanding is essential in developing machine learning and natural language processing techniques to identify fake news.",
-                "example_or_evidence": "The study investigates the potential of transformer models to effectively identify fake news, which implies that fake news is a significant problem that requires advanced techniques to detect.",
+                "topic": "Definition of fake news",
+                "explanation": "Fake news refers to the dissemination of false or misleading information on social networks, which can be difficult to distinguish from real news. This phenomenon is problematic because it can substantially influence public opinion on crucial issues. The lack of control and fact-checking mechanisms on social media platforms facilitates the spread of unverified and false information. According to the paper 'An Experimental Comparison of the Most Popular Approaches to Fake News Detection', the spread of fake news can have significant consequences, highlighting the need for a clear definition and understanding of the concept.",
+                "example_or_evidence": "The paper 'Fake News Detection with Heterogeneous Transformer' notes that the dissemination of fake news on social networks is a significant problem, and the proposed HetTransformer model aims to capture local multi-modal semantics and global structural representation of news propagation patterns to detect fake news effectively.",
                 "key_terms": [
                   "fake news",
-                  "false information",
+                  "social networks",
+                  "misinformation"
+                ]
+              },
+              {
+                "topic": "Importance of fake news detection",
+                "explanation": "The importance of fake news detection lies in its potential to mitigate the negative consequences of the spread of false information. Fake news can influence public opinion, damage reputations, and even impact the outcome of elections. The paper 'An Experimental Comparison of the Most Popular Approaches to Fake News Detection' highlights the critical failure of most standard approaches in fake news detection, emphasizing the need for effective detection methods. By detecting fake news, we can reduce the spread of misinformation and promote a more informed public discourse.",
+                "example_or_evidence": "The paper 'Fake News Detection with Heterogeneous Transformer' reports that the proposed HetTransformer model achieves superior performance in detecting fake news, demonstrating the potential of effective detection methods to address the problem.",
+                "key_terms": [
+                  "fake news detection",
+                  "misinformation",
                   "public discourse"
                 ]
               },
               {
-                "topic": "Impact of fake news on society",
-                "explanation": "The impact of fake news on society is significant, as it can lead to the erosion of trust in institutions, the spread of misinformation, and the manipulation of public opinion. The study highlights that the public discourse is seriously threatened by the massive circulation of false information via social media and other platforms. This threat has significant implications for society, including the potential to undermine democratic processes and social cohesion. The impact of fake news on society is a critical concern that requires immediate attention and effective solutions.",
-                "example_or_evidence": "The study states that the public discourse is seriously threatened by the massive circulation of false information via social media and other platforms, which demonstrates the significant impact of fake news on society.",
+                "topic": "Overview of existing approaches",
+                "explanation": "Existing approaches to fake news detection include a range of machine learning and deep learning methods. The paper 'An Experimental Comparison of the Most Popular Approaches to Fake News Detection' evaluates 12 representative methods, including traditional machine learning models like LR and SVM, as well as deep learning models like CNN, BiLSTM, and BERT. The paper 'Fake News Detection with Heterogeneous Transformer' proposes a novel Transformer-based model, HetTransformer, which leverages the encoder-decoder structure of Transformer to classify fake news effectively.",
+                "example_or_evidence": "The paper 'An Experimental Comparison of the Most Popular Approaches to Fake News Detection' reports that BERT exhibits statistically significant differences when compared with CNN and BiLSTM, and DeBERTa shows statistically significant differences when compared with several other models, demonstrating the varying effectiveness of different approaches.",
                 "key_terms": [
-                  "public discourse",
-                  "fake news",
-                  "society"
+                  "machine learning",
+                  "deep learning",
+                  "Transformer",
+                  "BERT"
                 ]
               }
             ],
             "check_understanding": [
-              "What is the primary threat posed by the spread of false information via social media and other platforms?",
-              "How does the spread of fake news impact society, according to the study?"
+              "What is the primary challenge in detecting fake news on social networks?",
+              "Why is fake news detection important, and what are the potential consequences of not addressing the problem?",
+              "What are some examples of existing approaches to fake news detection, and how do they differ in their methodologies and effectiveness?"
             ],
-            "summary": "This lesson introduces the concept of fake news, its types, and its impact on society. The spread of false information via social media and other platforms threatens public discourse, and understanding the definition and types of fake news is crucial in developing effective solutions. The impact of fake news on society is significant, and it requires immediate attention and effective solutions to mitigate its effects."
+            "summary": "This lesson introduces the concept of fake news, its importance, and the existing approaches to detecting it. Fake news refers to the dissemination of false or misleading information on social networks, which can have significant consequences. Effective detection methods are crucial to mitigating the negative effects of fake news, and various machine learning and deep learning approaches have been proposed to address the problem. Understanding the definition, importance, and existing approaches to fake news detection is essential for developing effective solutions to this critical issue."
           }
         ]
       },
       {
         "module_title": "Transformer Models for Fake News Detection",
         "difficulty": "intermediate",
-        "problem_addressed": "The need for effective models to detect fake news in multilingual datasets",
-        "solution_approach": "Applying transformer models to detect fake news",
+        "problem_addressed": "The limitation of existing heterogeneous graph models in capturing structural representation and generalizability",
+        "solution_approach": "Using transformer models to capture local multi-modal semantics and global structural representation",
         "based_on_papers": [
-          "Multilingual Fake News Detection using Transformer Models"
+          "Fake News Detection with Heterogeneous Transformer"
         ],
         "lessons": [
           {
-            "lesson_title": "Applying Transformer Models for Fake News Detection",
+            "lesson_title": "Transformer Models for Fake News Detection",
             "objectives_covered": [
-              "Transformer model architecture",
-              "Training transformer models for fake news detection"
+              "Introduction to transformer models",
+              "HetTransformer model",
+              "Encoder-decoder structure"
             ],
             "sections": [
               {
-                "topic": "Transformer Model Architecture",
-                "explanation": "The transformer model architecture is a type of neural network designed primarily for natural language processing tasks. It relies on self-attention mechanisms to weigh the importance of different words in a sentence, allowing it to handle long-range dependencies more effectively than traditional recurrent neural networks. In the context of fake news detection, this architecture is particularly useful because it can capture subtle nuances in language that may indicate deception. Building on the introduction to fake news detection, the transformer's ability to understand complex linguistic patterns can help identify fake news articles by analyzing the language used.",
-                "example_or_evidence": "The paper 'Multilingual Fake News Detection using Transformer Models' utilizes a transformer-based approach, leveraging the model's ability to learn contextualized representations of words, which is crucial for detecting fake news. The paper highlights the transformer's capacity to generalize across languages, making it an effective choice for multilingual datasets.",
+                "topic": "Introduction to transformer models",
+                "explanation": "Transformer models have been widely used in natural language processing tasks due to their ability to capture complex patterns and relationships in data. In the context of fake news detection, transformer models can be used to aggregate structural representation in social networks, which is essential for distinguishing between fake and real news. The transformer model's ability to handle sequential data and capture long-range dependencies makes it a suitable choice for modeling news propagation patterns. Building on the introduction to fake news detection, transformer models can be used to improve the accuracy of fake news detection methods.",
+                "example_or_evidence": "The paper 'Fake News Detection with Heterogeneous Transformer' proposes a novel transformer-based model, HetTransformer, which utilizes the transformer structure to aggregate structural representation in social networks. The paper reports superior performance of the HetTransformer model compared to other state-of-the-art models.",
                 "key_terms": [
-                  "Transformer",
-                  "Self-Attention",
-                  "Natural Language Processing"
+                  "Transformer models",
+                  "Structural representation",
+                  "Social networks"
                 ]
               },
               {
-                "topic": "Training Transformer Models for Fake News Detection",
-                "explanation": "Training transformer models for fake news detection involves fine-tuning pre-trained models on datasets specifically curated for fake news detection. This process adapts the model to recognize patterns and linguistic cues indicative of fake news. The training dataset should be diverse, including examples from various sources and languages to ensure the model's robustness. Effective training also requires careful consideration of hyperparameters and the use of appropriate evaluation metrics to assess the model's performance. The goal is to achieve high accuracy in distinguishing between genuine and fake news articles, which is critical for mitigating the spread of misinformation.",
-                "example_or_evidence": "The 'Multilingual Fake News Detection using Transformer Models' paper discusses the fine-tuning of transformer models on a multilingual dataset for fake news detection, achieving significant improvements in detection accuracy. The paper emphasizes the importance of dataset diversity and proper hyperparameter tuning for optimal performance.",
+                "topic": "HetTransformer model",
+                "explanation": "The HetTransformer model is a novel transformer-based model proposed for fake news detection. It aims to capture local multi-modal semantics and global structural representation of news propagation patterns. The model utilizes a type-specific transformation matrix to project node attributes into a unified dimension size, allowing it to handle heterogeneous nodes and edges. The HetTransformer model also employs a random walk with restart (RWR) strategy to determine the neighbor order, which helps to capture the structural representation of the social network.",
+                "example_or_evidence": "The paper reports that the HetTransformer model achieves superior performance on three real-world datasets, outperforming other state-of-the-art models such as GCN, Bi-GCN, and HetGNNs. The paper also describes the implementation details of the HetTransformer model, including the use of a hierarchical, attention-based HetGNNs and the fine-tuning of pre-trained models.",
                 "key_terms": [
-                  "Fine-Tuning",
-                  "Pre-Trained Models",
-                  "Hyperparameters"
+                  "HetTransformer model",
+                  "Local multi-modal semantics",
+                  "Global structural representation"
+                ]
+              },
+              {
+                "topic": "Encoder-decoder structure",
+                "explanation": "The encoder-decoder structure is a key component of the transformer model, and it is also used in the HetTransformer model. The encoder takes in the input data, such as news content and neighborhood information, and generates a continuous representation of the input data. The decoder then takes this representation and generates the output, such as the classification label. The encoder-decoder structure allows the model to capture both local and global patterns in the data, making it suitable for fake news detection tasks.",
+                "example_or_evidence": "The paper proposes a novel encoder-decoder structure for news content and neighborhood encoding and decoding. The paper reports that this structure allows the HetTransformer model to effectively capture the structural representation of the social network and the semantic meaning of the news content.",
+                "key_terms": [
+                  "Encoder-decoder structure",
+                  "Transformer model",
+                  "News content and neighborhood encoding and decoding"
                 ]
               }
             ],
             "check_understanding": [
-              "How does the transformer model architecture's use of self-attention mechanisms contribute to its effectiveness in fake news detection?",
-              "What are the key considerations when training transformer models for fake news detection, and how do these impact the model's performance?"
+              "What is the main advantage of using transformer models for fake news detection?",
+              "How does the HetTransformer model capture local multi-modal semantics and global structural representation of news propagation patterns?",
+              "What is the role of the encoder-decoder structure in the HetTransformer model?"
             ],
-            "summary": "This lesson covers the application of transformer models for fake news detection, focusing on the transformer model architecture and the process of training these models. By understanding how transformer models work and how to train them effectively, individuals can develop robust tools for detecting fake news, contributing to a more informed and less misled public discourse."
+            "summary": "This lesson covers the introduction to transformer models, the HetTransformer model, and the encoder-decoder structure, which are essential components of the transformer-based model for fake news detection. The HetTransformer model utilizes the transformer structure to aggregate structural representation in social networks and captures local multi-modal semantics and global structural representation of news propagation patterns. The encoder-decoder structure allows the model to capture both local and global patterns in the data, making it suitable for fake news detection tasks."
           }
         ]
       },
       {
-        "module_title": "Hybrid Framework for Fake News Detection",
-        "difficulty": "advanced",
-        "problem_addressed": "The need for a hybrid approach to improve fake news detection accuracy",
-        "solution_approach": "Combining transformer models with other techniques, such as MASHAP",
+        "module_title": "Evaluation of Fake News Detection Models",
+        "difficulty": "intermediate",
+        "problem_addressed": "The lack of control and fact-checking mechanisms on social media platforms facilitates the spread of unverified and false information",
+        "solution_approach": "Evaluating fake news detection models using metrics such as accuracy, precision, recall, and F1 score",
         "based_on_papers": [
-          "A hybrid framework for fake news detection using transformer models with MASHAP"
+          "An Experimental Comparison of the Most Popular Approaches to Fake News Detection"
         ],
         "lessons": [
           {
-            "lesson_title": "Hybrid Framework for Fake News Detection",
+            "lesson_title": "Evaluating Fake News Detection Models",
             "objectives_covered": [
-              "Hybrid framework architecture",
-              "MASHAP integration with transformer models"
+              "Evaluation metrics",
+              "Datasets for fake news detection",
+              "Comparison of different models"
             ],
             "sections": [
               {
-                "topic": "Hybrid framework architecture",
-                "explanation": "The hybrid framework architecture for fake news detection combines the strengths of transformer models with other techniques to improve detection accuracy. Building on the introduction to transformer models for fake news detection, this architecture leverages the ability of transformer models to learn complex patterns in text data. The hybrid approach integrates multiple components, including a transformer-based text encoder, a feature extractor, and a classification module. This architecture allows for the incorporation of diverse features and techniques, such as MASHAP, to enhance the detection of fake news. The hybrid framework architecture is crucial in addressing the limitations of single-technique approaches and improving the overall performance of fake news detection systems.",
-                "example_or_evidence": "The paper 'A hybrid framework for fake news detection using transformer models with MASHAP' presents a hybrid framework that combines a transformer-based text encoder with MASHAP, achieving improved detection accuracy. The experimental results demonstrate the effectiveness of the proposed hybrid framework in detecting fake news.",
+                "topic": "Evaluation metrics",
+                "explanation": "Evaluation metrics are crucial in assessing the performance of fake news detection models. The paper highlights the use of metrics such as F1-score, precision, recall, coefficient of variation (CV), gate entropy, and others. These metrics provide a comprehensive understanding of a model's ability to detect fake news accurately. The F1-score, for instance, is a measure of a model's accuracy, considering both precision and recall. The paper also mentions the use of statistical tests like the Friedman test to determine the significance of the results. Understanding these metrics is essential in evaluating the effectiveness of fake news detection models and identifying areas for improvement.",
+                "example_or_evidence": "The paper reports that BERT exhibits statistically significant differences when compared with CNN and BiLSTM, with a p-value less than 0.05, indicating the importance of using appropriate evaluation metrics to compare model performance.",
                 "key_terms": [
-                  "Hybrid framework",
-                  "Transformer models",
-                  "MASHAP",
-                  "Fake news detection"
+                  "F1-score",
+                  "precision",
+                  "recall",
+                  "coefficient of variation",
+                  "gate entropy",
+                  "Friedman test"
                 ]
               },
               {
-                "topic": "MASHAP integration with transformer models",
-                "explanation": "MASHAP (Multi-Aspect Sentence Hierarchical Attention Network with Positional encoding) is a technique that can be integrated with transformer models to enhance fake news detection. MASHAP captures the hierarchical structure of text data and incorporates positional encoding to preserve the order of sentences. The integration of MASHAP with transformer models allows for the incorporation of contextual information and the capture of complex relationships between sentences. This integration is essential in improving the detection accuracy of fake news, as it enables the model to better understand the nuances of text data and identify potential deception.",
-                "example_or_evidence": "The paper reports that the integration of MASHAP with transformer models results in a significant improvement in detection accuracy, with the proposed hybrid framework outperforming baseline models. The experimental results demonstrate the effectiveness of the MASHAP integration in capturing complex patterns in text data.",
+                "topic": "Datasets for fake news detection",
+                "explanation": "The paper emphasizes the importance of using diverse datasets for evaluating fake news detection models. The authors used 10 publicly available datasets to test the performance of 12 representative methods. The use of multiple datasets helps to simulate real-world scenarios and assess the models' ability to generalize across different domains. The paper highlights the challenges of domain shift and the need for models to perform well across various datasets. Understanding the characteristics of these datasets and their limitations is crucial in developing effective fake news detection models.",
+                "example_or_evidence": "The paper mentions that the MERMAID model improves on several datasets as the per-dataset sample size increases, demonstrating the importance of using diverse and large datasets for evaluation.",
                 "key_terms": [
-                  "MASHAP",
-                  "Transformer models",
-                  "Hierarchical attention network",
-                  "Positional encoding"
+                  "dataset diversity",
+                  "domain shift",
+                  "generalization"
+                ]
+              },
+              {
+                "topic": "Comparison of different models",
+                "explanation": "The paper presents a comprehensive comparison of 12 fake news detection models, including traditional machine learning models, deep learning models, and large language models. The authors evaluated the models' performance on 10 datasets and reported the results using various evaluation metrics. The comparison highlights the strengths and weaknesses of each model and provides insights into their generalization capabilities. The paper shows that fine-tuned models perform well in-domain but struggle to generalize, while cross-domain architectures and large language models offer promising alternatives. Understanding the differences between these models is essential in selecting the most effective approach for fake news detection.",
+                "example_or_evidence": "The paper reports that DeBERTa shows statistically significant differences when compared with NB, CNN, BiLSTM, CNN-BERT, and Zephyr-7B-beta, demonstrating the importance of comparing different models to identify the most effective approaches.",
+                "key_terms": [
+                  "model comparison",
+                  "fine-tuning",
+                  "cross-domain architectures",
+                  "large language models"
                 ]
               }
             ],
             "check_understanding": [
-              "What are the key components of the hybrid framework architecture for fake news detection, and how do they contribute to improved detection accuracy?",
-              "How does the integration of MASHAP with transformer models enhance the detection of fake news, and what are the benefits of this integration?"
+              "What are the key evaluation metrics used to assess the performance of fake news detection models, and why are they important?",
+              "How do the characteristics of datasets used for evaluating fake news detection models impact the development of effective models?",
+              "What are the main differences between the 12 fake news detection models compared in the paper, and how do their performance results inform the selection of the most effective approach?"
             ],
-            "summary": "This lesson covers the hybrid framework architecture for fake news detection and the integration of MASHAP with transformer models. The hybrid framework combines the strengths of transformer models with other techniques to improve detection accuracy, while the MASHAP integration enhances the capture of complex patterns in text data. The lesson provides a thorough explanation of these topics, along with examples and evidence from the source paper, to equip learners with a deep understanding of the hybrid framework and its components."
+            "summary": "This lesson covers the evaluation of fake news detection models, including the use of various evaluation metrics, the importance of diverse datasets, and the comparison of different models. The paper's findings highlight the need for effective evaluation metrics, diverse datasets, and robust models that can generalize across different domains. Understanding these concepts is crucial in developing effective fake news detection models that can mitigate the spread of false information on social media platforms."
           }
         ]
       }
     ],
     "frontier_topics": [
       {
-        "topic": "Language Complexity and Transformer Model Performance",
-        "addresses_gap": "The paper does not provide a comprehensive analysis of the impact of language complexity on the performance of transformer models in detecting fake news",
-        "rationale": "Investigating the relationship between language complexity and transformer model performance can lead to more accurate models"
+        "topic": "Investigating the Robustness of HetTransformer to Changes in Social Network Structures",
+        "addresses_gap": "The paper does not discuss the potential impact of evolving social network structures on the performance of the proposed HetTransformer model",
+        "rationale": "Understanding the robustness of the HetTransformer model to changes in social network structures is crucial for its long-term effectiveness"
       },
       {
-        "topic": "Dataset Bias in Multilingual Fake News Detection",
-        "addresses_gap": "The paper assumes that the availability of large-scale multilingual datasets is sufficient for training effective transformer models, without exploring the potential for dataset bias",
-        "rationale": "Examining the effects of dataset bias on transformer model performance can help mitigate these effects and improve model robustness"
+        "topic": "Developing Rigorous Leakage-Controlled Evaluation Protocols for Fake News Detection Models",
+        "addresses_gap": "The paper highlights the lack of control over temporal and annotation-specific factors due to reliance on existing public benchmarks",
+        "rationale": "Developing rigorous evaluation protocols is essential for accurately assessing the performance of fake news detection models"
       },
       {
-        "topic": "Comparing Transformer Models for Multilingual Fake News Detection",
-        "addresses_gap": "The paper does not provide a detailed comparison of the performance of different transformer models in detecting fake news across multiple languages",
-        "rationale": "Comparing the performance of different transformer models can help identify the most effective models for specific languages or language groups"
-      },
-      {
-        "topic": "Detecting Diverse Types of Fake News",
-        "addresses_gap": "The paper does not provide a comprehensive evaluation of the hybrid framework's performance on different types of fake news, such as satire, propaganda, or disinformation",
-        "rationale": "Investigating the effectiveness of the hybrid framework in detecting diverse types of fake news can improve its robustness and generalizability"
-      },
-      {
-        "topic": "Integrating Multimodal Features for Fake News Detection",
-        "addresses_gap": "The paper does not explore the potential of using multimodal features, such as images or videos, in addition to text features for fake news detection",
-        "rationale": "Incorporating multimodal features can potentially improve fake news detection accuracy"
+        "topic": "Exploring the Integration of Social-Contextual or Group-Dynamic Features into Fake News Detection Models",
+        "addresses_gap": "The evaluation excludes community- or propagation-based signals, focusing only on text-based benchmarks",
+        "rationale": "Integrating social-contextual or group-dynamic features can improve the performance of fake news detection models in real-world scenarios"
       }
     ],
     "suggested_duration": "12 weeks"
