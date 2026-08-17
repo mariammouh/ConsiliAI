@@ -2340,6 +2340,7 @@ def _build_repair_prompt(code: str, validation: Dict, label: str) -> str:
             f"Either properly define them (e.g. create the missing variable/loader/dataset) "
             f"or remove the reference if it isn't actually needed."
         )
+    
     if validation.get("used_before_defined"):
         details = ", ".join(
             f"'{item['name']}' (used around line {item['used_line']})"
@@ -2388,6 +2389,14 @@ def _build_repair_prompt(code: str, validation: Dict, label: str) -> str:
             f"This is meant to be a COMPLETE solution, but still contains unfinished placeholder "
             f"content: {details}. Replace every placeholder with a real, working implementation — "
             f"no TODOs, no empty 'pass' bodies, no NotImplementedError."
+        )
+    if validation.get("module_level_undefined"):
+        names = ", ".join(validation["module_level_undefined"])
+        problems.append(
+            f"These names are used at the top level of the file but were never actually assigned "
+            f"there — they only exist as parameter names inside unrelated functions: {names}. "
+            f"Either create them properly at the top level before use, or call the function that "
+            f"produces them and store its result under that name."
         )
 
         
@@ -2520,28 +2529,34 @@ def _rewrite_code(code: str, validation: Dict, label: str, model_name: str) -> D
 
 
 import difflib  # add to your existing imports at the top of tools.py
+
 def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
     """
     Pure structural (non-LLM) comparison between generated code and the
     step-by-step plan Groq produced alongside the exercise scaffold.
 
-    Deliberately NOT a semantic/logic check — it cannot tell you whether
-    a function does the right thing, only whether the names the plan
-    promised actually got defined, and whether anything got defined that
-    the plan never mentioned at all. That second check is the one that
-    catches an unplanned, out-of-nowhere class/function slipping into the
-    code (the same failure shape as the Qwen3-reference hallucination
-    found during testing) — something no syntax/undefined-name check can
-    see, since an unplanned addition is still perfectly valid Python.
+    Three checks, all structural — none of them verify LOGIC correctness:
+    1. missing_produces: a name the plan promised never got defined at all.
+    2. unplanned_definitions: a top-level name that exists but was never in
+       the plan — recorded for visibility only, does NOT block (testing
+       showed this flagged ordinary necessary helper functions at a near-
+       100% false-positive rate).
+    3. unused_dependencies (NEW): a step declared "uses": ["X"] but the
+       code it produced never actually references X anywhere — the exact
+       pattern that let HetTransformer silently reimplement TransformerModel
+       from scratch instead of building on it, passing every other check
+       because nothing was technically undefined or extra. Lenient by
+       design: ANY reference to the dependency counts (base class,
+       instantiation, attribute access, call) — this only verifies a real
+       connection exists, not that it's used correctly.
     """
     try:
         tree = ast.parse(code)
     except SyntaxError:
-        # Syntax errors are already reported by _validate_python_code;
-        # don't double-report here, just skip compliance checking.
-        return {"missing_produces": [], "unplanned_definitions": [], "valid": True}
+        return {"missing_produces": [], "unplanned_definitions": [], "unused_dependencies": [], "valid": True}
 
     defined_names = set()
+    top_level_nodes: Dict[str, ast.AST] = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             defined_names.add(node.name)
@@ -2549,6 +2564,16 @@ def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     defined_names.add(target.id)
+
+    # Only TOP-LEVEL entities are tracked for the uses-check, matching the
+    # scope produces/unplanned_definitions already operate at.
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            top_level_nodes[node.name] = node
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    top_level_nodes[target.id] = node
 
     all_planned_names = set()
     missing_produces = []
@@ -2562,9 +2587,6 @@ def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
                     "name": name,
                 })
 
-    # Only flag unplanned top-level defs if we actually HAVE a plan to
-    # compare against — an empty plan means "nothing to compare," not
-    # "everything is unplanned."
     unplanned_definitions = []
     if all_planned_names:
         top_level_defs = {
@@ -2573,20 +2595,47 @@ def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
         }
         unplanned_definitions = sorted(top_level_defs - all_planned_names)
 
+    # NEW: does each declared dependency actually get referenced?
+    unused_dependencies = []
+    for step in code_plan or []:
+        produces = step.get("produces", [])
+        uses = step.get("uses", [])
+        if not produces or not uses:
+            continue
+        for produced_name in produces:
+            node = top_level_nodes.get(produced_name)
+            if node is None:
+                continue  # already reported as missing_produces, don't double-report
+            referenced_names = {
+                n.id for n in ast.walk(node)
+                if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+            }
+            for used_name in uses:
+                if used_name in all_planned_names and used_name not in referenced_names:
+                    unused_dependencies.append({
+                        "produced_name": produced_name,
+                        "expected_dependency": used_name,
+                        "step": step.get("step"),
+                        "goal": step.get("goal", ""),
+                    })
+
     return {
         "missing_produces": missing_produces,
         "unplanned_definitions": unplanned_definitions,
-        # Only a genuinely SKIPPED deliverable blocks the lab. An unplanned
-        # top-level def is recorded for visibility, but does NOT invalidate
-        # the code on its own — testing showed this was flagging ordinary,
-        # necessary helper functions (a preprocessing function feeding a
-        # planned training function, etc.) at a near-100% false-positive
-        # rate. Telling those apart from a genuinely orphaned, disconnected
-        # addition (the original Qwen3-reference case) needs actual
-        # connectivity analysis — not yet built; until then, don't block
-        # on this signal alone.
-        "valid": not missing_produces,
+        "unused_dependencies": unused_dependencies,
+        # missing_produces = a genuinely skipped deliverable -> blocks.
+        # unused_dependencies = a declared dependency never referenced at
+        # all -> ALSO blocks. Unlike unplanned_definitions, there's no
+        # legitimate reason for a step to declare "uses": ["X"] and then
+        # not reference X anywhere — if it turned out not to need it, the
+        # plan was wrong, and that's still worth catching and repairing.
+        # unplanned_definitions alone stays non-blocking (see prior note).
+        "valid": not missing_produces and not unused_dependencies,
     }
+
+
+
+
 def _find_duplicate_definitions(code: str, tree: "ast.AST" = None) -> List[Dict]:
     """
     Detects class/function names defined more than once at module level,
@@ -2673,6 +2722,7 @@ def _validate_python_code(code: str) -> Dict[str, object]:
         "used_before_defined": [],
         "duplicate_definitions": [],   # NEW
         "valid": True,
+        "module_level_undefined": [],
     }
 
     try:
@@ -2968,7 +3018,20 @@ def _validate_python_code(code: str) -> Dict[str, object]:
                     deduped.append(item)
             validation["used_before_defined"] = deduped
             validation["valid"] = False
+    all_module_level_uses = set()
+    for stmt in flattened:
+        uses, _ = _own_uses_and_defs(stmt)
+        all_module_level_uses.update(uses)
 
+    module_level_undefined = sorted(
+        name for name in all_module_level_uses
+        if name not in module_level_defined_ever
+        and name not in imported_names
+        and name not in known_ok
+    )
+    if module_level_undefined:
+        validation["module_level_undefined"] = module_level_undefined
+        validation["valid"] = False
     duplicate_definitions = _find_duplicate_definitions(code, tree)
     if duplicate_definitions:
             validation["duplicate_definitions"] = duplicate_definitions
@@ -2977,7 +3040,8 @@ def _validate_python_code(code: str) -> Dict[str, object]:
 
     return validation
 
-""" Lab Generator Agent (v2)
+"""
+Lab Generator Agent (v2)
 --------------------------
 Turns one course lesson (from Course Generator) into a hands-on exercise:
 fill-in-the-blank code, or a small Kaggle-style notebook, grounded in the
@@ -3336,10 +3400,6 @@ def _score_solution_quality(code: str) -> Dict:
     issues = []
     if re.search(r"#\s*TODO", code, re.IGNORECASE):
         issues.append("a leftover TODO comment")
-    if re.search(r"placeholder", code, re.IGNORECASE):
-        issues.append("a comment admitting the code is a placeholder, not a real implementation")
-    if re.search(r"\bdummy\b", code, re.IGNORECASE):
-        issues.append("dummy/fake logic instead of a real implementation")
     if re.search(r"NotImplementedError", code):
         issues.append("raises/returns NotImplementedError instead of a real implementation")
 
@@ -3380,6 +3440,8 @@ def _build_debug_hint(validation: Dict, difficulty: str) -> str:
         issues.append("a variable or name that's used but never created")
     if validation.get("used_before_defined"):
         issues.append("a variable that's used before the line that actually creates it")
+    if validation.get("module_level_undefined"):
+        issues.append("a name used at the top level that was never actually created there")
     if any(d.get("likely_wasteful_repeat") for d in validation.get("duplicate_definitions", [])):
         issues.append("a class or function that gets redefined instead of reused")
     plan_issue = validation.get("plan_compliance")
@@ -3388,6 +3450,8 @@ def _build_debug_hint(validation: Dict, difficulty: str) -> str:
             issues.append("a planned part of this exercise that was never actually implemented")
         if plan_issue.get("unplanned_definitions"):
             issues.append("code that doesn't match what this exercise was supposed to cover")
+        if plan_issue.get("unused_dependencies"):
+            issues.append("code that claims to build on an earlier part of the exercise but actually reimplements it independently")
     quality_issue = validation.get("quality")
     if quality_issue and not quality_issue.get("valid", True):
         issues.append("unfinished placeholder code left in what should be the complete solution")
@@ -3870,9 +3934,6 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
 
     return {"student_notebook": student_path, "solution_notebook": solution_path}
 
-
-
-
 """
 Experiment & Suggested-Study Agent
 ===================================
@@ -4210,4 +4271,203 @@ def generate_experiment_set(
         "experiments": experiments,
         "gaps_used": [g.get("gap_description", "") for g in gaps_to_use],
         "papers_used": [p.get("title") for p in papers_with_analysis],
+    }
+
+
+import re
+
+METRIC_ALIASES = {
+    "accuracy": {"accuracy", "acc"},
+    "f1": {"f1", "f1-score", "f1 score", "f1_score", "f-measure", "fscore", "weighted f1-score", "weighted f1"},
+    "precision": {"precision"},
+    "recall": {"recall"},
+    "auc": {"auc", "roc-auc", "auc-roc", "roc auc"},
+    "inference_time": {"inference time", "inference latency", "latency", "inference time (ms per sample)"},
+    "training_time": {"training time", "training time (seconds per epoch)"},
+    "std_dev": {"standard deviation", "std", "std dev", "stdev"},
+    "cv": {"coefficient of variation", "cv"},
+}
+_ALIAS_LOOKUP = {alias: canon for canon, aliases in METRIC_ALIASES.items() for alias in aliases}
+_NON_RATIO_METRICS = {"inference_time", "training_time", "std_dev", "cv"}
+
+
+def normalize_metric_name(raw_name: str) -> str:
+    if not raw_name:
+        return ""
+    return _ALIAS_LOOKUP.get(raw_name.strip().lower(), raw_name.strip().lower())
+
+
+def normalize_metric_value(raw_value, metric_normalized: str = "") -> float | None:
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, (int, float)):
+        val = float(raw_value)
+    else:
+        match = re.match(r"[-+]?\d*\.?\d+", str(raw_value).strip())
+        if not match:
+            return None
+        val = float(match.group())
+    # only treat >1 as a percentage for ratio-style metrics — skip for ms/sec/std/cv
+    if val > 1.0 and metric_normalized not in _NON_RATIO_METRICS:
+        val = val / 100.0
+    return round(val, 4)
+
+
+_EXTRACTION_SCHEMA = """
+Respond with ONLY a JSON object:
+{"results": [{"model": "exact model/method name as written", "metric": "exact metric name as written", "value": "exact value as written"}]}
+Extract ONLY numbers literally present in the text. Do not infer, estimate, or round.
+A single sentence may report MULTIPLE metrics for the SAME model (e.g. "X inference time: A, training time: B")
+— extract each metric mentioned as its own separate object, all sharing that model name.
+If none are present, return {"results": []}.
+""".strip()
+
+
+def extract_literature_results(paper: dict) -> list:
+    analysis = paper.get("analysis", {}) or {}
+    results = analysis.get("results", {}) or {}
+    source_text = "\n".join(str(results.get(k, "")) for k in
+                             ("reported_numbers", "metrics", "baselines_compared", "key_improvements"))
+    if not source_text.strip():
+        return []
+
+    prompt = f"Text:\n{source_text[:3000]}\n\n{_EXTRACTION_SCHEMA}"
+    parsed = _safe_json_parse(_groq_invoke_safe(prompt))
+    out = []
+    for r in parsed.get("results", []) if isinstance(parsed, dict) else []:
+        if not isinstance(r, dict):
+            continue
+        metric_norm = normalize_metric_name(r.get("metric", ""))
+        out.append({
+            "model": r.get("model", ""),
+            "metric_raw": r.get("metric", ""),
+            "metric_normalized": metric_norm,
+            "value_raw": r.get("value"),
+            "value_normalized": normalize_metric_value(r.get("value"), metric_norm),
+            "source_paper": paper.get("title", ""),
+        })
+    return out
+
+
+def extract_student_results(submission_text: str) -> list:
+    if not submission_text or not submission_text.strip():
+        return []
+    out = []
+    for i, chunk in enumerate(chunk_text(submission_text, max_chars=3000)):
+        prompt = f"Part {i+1} of a student's experiment report:\n{chunk}\n\n{_EXTRACTION_SCHEMA}"
+        parsed = _safe_json_parse(_groq_invoke_safe(prompt))
+        for r in parsed.get("results", []) if isinstance(parsed, dict) else []:
+            if not isinstance(r, dict):
+                continue
+            metric_norm = normalize_metric_name(r.get("metric", ""))
+            out.append({
+                "model": r.get("model", ""),
+                "metric_raw": r.get("metric", ""),
+                "metric_normalized": metric_norm,
+                "value_raw": r.get("value"),
+                "value_normalized": normalize_metric_value(r.get("value"), metric_norm),
+            })
+    return out
+
+
+def build_comparison_table(student_results: list, literature_results: list) -> list:
+    # all math here, no LLM — same reasoning as generate_technical_plan's code-level
+    # relevance gate: don't let the model touch anything that must be exactly right.
+    table = []
+    for sres in student_results:
+        match = next((l for l in literature_results
+                      if sres["metric_normalized"] == l["metric_normalized"]
+                      and sres["model"].strip().lower() == l["model"].strip().lower()), None)
+        row = {
+            "metric": sres["metric_normalized"] or sres["metric_raw"],
+            "model": sres["model"],
+            "student_reported": sres["value_raw"],
+            "student_normalized": sres["value_normalized"],
+        }
+        if match:
+            row["literature_reported"] = match["value_raw"]
+            row["literature_normalized"] = match["value_normalized"]
+            row["source_paper"] = match["source_paper"]
+            if sres["value_normalized"] is not None and match["value_normalized"] is not None:
+                delta = round(sres["value_normalized"] - match["value_normalized"], 4)
+                row["delta"] = delta
+                row["delta_direction"] = "higher" if delta > 0.005 else "lower" if delta < -0.005 else "match"
+            else:
+                row["delta"], row["delta_direction"] = None, "not_comparable"
+        else:
+            row.update(literature_reported=None, literature_normalized=None,
+                       source_paper=None, delta=None, delta_direction="no_literature_match")
+        table.append(row)
+    return table
+
+
+def _assess_hypothesis(experiment: dict, comparison_table: list) -> dict:
+    hypothesis = experiment.get("expected_outcome_or_hypothesis", "")
+    if not hypothesis:
+        return {"matches_expectation": "unclear", "explanation": "No hypothesis recorded for this experiment."}
+
+    table_summary = "\n".join(
+        f"- {r['model']} / {r['metric']}: student={r['student_reported']}, "
+        f"literature={r.get('literature_reported', 'n/a')}, direction={r.get('delta_direction', 'n/a')}"
+        for r in comparison_table
+    ) or "No comparable results extracted."
+
+    prompt = f"""Hypothesis: "{hypothesis}"
+
+Computed comparison:
+{table_summary}
+
+Respond with ONLY JSON:
+{{"matches_expectation": "yes" | "no" | "partial" | "unclear", "explanation": "1-3 sentences based ONLY on the data above"}}
+"""
+    parsed = _safe_json_parse(_groq_invoke_safe(prompt))
+    return parsed or {"matches_expectation": "unclear", "explanation": "Parsing failed."}
+
+
+def _propose_gap_from_discrepancy(experiment: dict, comparison_table: list, hypothesis_check: dict) -> dict | None:
+    significant = [r for r in comparison_table if r.get("delta_direction") in ("higher", "lower")
+               and r.get("delta") is not None and r.get("metric") not in _NON_RATIO_METRICS
+               and abs(r["delta"]) > 0.03]
+    if not significant and hypothesis_check.get("matches_expectation") not in ("no", "partial"):
+        return None
+    return {
+        "gap_description": f"Student results for '{experiment.get('title', '')}' diverged from literature figures.",
+        "supporting_evidence": f"Hypothesis check: {hypothesis_check.get('explanation', '')}",
+        "papers_involved": [e.get("paper") for e in experiment.get("related_paper_evidence", []) if e.get("paper")],
+        "opportunity": "Investigate whether this reflects a genuine limitation, an implementation difference, or a protocol mismatch.",
+        "_source": "benchmark_evaluation_agent",  # tag so a reviewer can distinguish from literature-derived gaps
+    }
+
+
+def generate_benchmark_evaluation(experiment: dict, papers_with_analysis: list, submission_text: str) -> dict:
+    involved_titles = {e.get("paper") for e in experiment.get("related_paper_evidence", []) if e.get("paper")}
+    relevant_papers = [p for p in papers_with_analysis if p.get("title") in involved_titles] or papers_with_analysis
+
+    literature_results = []
+    for paper in relevant_papers:
+        literature_results.extend(extract_literature_results(paper))
+
+    student_results = extract_student_results(submission_text)
+    if not student_results:
+        return {
+            "experiment_title": experiment.get("title", ""),
+            "comparison_table": [],
+            "hypothesis_check": {"matches_expectation": "unclear", "explanation": "No numeric results extracted from submission."},
+            "student_results_found": False,
+            "proposed_gap": None,
+            "summary": "No extractable results — check submission manually before treating as a discrepancy.",
+        }
+
+    comparison_table = build_comparison_table(student_results, literature_results)
+    hypothesis_check = _assess_hypothesis(experiment, comparison_table)
+    proposed_gap = _propose_gap_from_discrepancy(experiment, comparison_table, hypothesis_check)
+
+    return {
+        "experiment_title": experiment.get("title", ""),
+        "comparison_table": comparison_table,
+        "hypothesis_check": hypothesis_check,
+        "student_results_found": True,
+        "proposed_gap": proposed_gap,
+        "summary": f"{len(comparison_table)} result(s) compared; "
+                   f"{sum(1 for r in comparison_table if r['delta_direction'] == 'no_literature_match')} had no literature match.",
     }

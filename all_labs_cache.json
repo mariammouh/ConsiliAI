@@ -1,0 +1,491 @@
+{
+  "idea": "fake news detection using transformer models",
+  "modules": [
+    {
+      "module_title": "Foundations of Fake News Detection in Social Networks",
+      "lessons": [
+        {
+          "lab": {
+            "exercise_title": "Benchmarking Fake News Detection: From Traditional ML to Transformers",
+            "format": "notebook",
+            "learning_objective": "Students will implement a simplified benchmarking pipeline to compare a traditional machine learning model (Logistic Regression with TF-IDF) against a deep learning approach (BERT), evaluating their performance using F1-score, precision, and recall, and interpreting the results in the context of generalization capabilities.",
+            "instructions": "In this exercise, you will simulate the foundational benchmarking process described in the paper 'An Experimental Comparison of the Most Popular Approaches to Fake News Detection'. Your goal is to build a minimal pipeline that compares two representative methods: a traditional ML model (Logistic Regression) and a Transformer-based model (BERT). \n\n1. **Contextualize the Problem**: Briefly describe how the lack of fact-checking mechanisms on social media leads to the spread of unverified information.\n2. **Implement Traditional ML**: Create a function to preprocess text using TF-IDF and train a Logistic Regression (LR) model.\n3. **Implement Deep Learning**: Create a function to load a pre-trained BERT model and prepare it for classification (simulating the fine-tuning or zero-shot setup discussed).\n4. **Benchmark and Evaluate**: Write a function to evaluate both models on a sample dataset, calculating Precision, Recall, and F1-score. \n5. **Statistical Interpretation**: Discuss why simple accuracy might be misleading and how metrics like F1-score and statistical tests (like the Friedman test mentioned in the paper) help determine if one model is significantly better than another, especially regarding cross-domain generalization.\n\nNote: this exercise's code contains at least one known issue. This code contains code that claims to build on an earlier part of the exercise but actually reimplements it independently.",
+            "difficulty": "beginner",
+            "hints": [
+              "Use `sklearn.feature_extraction.text.TfidfVectorizer` for the traditional ML pipeline as specified in the implementation notes.",
+              "For the BERT component, you can use `transformers.pipeline` for a simplified zero-shot or classification setup, keeping in mind the paper's note on using Huggingface for fine-tuning.",
+              "Remember that the paper highlights the 'domain shift problem'; consider how a model trained on one dataset might perform poorly on another.",
+              "When calculating metrics, ensure you handle class imbalance if present, as F1-score is often more informative than accuracy in fake news detection."
+            ],
+            "based_on_module": "Foundations of Fake News Detection in Social Networks",
+            "based_on_lesson": "Foundations of Fake News Detection in Social Networks",
+            "based_on_repo": {
+              "name": "chananya-6617/Intelligent-Fake-News-Detection-Using-Transformer-Models",
+              "url": "https://github.com/chananya-6617/Intelligent-Fake-News-Detection-Using-Transformer-Models"
+            },
+            "code_plan": [
+              {
+                "step": 1,
+                "goal": "Explain the societal impact of unverified information and the lack of control on social media platforms.",
+                "produces": [],
+                "uses": []
+              },
+              {
+                "step": 2,
+                "goal": "Define the traditional ML pipeline using TF-IDF and Logistic Regression as a baseline.",
+                "produces": [
+                  "train_traditional_ml"
+                ],
+                "uses": []
+              },
+              {
+                "step": 3,
+                "goal": "Set up the deep learning benchmark using BERT to compare against traditional methods.",
+                "produces": [
+                  "setup_bert_model"
+                ],
+                "uses": []
+              },
+              {
+                "step": 4,
+                "goal": "Evaluate both models using F1-score, precision, and recall, and interpret the statistical significance of the results.",
+                "produces": [
+                  "evaluate_models",
+                  "calculate_metrics"
+                ],
+                "uses": [
+                  "train_traditional_ml",
+                  "setup_bert_model"
+                ]
+              }
+            ],
+            "code_model": "qwen2.5-coder:7b",
+            "debug_mode": true,
+            "debug_hint": "This code contains code that claims to build on an earlier part of the exercise but actually reimplements it independently.",
+            "starter_code": "# --- The impact of unverified information on public opinion ---\n# The rapid proliferation of unverified and false information on social media platforms poses a significant threat to public discourse. Because these platforms lack centralized control and rigorous fact-checking mechanisms, misinformation spreads unchecked, often influencing public opinion on critical societal issues. This environment creates a systemic challenge where users are frequently exposed to deceptive content that mimics legitimate news. The problem is exacerbated by the domain shift phenomenon, where false information can quickly gain traction due to its novelty and relatability. This highlights the need for robust detection mechanisms to mitigate the impact of unverified information on public opinion.\n\n# --- Overview of traditional ML vs. deep learning approaches ---\nfrom sklearn.feature_extraction.text import TfidfVectorizer\nfrom sklearn.linear_model import LogisticRegression\n\ndef train_traditional_ml(X_train, y_train):\n    \"\"\"\n    Train a traditional ML model using TF-IDF and Logistic Regression.\n    \n    Parameters:\n        X_train (list of str): Training text data.\n        y_train (list of int): Training labels (0 for fake, 1 for real).\n        \n    Returns:\n        model: Trained Logistic Regression model.\n    \"\"\"\n    # Initialize the TF-IDF vectorizer\n    tfidf_vectorizer = TfidfVectorizer()\n    \n    # Fit and transform the training data\n    X_train_tfidf = tfidf_vectorizer.fit_transform(X_train)\n    \n    # Initialize the Logistic Regression model\n    log_reg_model = LogisticRegression(max_iter=1000)\n    \n    # Train the model\n    log_reg_model.fit(X_train_tfidf, y_train)\n    \n    return log_reg_model\n\n# --- Benchmarking generalization capabilities ---\nfrom transformers import BertForSequenceClassification, BertTokenizer\n\ndef setup_bert_model():\n    \"\"\"\n    Load a BERT classifier from Huggingface for benchmarking.\n    \n    Returns:\n        model: A pre-trained BERT model for fake news detection.\n    \"\"\"\n    # Load the BERT tokenizer and model\n    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')\n    model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=2)\n    \n    return model, tokenizer\n\n# --- Evaluation metrics: F1-score, precision, recall, and statistical interpretation ---\nfrom sklearn.metrics import precision_score, recall_score, f1_score\nimport torch\n\ndef evaluate_models(traditional_ml_model, bert_model, X_test, y_test):\n    \"\"\"\n    Evaluate both models using F1-score, precision, and recall.\n    \n    Parameters:\n        traditional_ml_model (LogisticRegression): Trained traditional ML model.\n        bert_model (BertForSequenceClassification): BERT model for fake news detection.\n        X_test (list of str): Test text data.\n        y_test (list of int): Test labels (0 for fake, 1 for real).\n        \n    Returns:\n        dict: Evaluation metrics for both models.\n    \"\"\"\n    # Evaluate traditional ML model\n    X_test_tfidf = tfidf_vectorizer.transform(X_test)\n    y_pred_traditional_ml = traditional_ml_model.predict(X_test_tfidf)\n    traditional_ml_metrics = calculate_metrics(y_test, y_pred_traditional_ml)\n\n    # Evaluate BERT model\n    encoded_inputs = tokenizer(X_test, padding=True, truncation=True, return_tensors='pt')\n    with torch.no_grad():\n        outputs = bert_model(**encoded_inputs)\n    logits = outputs.logits\n    _, y_pred_bert = torch.max(logits, dim=1)\n    y_pred_bert = y_pred_bert.numpy()\n    bert_metrics = calculate_metrics(y_test, y_pred_bert)\n\n    return {\n        'Traditional ML': traditional_ml_metrics,\n        'BERT': bert_metrics\n    }\n\ndef calculate_metrics(y_true, y_pred):\n    \"\"\"\n    Calculate precision, recall, and F1-score.\n    \n    Parameters:\n        y_true (list of int): True labels.\n        y_pred (list of int): Predicted labels.\n        \n    Returns:\n        dict: Precision, recall, and F1-score.\n    \"\"\"\n    precision = precision_score(y_true, y_pred)\n    recall = recall_score(y_true, y_pred)\n    f1 = f1_score(y_true, y_pred)\n    \n    return {\n        'Precision': precision,\n        'Recall': recall,\n        'F1-Score': f1\n    }",
+            "solution_code": null,
+            "validation": {
+              "starter": {
+                "syntax_ok": true,
+                "syntax_error": null,
+                "undefined_names": [],
+                "used_before_defined": [],
+                "duplicate_definitions": [],
+                "valid": true,
+                "module_level_undefined": []
+              },
+              "solution": {
+                "syntax_ok": true,
+                "syntax_error": null,
+                "undefined_names": [],
+                "used_before_defined": [],
+                "duplicate_definitions": [],
+                "valid": false,
+                "module_level_undefined": [],
+                "plan_compliance": {
+                  "missing_produces": [],
+                  "unplanned_definitions": [],
+                  "unused_dependencies": [
+                    {
+                      "produced_name": "evaluate_models",
+                      "expected_dependency": "train_traditional_ml",
+                      "step": 4,
+                      "goal": "Evaluate both models using F1-score, precision, and recall, and interpret the statistical significance of the results."
+                    },
+                    {
+                      "produced_name": "evaluate_models",
+                      "expected_dependency": "setup_bert_model",
+                      "step": 4,
+                      "goal": "Evaluate both models using F1-score, precision, and recall, and interpret the statistical significance of the results."
+                    },
+                    {
+                      "produced_name": "calculate_metrics",
+                      "expected_dependency": "train_traditional_ml",
+                      "step": 4,
+                      "goal": "Evaluate both models using F1-score, precision, and recall, and interpret the statistical significance of the results."
+                    },
+                    {
+                      "produced_name": "calculate_metrics",
+                      "expected_dependency": "setup_bert_model",
+                      "step": 4,
+                      "goal": "Evaluate both models using F1-score, precision, and recall, and interpret the statistical significance of the results."
+                    }
+                  ],
+                  "valid": false
+                },
+                "repair_attempts": 1,
+                "quality": {
+                  "issues": [],
+                  "valid": true
+                }
+              }
+            }
+          },
+          "notebook_files": null
+        }
+      ]
+    },
+    {
+      "module_title": "Heterogeneous Transformer Architectures for News Propagation",
+      "lessons": [
+        {
+          "lab": {
+            "exercise_title": "Implementing HetTransformer Components for Fake News Detection",
+            "format": "fill_in_blank",
+            "learning_objective": "Implement the core components of the HetTransformer model, including RWR-based neighbor sampling, type-specific transformation matrices, and the encoder-decoder structure for aggregating multi-modal semantics and structural representations.",
+            "instructions": "In this exercise, you will implement key components of the HetTransformer model as described in the paper 'Fake News Detection with Heterogeneous Transformer'. The goal is to overcome the limitations of existing heterogeneous graph models by capturing both local multi-modal semantics and global structural propagation patterns.\n\nYou will complete a Python script that defines:\n1. A function to perform Random Walk with Restart (RWR) for heterogeneous neighbor sampling.\n2. A class or function to apply type-specific transformation matrices to project node embeddings to a unified dimension.\n3. An encoder-decoder structure that aggregates these embeddings using self-attention mechanisms.\n\nFollow the comments in the code to fill in the missing logic. Ensure that your implementation respects the heterogeneity of node types and edge types, and correctly aggregates information from the sampled neighbors.\n\nNote: this exercise's code contains at least one known issue. This code contains a variable or name that's used but never created somewhere \u2014 find and fix it.",
+            "difficulty": "intermediate",
+            "hints": [
+              "For RWR, remember that the restart probability determines how likely the walk is to return to the starting node, influencing the local vs. global structure capture.",
+              "Type-specific transformation matrices should project embeddings from different node types (e.g., user, news, comment) into a shared embedding space of dimension 'd'.",
+              "The encoder should process the sampled neighborhood structure, while the decoder should integrate this with the news content embeddings (e.g., from BERT/RoBERTa) for final classification.",
+              "Use MultiHeadAttention to weigh the importance of different neighbors and content features during aggregation."
+            ],
+            "based_on_module": "Heterogeneous Transformer Architectures for News Propagation",
+            "based_on_lesson": "Heterogeneous Transformer Architectures for News Propagation",
+            "based_on_repo": {
+              "name": "chananya-6617/Intelligent-Fake-News-Detection-Using-Transformer-Models",
+              "url": "https://github.com/chananya-6617/Intelligent-Fake-News-Detection-Using-Transformer-Models"
+            },
+            "code_plan": [
+              {
+                "step": 1,
+                "goal": "Define the encoder-decoder structure for news content and neighborhood encoding.",
+                "produces": [
+                  "HetTransformerEncoderDecoder",
+                  "encode_neighborhood",
+                  "decode_content_structure"
+                ],
+                "uses": []
+              },
+              {
+                "step": 2,
+                "goal": "Implement heterogeneous neighbor sampling using RWR-based strategies.",
+                "produces": [
+                  "rwr_neighbor_sampling"
+                ],
+                "uses": []
+              },
+              {
+                "step": 3,
+                "goal": "Create type-specific transformation matrices to project heterogeneous embeddings.",
+                "produces": [
+                  "TypeSpecificTransformer",
+                  "forward"
+                ],
+                "uses": []
+              },
+              {
+                "step": 4,
+                "goal": "Aggregate multi-modal semantics by combining content and structural embeddings.",
+                "produces": [
+                  "aggregate_multi_modal"
+                ],
+                "uses": [
+                  "HetTransformerEncoderDecoder",
+                  "TypeSpecificTransformer"
+                ]
+              }
+            ],
+            "code_model": "qwen2.5-coder:7b",
+            "debug_mode": true,
+            "debug_hint": "This code contains a variable or name that's used but never created somewhere \u2014 find and fix it.",
+            "starter_code": "import torch\nfrom torch.nn import Module, Linear, LayerNorm, MultiheadAttention\n\nclass HetTransformerEncoderDecoder(Module):\n    def __init__(self, d_model, n_heads):\n        super(HetTransformerEncoderDecoder, self).__init__()\n        self.d_model = d_model\n        self.n_heads = n_heads\n        \n        # Encoder layers\n        self.encoder_layer = LayerNorm(d_model)\n        self.multihead_attn = MultiheadAttention(embed_dim=d_model, num_heads=n_heads)\n        \n        # Decoder layers\n        self.decoder_layer = LayerNorm(d_model)\n        self.content_decoder = Linear(d_model, d_model)\n        self.structural_decoder = Linear(d_model, d_model)\n\n    def encode_neighborhood(self, neighbor_embeddings):\n        # Apply multihead attention to neighborhood embeddings\n        attn_output, _ = self.multihead_attn(neighbor_embeddings, neighbor_embeddings, neighbor_embeddings)\n        encoded_neighbors = self.encoder_layer(attn_output + neighbor_embeddings)\n        return encoded_neighbors\n\n    def decode_content_structure(self, content_embedding, structural_embedding):\n        # Concatenate content and structural embeddings\n        combined_embedding = torch.cat((content_embedding, structural_embedding), dim=-1)\n        \n        # Apply linear transformations for decoding\n        decoded_content = self.content_decoder(combined_embedding)\n        decoded_structural = self.structural_decoder(combined_embedding)\n        \n        return decoded_content, decoded_structural\n\n    def aggregate_multi_modal(self, content_embedding, positional_embedding, type_embedding):\n        # Concatenate content, positional, and type embeddings\n        combined_embedding = torch.cat((content_embedding, positional_embedding, type_embedding), dim=-1)\n        \n        # Apply multihead attention to aggregated embedding\n        attn_output, _ = self.multihead_attn(combined_embedding, combined_embedding, combined_embedding)\n        aggregated_embedding = self.encoder_layer(attn_output + combined_embedding)\n        \n        return aggregated_embedding\n\ndef rwr_neighbor_sampling(graph, start_node, restart_prob, walk_length):\n    \"\"\"\n    Sample neighbors using Random Walk with Restart (RWR) strategy.\n    \n    Args:\n        graph (torch_geometric.data.Data): The input heterogeneous graph.\n        start_node (int): The starting node for the random walk.\n        restart_prob (float): The probability of restarting the walk at the start node.\n        walk_length (int): The maximum length of the random walk.\n        \n    Returns:\n        list: A list of sampled neighbor nodes.\n    \"\"\"\n    current_node = start_node\n    neighbors = [current_node]\n    \n    for _ in range(walk_length - 1):\n        if torch.rand(1) < restart_prob:\n            current_node = start_node\n        else:\n            neighbors_list = graph.edge_index[1][graph.edge_index[0] == current_node].tolist()\n            if neighbors_list:\n                current_node = torch.randint(len(neighbors_list), (1,)).item()\n        \n        neighbors.append(current_node)\n    \n    return neighbors\n\nclass TypeSpecificTransformer(Module):\n    def __init__(self, d_model, num_types):\n        super(TypeSpecificTransformer, self).__init__()\n        # Initialize type-specific transformation matrices M \u03c6i k\n        self.transform_matrices = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(num_types)])\n    \n    def forward(self, node_embeddings, node_types):\n        # Apply the appropriate transformation matrix to each node embedding based on its type\n        transformed_embeddings = []\n        for i, embeddings in enumerate(node_embeddings):\n            if torch.any(node_types == i):\n                M_phi_k = self.transform_matrices[i]\n                transformed_embeddings.append(M_phi_k(embeddings))\n            else:\n                transformed_embeddings.append(embeddings)\n        \n        return torch.cat(transformed_embeddings, dim=0)",
+            "solution_code": null,
+            "validation": {
+              "starter": {
+                "syntax_ok": true,
+                "syntax_error": null,
+                "undefined_names": [],
+                "used_before_defined": [],
+                "duplicate_definitions": [
+                  {
+                    "name": "HetTransformerEncoderDecoder",
+                    "kind": "ClassDef",
+                    "first_defined_line": 5,
+                    "redefined_line": 38,
+                    "similarity": 0.1,
+                    "likely_wasteful_repeat": false
+                  }
+                ],
+                "valid": true,
+                "module_level_undefined": [],
+                "rewrite_attempted": false,
+                "rewrite_attempts": 0,
+                "repair_attempts": 1
+              },
+              "solution": {
+                "syntax_ok": true,
+                "syntax_error": null,
+                "undefined_names": [
+                  "nn"
+                ],
+                "used_before_defined": [],
+                "duplicate_definitions": [],
+                "valid": false,
+                "module_level_undefined": [],
+                "repair_attempts": 2,
+                "rewrite_attempted": true,
+                "rewrite_attempts": 1,
+                "plan_compliance": {
+                  "missing_produces": [],
+                  "unplanned_definitions": [],
+                  "unused_dependencies": [],
+                  "valid": true
+                },
+                "quality": {
+                  "issues": [],
+                  "valid": true
+                }
+              }
+            }
+          },
+          "notebook_files": null
+        }
+      ]
+    },
+    {
+      "module_title": "Advanced Model Evaluation and Comparative Analysis",
+      "lessons": [
+        {
+          "lab": {
+            "exercise_title": "Statistical Benchmarking of Fake News Detectors: Cross-Domain Generalization and Rigor",
+            "format": "notebook",
+            "learning_objective": "Implement a rigorous evaluation framework to compare traditional ML, Transformer-based, and LLM approaches for fake news detection, focusing on cross-domain generalization failures and statistical significance testing using Friedman and Nemenyi tests.",
+            "instructions": "In this exercise, you will build a comprehensive evaluation pipeline to replicate the findings of the paper 'An Experimental Comparison of the Most Popular Approaches to Fake News Detection'. Your goal is to demonstrate why standard models fail in cross-domain settings and to statistically validate the superiority of advanced architectures like DeBERTa and MERMAID.\n\n1. **Data Preparation**: Load a subset of heterogeneous datasets (e.g., from the 10 mentioned in the paper). Implement stratified sampling to create few-shot scenarios, ensuring class balance.\n2. **Model Implementation**: Define functions to train/evaluate three categories of models:\n   - Traditional/Embedding-based: SVM with TF-IDF, CNN/BiLSTM with Word2Vec.\n   - Fine-tuned Transformers: BERT and DeBERTa (using Hugging Face).\n   - LLMs: Simulate zero-shot/few-shot inference for Llama3 or Qwen (using API or local inference stubs if full training is not feasible, focusing on the evaluation logic).\n3. **Cross-Domain Evaluation**: Train models on one domain and evaluate on others to measure generalization failure. Calculate F1-score, Precision, and Recall.\n4. **Statistical Analysis**: Compute the Coefficient of Variation (CV) and Gate Entropy for stability analysis. Perform a Friedman Test to determine if there are statistically significant differences between the models (p < 0.05). If significant, conduct a post-hoc Nemenyi test to rank the models.\n\nYour final output should be a report highlighting which models exhibit statistically significant improvements and which fail to generalize across domains.\n\nNote: this exercise's code contains at least one known issue. This code runs without a syntax error, but something in it is broken. Find it.",
+            "difficulty": "advanced",
+            "hints": [
+              "Ensure you use stratified sampling when creating your few-shot subsets to maintain class distribution integrity.",
+              "For the statistical tests, use `scipy.stats.friedmanchisquare` for the Friedman test and implement or use a library for the Nemenyi post-hoc test.",
+              "Remember that LLMs in this context may be evaluated via zero-shot prompting or few-shot prompting without weight updates, unlike BERT/DeBERTa which require fine-tuning.",
+              "Calculate Gate Entropy to measure the uncertainty in model predictions, which is crucial for assessing reliability in heterogeneous data."
+            ],
+            "based_on_module": "Advanced Model Evaluation and Comparative Analysis",
+            "based_on_lesson": "Advanced Model Evaluation and Comparative Analysis",
+            "based_on_repo": {
+              "name": "chananya-6617/Intelligent-Fake-News-Detection-Using-Transformer-Models",
+              "url": "https://github.com/chananya-6617/Intelligent-Fake-News-Detection-Using-Transformer-Models"
+            },
+            "code_plan": [
+              {
+                "step": 1,
+                "goal": "Implement data loading and stratified sampling to create few-shot datasets for cross-domain evaluation.",
+                "produces": [
+                  "load_heterogeneous_datasets",
+                  "create_stratified_few_shot_split"
+                ],
+                "uses": []
+              },
+              {
+                "step": 2,
+                "goal": "Define model classes and training/inference functions for SVM, CNN, BiLSTM, BERT, DeBERTa, and LLMs.",
+                "produces": [
+                  "SVM_TFIDF_Model",
+                  "CNN_Word2Vec_Model",
+                  "BiLSTM_Word2Vec_Model",
+                  "BERT_FineTuner",
+                  "DeBERTa_FineTuner",
+                  "LLM_Inference_Wrapper"
+                ],
+                "uses": []
+              },
+              {
+                "step": 3,
+                "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics.",
+                "produces": [
+                  "evaluate_cross_domain_performance",
+                  "calculate_f1_precision_recall"
+                ],
+                "uses": [
+                  "create_stratified_few_shot_split",
+                  "SVM_TFIDF_Model",
+                  "CNN_Word2Vec_Model",
+                  "BiLSTM_Word2Vec_Model",
+                  "BERT_FineTuner",
+                  "DeBERTa_FineTuner",
+                  "LLM_Inference_Wrapper"
+                ]
+              },
+              {
+                "step": 4,
+                "goal": "Perform statistical analysis including Coefficient of Variation, Gate Entropy, Friedman Test, and Nemenyi post-hoc test to validate model superiority.",
+                "produces": [
+                  "calculate_coefficient_of_variation",
+                  "calculate_gate_entropy",
+                  "perform_friedman_test",
+                  "perform_nemenyi_post_hoc"
+                ],
+                "uses": [
+                  "evaluate_cross_domain_performance"
+                ]
+              }
+            ],
+            "code_model": "qwen2.5-coder:7b",
+            "debug_mode": true,
+            "debug_hint": "This code runs without a syntax error, but something in it is broken. Find it.",
+            "starter_code": "# --- Cross-domain generalization challenges ---\nimport pandas as pd\nfrom sklearn.model_selection import train_test_split, StratifiedKFold\n\ndef load_heterogeneous_datasets(domain_paths):\n    \"\"\"\n    Load heterogeneous datasets from specified paths.\n    \n    Args:\n        domain_paths (dict): A dictionary where keys are domain names and values are file paths to the dataset for that domain.\n        \n    Returns:\n        dict: A dictionary where keys are domain names and values are loaded datasets.\n    \"\"\"\n    datasets = {}\n    for domain, path in domain_paths.items():\n        df = pd.read_csv(path)\n        datasets[domain] = df\n    return datasets\n\ndef create_stratified_few_shot_split(datasets, num_samples_per_class):\n    \"\"\"\n    Create stratified few-shot splits for cross-domain evaluation.\n    \n    Args:\n        datasets (dict): A dictionary where keys are domain names and values are loaded datasets.\n        num_samples_per_class (int): Number of samples per class to include in the few-shot split.\n        \n    Returns:\n        dict: A dictionary where keys are domain names and values are stratified few-shot splits.\n    \"\"\"\n    few_shot_splits = {}\n    for domain, df in datasets.items():\n        # Assuming 'label' is the column with the target labels\n        X = df.drop(columns=['label'])\n        y = df['label']\n        \n        skf = StratifiedKFold(n_splits=1)\n        train_index, test_index = next(skf.split(X, y))\n        \n        train_df = df.iloc[train_index]\n        test_df = df.iloc[test_index]\n        \n        # Sample few-shot data\n        sampled_train_df = train_df.groupby('label').apply(lambda x: x.sample(num_samples_per_class)).reset_index(drop=True)\n        \n        few_shot_splits[domain] = {\n            'train': sampled_train_df,\n            'test': test_df\n        }\n    \n    return few_shot_splits\n\n# --- Fine-tuning pre-trained models (BERT, DeBERTa, LLMs) ---\n# Define model classes and training/inference functions for SVM, CNN, BiLSTM, BERT, DeBERTa, and LLMs\n\nfrom sklearn.svm import SVC\nfrom sklearn.feature_extraction.text import TfidfVectorizer\nfrom tensorflow.keras.models import Sequential\nfrom tensorflow.keras.layers import Embedding, LSTM, Dense, Bidirectional\nfrom transformers import BertTokenizer, BertForSequenceClassification\nfrom transformers import DebertaTokenizer, DebertaForSequenceClassification\n\nclass SVM_TFIDF_Model:\n    def __init__(self):\n        self.vectorizer = TfidfVectorizer()\n        self.model = SVC(kernel='linear')\n    \n    def train(self, X_train, y_train):\n        X_train_tfidf = self.vectorizer.fit_transform(X_train)\n        self.model.fit(X_train_tfidf, y_train)\n    \n    def predict(self, X_test):\n        X_test_tfidf = self.vectorizer.transform(X_test)\n        return self.model.predict(X_test_tfidf)\n\nclass CNN_Word2Vec_Model:\n    def __init__(self):\n        # Placeholder for Word2Vec embedding layer\n        pass\n    \n    def train(self, X_train, y_train):\n        # Placeholder for training logic\n        pass\n    \n    def predict(self, X_test):\n        # Placeholder for prediction logic\n        pass\n\nclass BiLSTM_Word2Vec_Model:\n    def __init__(self):\n        # Placeholder for Word2Vec embedding layer and LSTM model\n        pass\n    \n    def train(self, X_train, y_train):\n        # Placeholder for training logic\n        pass\n    \n    def predict(self, X_test):\n        # Placeholder for prediction logic\n        pass\n\nclass BERT_FineTuner:\n    def __init__(self):\n        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')\n        self.model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=2)\n    \n    def train(self, X_train, y_train):\n        inputs = self.tokenizer(X_train.tolist(), padding=True, truncation=True, return_tensors='pt')\n        labels = torch.tensor(y_train.tolist())\n        self.model.train()\n        optimizer = AdamW(self.model.parameters(), lr=5e-5)\n        \n        for epoch in range(3):  # Number of epochs\n            outputs = self.model(**inputs, labels=labels)\n            loss = outputs.loss\n            loss.backward()\n            optimizer.step()\n            optimizer.zero_grad()\n\n    def predict(self, X_test):\n        inputs = self.tokenizer(X_test.tolist(), padding=True, truncation=True, return_tensors='pt')\n        self.model.eval()\n        with torch.no_grad():\n            predictions = self.model(**inputs).logits\n        return torch.argmax(predictions, dim=1).numpy()\n\nclass DeBERTa_FineTuner:\n    def __init__(self):\n        self.tokenizer = DebertaTokenizer.from_pretrained('microsoft/deberta-base')\n        self.model = DebertaForSequenceClassification.from_pretrained('microsoft/deberta-base', num_labels=2)\n    \n    def train(self, X_train, y_train):\n        inputs = self.tokenizer(X_train.tolist(), padding=True, truncation=True, return_tensors='pt')\n        labels = torch.tensor(y_train.tolist())\n        self.model.train()\n        optimizer = AdamW(self.model.parameters(), lr=5e-5)\n        \n        for epoch in range(3):  # Number of epochs\n            outputs = self.model(**inputs, labels=labels)\n            loss = outputs.loss\n            loss.backward()\n            optimizer.step()\n            optimizer.zero_grad()\n\n    def predict(self, X_test):\n        inputs = self.tokenizer(X_test.tolist(), padding=True, truncation=True, return_tensors='pt')\n        self.model.eval()\n        with torch.no_grad():\n            predictions = self.model(**inputs).logits\n        return torch.argmax(predictions, dim=1).numpy()\n\nclass LLM_Inference_Wrapper:\n    def __init__(self):\n        # Placeholder for LLM initialization\n        pass\n    \n    def infer(self, text):\n        # Placeholder for inference logic\n        pass\n\n# --- Impact of dataset size on model architectures ---\nfrom sklearn.metrics import f1_score, precision_score, recall_score\nimport torch\nfrom transformers import AdamW\n\ndef evaluate_cross_domain_performance(few_shot_splits, models):\n    \"\"\"\n    Evaluate cross-domain performance of given models on few-shot splits.\n    \n    Args:\n        few_shot_splits (dict): A dictionary where keys are domain names and values are stratified few-shot splits.\n        models (list): List of model instances to be evaluated.\n        \n    Returns:\n        dict: A dictionary where keys are model names and values are dictionaries containing F1, Precision, Recall for each domain.\n    \"\"\"\n    results = {}\n    for model in models:\n        model_name = type(model).__name__\n        domain_results = {}\n        for domain, split in few_shot_splits.items():\n            X_train = split['train']['text']\n            y_train = split['train']['label']\n            X_test = split['test']['text']\n            y_test = split['test']['label']\n            \n            # Train the model on the training data\n            model.train(X_train, y_train)\n            \n            # Predict labels for the test data\n            predictions = model.predict(X_test)\n            \n            # Calculate F1, Precision, Recall and store results\n            f1 = f1_score(y_test, predictions)\n            precision = precision_score(y_test, predictions)\n            recall = recall_score(y_test, predictions)\n            domain_results[domain] = {'F1': f1, 'Precision': precision, 'Recall': recall}\n        \n        results[model_name] = domain_results\n    \n    return results\n\ndef calculate_f1_precision_recall(true_labels, predicted_labels):\n    \"\"\"\n    Calculate F1, Precision, and Recall for binary classification.\n    \n    Args:\n        true_labels (list): True labels.\n        predicted_labels (list): Predicted labels.\n        \n    Returns:\n        tuple: F1 score, Precision, Recall\n    \"\"\"\n    f1 = f1_score(true_labels, predicted_labels)\n    precision = precision_score(true_labels, predicted_labels)\n    recall = recall_score(true_labels, predicted_labels)\n    return f1, precision, recall\n\n# --- Statistical performance differences and qualitative insights ---\n# Define statistical analysis functions\n\nimport numpy as np\nfrom scipy.stats import friedmanchisquare, rankdata\n\ndef calculate_coefficient_of_variation(data):\n    \"\"\"Calculate the Coefficient of Variation (CV) for a dataset.\"\"\"\n    cv = np.std(data) / np.mean(data)\n    return cv\n\ndef calculate_gate_entropy(data):\n    \"\"\"Calculate the Gate Entropy for a dataset.\"\"\"\n    counts = np.bincount(data)\n    probabilities = counts / len(data)\n    gate_entropy = -np.sum(probabilities * np.log2(probabilities))\n    return gate_entropy\n\ndef perform_friedman_test(results):\n    \"\"\"Perform Friedman test on the results and return p-value.\"\"\"\n    # Flatten the dictionary to a list of values\n    all_data = [result for domain_results in results.values() for result in domain_results.values()]\n    \n    # Perform Friedman test\n    f_stat, p_value = friedmanchisquare(*all_data)\n    \n    return p_value\n\ndef perform_nemenyi_post_hoc(p_values, num_models):\n    \"\"\"Perform Nemenyi post-hoc test on the results and return significant pairs.\"\"\"\n    q = 1 - (0.95 ** (1 / num_models))\n    critical_distance = q * np.sqrt((num_models * (num_models + 1)) / (12 * len(p_values)))\n    \n    significant_pairs = []\n    for i in range(num_models):\n        for j in range(i + 1, num_models):\n            if p_values[i] <= critical_distance and p_values[j] <= critical_distance:\n                significant_pairs.append((i, j))\n    \n    return significant_pairs",
+            "solution_code": null,
+            "validation": {
+              "starter": {
+                "syntax_ok": true,
+                "syntax_error": null,
+                "undefined_names": [],
+                "used_before_defined": [],
+                "duplicate_definitions": [],
+                "valid": true,
+                "module_level_undefined": [],
+                "rewrite_attempted": false,
+                "rewrite_attempts": 0,
+                "repair_attempts": 1
+              },
+              "solution": {
+                "syntax_ok": true,
+                "syntax_error": null,
+                "undefined_names": [],
+                "used_before_defined": [],
+                "duplicate_definitions": [],
+                "valid": false,
+                "module_level_undefined": [],
+                "plan_compliance": {
+                  "missing_produces": [],
+                  "unplanned_definitions": [],
+                  "unused_dependencies": [
+                    {
+                      "produced_name": "evaluate_cross_domain_performance",
+                      "expected_dependency": "create_stratified_few_shot_split",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "evaluate_cross_domain_performance",
+                      "expected_dependency": "SVM_TFIDF_Model",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "evaluate_cross_domain_performance",
+                      "expected_dependency": "CNN_Word2Vec_Model",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "evaluate_cross_domain_performance",
+                      "expected_dependency": "BiLSTM_Word2Vec_Model",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "evaluate_cross_domain_performance",
+                      "expected_dependency": "BERT_FineTuner",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "evaluate_cross_domain_performance",
+                      "expected_dependency": "DeBERTa_FineTuner",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "evaluate_cross_domain_performance",
+                      "expected_dependency": "LLM_Inference_Wrapper",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "calculate_f1_precision_recall",
+                      "expected_dependency": "create_stratified_few_shot_split",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "calculate_f1_precision_recall",
+                      "expected_dependency": "SVM_TFIDF_Model",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "calculate_f1_precision_recall",
+                      "expected_dependency": "CNN_Word2Vec_Model",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "calculate_f1_precision_recall",
+                      "expected_dependency": "BiLSTM_Word2Vec_Model",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "calculate_f1_precision_recall",
+                      "expected_dependency": "BERT_FineTuner",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "calculate_f1_precision_recall",
+                      "expected_dependency": "DeBERTa_FineTuner",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "calculate_f1_precision_recall",
+                      "expected_dependency": "LLM_Inference_Wrapper",
+                      "step": 3,
+                      "goal": "Implement the cross-domain evaluation pipeline to train models on source domains and evaluate on target domains, calculating performance metrics."
+                    },
+                    {
+                      "produced_name": "calculate_coefficient_of_variation",
+                      "expected_dependency": "evaluate_cross_domain_performance",
+                      "step": 4,
+                      "goal": "Perform statistical analysis including Coefficient of Variation, Gate Entropy, Friedman Test, and Nemenyi post-hoc test to validate model superiority."
+                    },
+                    {
+                      "produced_name": "calculate_gate_entropy",
+                      "expected_dependency": "evaluate_cross_domain_performance",
+                      "step": 4,
+                      "goal": "Perform statistical analysis including Coefficient of Variation, Gate Entropy, Friedman Test, and Nemenyi post-hoc test to validate model superiority."
+                    },
+                    {
+                      "produced_name": "perform_friedman_test",
+                      "expected_dependency": "evaluate_cross_domain_performance",
+                      "step": 4,
+                      "goal": "Perform statistical analysis including Coefficient of Variation, Gate Entropy, Friedman Test, and Nemenyi post-hoc test to validate model superiority."
+                    },
+                    {
+                      "produced_name": "perform_nemenyi_post_hoc",
+                      "expected_dependency": "evaluate_cross_domain_performance",
+                      "step": 4,
+                      "goal": "Perform statistical analysis including Coefficient of Variation, Gate Entropy, Friedman Test, and Nemenyi post-hoc test to validate model superiority."
+                    }
+                  ],
+                  "valid": false
+                },
+                "quality": {
+                  "issues": [
+                    "'__init__' has an empty (pass-only) body",
+                    "'train' has an empty (pass-only) body",
+                    "'predict' has an empty (pass-only) body",
+                    "'__init__' has an empty (pass-only) body",
+                    "'train' has an empty (pass-only) body",
+                    "'predict' has an empty (pass-only) body",
+                    "'__init__' has an empty (pass-only) body",
+                    "'infer' has an empty (pass-only) body"
+                  ],
+                  "valid": false
+                },
+                "repair_attempts": 1
+              }
+            }
+          },
+          "notebook_files": null
+        }
+      ]
+    }
+  ],
+  "papers_used": [
+    "Fake News Detection with Heterogeneous Transformer",
+    "An Experimental Comparison of the Most Popular Approaches to Fake News Detection",
+    "Exploring Text-transformers in AAAI 2021 Shared Task: COVID-19 Fake News Detection in English"
+  ]
+}

@@ -395,7 +395,11 @@ async def generate_lab_endpoint(
  
     gaps_result = detect_gaps(idea, papers_with_analysis)
     teaching_plan = generate_teaching_plan(idea, gaps_result.get("gaps", []), papers_with_analysis)
+    if teaching_plan.get("_error"):
+        print(f"[generate_lab] teaching_plan failed: {teaching_plan['_error']}")
     course = generate_course(teaching_plan, papers_with_analysis)
+    if not course.get("modules"):
+        print(f"[generate_lab] course empty — teaching_plan had {len(teaching_plan.get('modules', []))} modules")
  
     # One similar-projects search per idea, reused across all modules/lessons —
     # same simplification as Technical Plan Agent's global relevance gate.
@@ -471,3 +475,53 @@ async def generate_experiments_endpoint(
     )
 
     return experiment_set
+
+
+import json as _json
+from agents.tools import generate_benchmark_evaluation  
+
+@app.post("/evaluate_benchmark")
+async def evaluate_benchmark_endpoint(
+    idea: str = Form(...),
+    max_papers: int = Form(3),
+    experiment: str = Form(...),   
+    submission_text: str = Form(None),
+    submission_file: UploadFile = File(None),
+):
+    """
+    Compares a student's submitted results against the literature and against
+    the specific experiment they were assigned. Accepts PDF or plain text —
+    no OCR/vision, matching the project's existing scope decision (§3.4).
+
+    The client is expected to pass back one of the `experiments[]` entries
+    from /generate_experiments verbatim (as a JSON string) — there's no
+    persistence layer yet, so this endpoint doesn't look anything up itself,
+    it just re-runs the paper pipeline (cheap: section-analysis cache hits)
+    to get papers_with_analysis again.
+    """
+    try:
+        experiment_dict = _json.loads(experiment)
+    except Exception:
+        return {"error": "`experiment` must be a valid JSON string of one experiment object."}
+
+    if submission_file is not None:
+        pdf_bytes = await submission_file.read()
+        text = extract_text_from_pdf_bytes(pdf_bytes)
+    elif submission_text:
+        text = submission_text
+    else:
+        return {"error": "Provide either submission_text or submission_file."}
+
+    papers_with_analysis = get_papers_with_analysis(idea, max_papers)
+    if not papers_with_analysis:
+        return {"error": "No papers could be analyzed for this idea."}
+
+    result = generate_benchmark_evaluation(
+        experiment=experiment_dict,
+        papers_with_analysis=papers_with_analysis,
+        submission_text=text,
+    )
+    return result
+
+
+

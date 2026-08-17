@@ -152,39 +152,37 @@ def summarize(model_name, code_result):
     }
 
 
+LAB_CACHE_FILE = "all_labs_cache.json"
+
 if __name__ == "__main__":
     data = get_or_build_pipeline_output()
     scored_similar = [tuple(item) for item in data["scored_similar"]]
+    teaching_plan, course = data["teaching_plan"], data["course"]
 
-    module, lesson = find_module_and_lesson(
-        data["teaching_plan"], data["course"], MODULE_TITLE_CONTAINS
-    )
-    print(f"\nTesting on module: {module.get('title')}")
-    print(f"Lesson: {lesson.get('lesson_title')}\n")
+    if os.path.exists(LAB_CACHE_FILE):
+        print(f"[lab cache] loading from {LAB_CACHE_FILE} — delete this file to force regeneration")
+        with open(LAB_CACHE_FILE, "r", encoding="utf-8") as f:
+            endpoint_like = json.load(f)
+    else:
+        modules_output = []
+        for tp_module, course_module in zip(teaching_plan.get("modules", []), course.get("modules", [])):
+            lessons_output = []
+            for lesson in course_module.get("lessons", []):
+                print(f"[lab] generating: {tp_module.get('title','')} / {lesson.get('lesson_title','')}")
+                lab = generate_lab_exercise(
+                    lesson=lesson, module=tp_module,
+                    papers_with_analysis=data["papers_with_analysis"],
+                    similar_projects_scored=scored_similar,
+                    generate_code=True, code_model=CODE_MODEL,
+                )
+                lessons_output.append({"lab": lab, "notebook_files": None})
+            modules_output.append({"module_title": tp_module.get("title", ""), "lessons": lessons_output})
 
-    # Run the full lab generation for a single coder model (debug mode)
-    print(f"[debug] generating lab with code model: {CODE_MODEL} ...")
-    lab = generate_lab_exercise(
-        lesson=lesson,
-        module=module,
-        papers_with_analysis=data["papers_with_analysis"],
-        similar_projects_scored=scored_similar,
-        generate_code=True,
-        code_model=CODE_MODEL,
-    )
-
-    if lab.get("_error"):
-        print(f"Lab generation failed: {lab.get('_error')}")
-        raise SystemExit(1)
-
-    # Save lab output and an endpoint-like wrapper
-    out_name = f"lab_debug_{CODE_MODEL.replace(':','_')}.json"
-    with open(out_name, "w", encoding="utf-8") as f:
-        json.dump(lab, f, indent=2)
-    print(f"Saved lab output to {out_name}")
-
-    endpoint_like = {"idea": IDEA, "modules": [{"module_title": module.get("title", ""), "lessons": [{"lab": lab, "notebook_files": None}]}], "papers_used": [p.get("title") for p in data.get("papers_with_analysis", [])]}
-    endpoint_file = f"endpoint_like_{CODE_MODEL.replace(':','_')}.json"
-    with open(endpoint_file, "w", encoding="utf-8") as f:
-        json.dump(endpoint_like, f, indent=2)
-    print(f"Saved endpoint-like output to {endpoint_file}")
+        endpoint_like = {
+            "idea": IDEA,
+            "modules": modules_output,
+            "papers_used": [p.get("title") for p in data.get("papers_with_analysis", [])],
+        }
+        with open(LAB_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(endpoint_like, f, indent=2)
+        print(f"[lab cache] saved to {LAB_CACHE_FILE}")
