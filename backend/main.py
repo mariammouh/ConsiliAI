@@ -12,7 +12,35 @@ load_dotenv()
 app = FastAPI()
 import tempfile
 import os
+from fastapi import Form
+from agents.orchestrator import run_orchestrator_turn, get_state_snapshot
 
+
+@app.post("/chat")
+async def chat_endpoint(
+    message: str = Form(...),
+    thread_id: str = Form("default"),
+):
+    reply = run_orchestrator_turn(
+        message=message,
+        thread_id=thread_id,
+    )
+
+    state = get_state_snapshot(thread_id)
+
+    return {
+    "reply": reply,
+    "thread_id": thread_id,
+    "state": {
+        "idea": state.get("idea"),
+        "papers": state.get("papers_with_analysis"),
+        "gaps": state.get("gaps"),
+        "technical_plan": state.get("technical_plan"),
+        "teaching_plan": state.get("teaching_plan"),
+        "course": state.get("course"),
+        "experiments": state.get("experiments"),
+    }
+}
 def get_pptx_output_path(idea: str) -> str:
     """Cross-platform temp path for generated course pptx files."""
     output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
@@ -100,13 +128,7 @@ async def similar_projects_endpoint(idea: str = Form(...)):
         "top_matches": top_matches
     }
 
-""" from agents.orchestrator import executor
 
-@app.post("/chat")
-async def chat_endpoint(message: str = Form(...)):
-    result = executor.invoke({"input": message})
-    return {"reply": result["output"]}
-     """
 from agents.tools import split_paper_sections, analyze_all_sections
 import os
 import fitz  # PyMuPDF
@@ -474,35 +496,33 @@ async def generate_experiments_endpoint(
         max_experiments=max_experiments,
     )
 
-    return experiment_set
+    return {
+    "idea": idea,
+    "experiments": experiment_set["experiments"],
+    "gaps_used": experiment_set["gaps_used"],
+    "papers_used": [p["title"] for p in papers_with_analysis],
+    "papers_with_analysis": papers_with_analysis,   
+}
 
 
 import json as _json
 from agents.tools import generate_benchmark_evaluation  
-
 @app.post("/evaluate_benchmark")
 async def evaluate_benchmark_endpoint(
-    idea: str = Form(...),
-    max_papers: int = Form(3),
-    experiment: str = Form(...),   
+    experiment: str = Form(...),              # JSON string, one experiment dict
+    papers_with_analysis: str = Form(...),     # JSON string, list of {title, analysis}
     submission_text: str = Form(None),
     submission_file: UploadFile = File(None),
 ):
-    """
-    Compares a student's submitted results against the literature and against
-    the specific experiment they were assigned. Accepts PDF or plain text —
-    no OCR/vision, matching the project's existing scope decision (§3.4).
-
-    The client is expected to pass back one of the `experiments[]` entries
-    from /generate_experiments verbatim (as a JSON string) — there's no
-    persistence layer yet, so this endpoint doesn't look anything up itself,
-    it just re-runs the paper pipeline (cheap: section-analysis cache hits)
-    to get papers_with_analysis again.
-    """
     try:
         experiment_dict = _json.loads(experiment)
     except Exception:
         return {"error": "`experiment` must be a valid JSON string of one experiment object."}
+
+    try:
+        papers_dict = _json.loads(papers_with_analysis)
+    except Exception:
+        return {"error": "`papers_with_analysis` must be a valid JSON string (list of {title, analysis})."}
 
     if submission_file is not None:
         pdf_bytes = await submission_file.read()
@@ -512,16 +532,9 @@ async def evaluate_benchmark_endpoint(
     else:
         return {"error": "Provide either submission_text or submission_file."}
 
-    papers_with_analysis = get_papers_with_analysis(idea, max_papers)
-    if not papers_with_analysis:
-        return {"error": "No papers could be analyzed for this idea."}
-
     result = generate_benchmark_evaluation(
         experiment=experiment_dict,
-        papers_with_analysis=papers_with_analysis,
+        papers_with_analysis=papers_dict,
         submission_text=text,
     )
     return result
-
-
-

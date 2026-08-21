@@ -1062,7 +1062,9 @@ SECTION_SCHEMAS = {
         "fields": ["metrics", "baselines_compared", "key_improvements", "reported_numbers"],
         "instructions": "Extract the evaluation metrics used, baselines compared against, "
                          "the key claimed improvements, and the specific reported numbers "
-                         "(as a list of {metric, value, dataset} if identifiable)."
+                         "(as a list of {model, metric, value, dataset} if identifiable — "
+                         "always include which model/method each number belongs to, since "
+                         "papers typically report the same metric for multiple models)."
     },
     "introduction": {
         "fields": ["problem_statement", "motivation", "contributions"],
@@ -1936,7 +1938,13 @@ def get_papers_with_analysis(idea: str, max_papers: int = 2) -> List[Dict]:
         sections = split_paper_sections(full_text)
         if not sections:
             continue
-        papers_with_analysis.append({"title": paper["title"], "analysis": analyze_all_sections(sections)})
+        papers_with_analysis.append({
+            "title": paper["title"],
+            "analysis": analyze_all_sections(sections),
+            # Section analyses are lossy summaries; retain source text for
+            # exact reported-number extraction in benchmark evaluation.
+            "source_sections": sections,
+        })
 
     return papers_with_analysis
 
@@ -2375,12 +2383,16 @@ def _build_repair_prompt(code: str, validation: Dict, label: str) -> str:
                 f"The plan for this exercise requires defining these names, but they are missing "
                 f"from the code: {missing}. Add the missing definition(s)."
             )
-        if plan_issue.get("unplanned_definitions"):
-            unplanned = ", ".join(plan_issue["unplanned_definitions"])
+        if plan_issue.get("unused_dependencies"):
+            details = "; ".join(
+                f"'{u['expected_dependency']}' (step: {u['goal']}) is declared as a dependency but never referenced anywhere"
+                for u in plan_issue["unused_dependencies"]
+            )
             problems.append(
-                f"These are defined in the code but were NOT part of the plan for this exercise: "
-                f"{unplanned}. Remove them unless genuinely necessary — do not add unrelated classes "
-                f"or functions beyond what the plan calls for."
+                f"These parts of the plan declared a dependency on earlier code but it's never actually "
+                f"used anywhere in the file, reimplementing it independently instead: {details}. Modify "
+                f"the code so it genuinely builds on (inherits from, instantiates, calls, or passes in) "
+                f"the dependency it claimed to need."
             )
     quality_issue = validation.get("quality_issue")
     if quality_issue and quality_issue.get("issues"):
@@ -2556,7 +2568,7 @@ def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
         return {"missing_produces": [], "unplanned_definitions": [], "unused_dependencies": [], "valid": True}
 
     defined_names = set()
-    top_level_nodes: Dict[str, ast.AST] = {}
+    
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             defined_names.add(node.name)
@@ -2564,16 +2576,6 @@ def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     defined_names.add(target.id)
-
-    # Only TOP-LEVEL entities are tracked for the uses-check, matching the
-    # scope produces/unplanned_definitions already operate at.
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            top_level_nodes[node.name] = node
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    top_level_nodes[target.id] = node
 
     all_planned_names = set()
     missing_produces = []
@@ -2594,30 +2596,20 @@ def _check_plan_compliance(code: str, code_plan: List[Dict]) -> Dict:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
         }
         unplanned_definitions = sorted(top_level_defs - all_planned_names)
+    all_references = {
+        n.id for n in ast.walk(tree)
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+    }
 
-    # NEW: does each declared dependency actually get referenced?
     unused_dependencies = []
     for step in code_plan or []:
-        produces = step.get("produces", [])
-        uses = step.get("uses", [])
-        if not produces or not uses:
-            continue
-        for produced_name in produces:
-            node = top_level_nodes.get(produced_name)
-            if node is None:
-                continue  # already reported as missing_produces, don't double-report
-            referenced_names = {
-                n.id for n in ast.walk(node)
-                if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
-            }
-            for used_name in uses:
-                if used_name in all_planned_names and used_name not in referenced_names:
-                    unused_dependencies.append({
-                        "produced_name": produced_name,
-                        "expected_dependency": used_name,
-                        "step": step.get("step"),
-                        "goal": step.get("goal", ""),
-                    })
+        for used_name in step.get("uses", []):
+            if used_name in all_planned_names and used_name not in all_references:
+                unused_dependencies.append({
+                    "expected_dependency": used_name,
+                    "step": step.get("step"),
+                    "goal": step.get("goal", ""),
+                })
 
     return {
         "missing_produces": missing_produces,
@@ -2902,55 +2894,55 @@ def _validate_python_code(code: str) -> Dict[str, object]:
         # genuine test (a Friedman-test line using `[col for col in cols]`
         # was wrongly flagged and pushed into debug_mode over nothing).
 
-        def visit_ListComp(self, node):
-            self._visit_comprehension(node)
+            def visit_ListComp(self, node):
+                self._visit_comprehension(node)
 
-        def visit_SetComp(self, node):
-            self._visit_comprehension(node)
+            def visit_SetComp(self, node):
+                self._visit_comprehension(node)
 
-        def visit_DictComp(self, node):
-            self._visit_comprehension(node)
+            def visit_DictComp(self, node):
+                self._visit_comprehension(node)
 
-        def visit_GeneratorExp(self, node):
-            self._visit_comprehension(node)
+            def visit_GeneratorExp(self, node):
+                self._visit_comprehension(node)
 
-        def _visit_comprehension(self, node):
-            # Names bound by any `for ... in ...` clause inside the
-            # comprehension are local to it — never report them as this
-            # statement's own uses/defs.
-            bound_locally = set()
-            for gen in node.generators:
-                for n in ast.walk(gen.target):
-                    if isinstance(n, ast.Name):
-                        bound_locally.add(n.id)
+            def _visit_comprehension(self, node):
+                # Names bound by any `for ... in ...` clause inside the
+                # comprehension are local to it — never report them as this
+                # statement's own uses/defs.
+                bound_locally = set()
+                for gen in node.generators:
+                    for n in ast.walk(gen.target):
+                        if isinstance(n, ast.Name):
+                            bound_locally.add(n.id)
 
-            outer = self  # the Own visitor — its `uses`/`defs` sets
+                outer = self  # the Own visitor — its `uses`/`defs` sets
 
-            class _Inner(ast.NodeVisitor):
-                def visit_Name(self, n):
-                    if n.id in bound_locally:
-                        return  # locally bound within the comprehension — ignore
-                    if isinstance(n.ctx, ast.Load):
-                        uses.add(n.id)
-                    elif isinstance(n.ctx, ast.Store):
-                        defs.add(n.id)
-                    self.generic_visit(n)
+                class _Inner(ast.NodeVisitor):
+                    def visit_Name(self, n):
+                        if n.id in bound_locally:
+                            return  # locally bound within the comprehension — ignore
+                        if isinstance(n.ctx, ast.Load):
+                            uses.add(n.id)
+                        elif isinstance(n.ctx, ast.Store):
+                            defs.add(n.id)
+                        self.generic_visit(n)
 
-            # The element/key/value expressions can reference the locally
-            # bound comprehension variable(s) — those get filtered above.
-            if isinstance(node, ast.DictComp):
-                _Inner().visit(node.key)
-                _Inner().visit(node.value)
-            else:
-                _Inner().visit(node.elt)
+                # The element/key/value expressions can reference the locally
+                # bound comprehension variable(s) — those get filtered above.
+                if isinstance(node, ast.DictComp):
+                    _Inner().visit(node.key)
+                    _Inner().visit(node.value)
+                else:
+                    _Inner().visit(node.elt)
 
-            for gen in node.generators:
-                # The ITERABLE genuinely references the enclosing scope
-                # (e.g. `cols` in `for col in cols`) — that one still needs
-                # real order-checking, so visit it normally, not filtered.
-                outer.visit(gen.iter)
-                for cond in gen.ifs:
-                    _Inner().visit(cond)
+                for gen in node.generators:
+                    # The ITERABLE genuinely references the enclosing scope
+                    # (e.g. `cols` in `for col in cols`) — that one still needs
+                    # real order-checking, so visit it normally, not filtered.
+                    outer.visit(gen.iter)
+                    for cond in gen.ifs:
+                        _Inner().visit(cond)
 
         Own().visit(stmt)
         return uses, defs
@@ -3107,48 +3099,7 @@ def _get_coder_llm(model_name: str):
 
 
 def _coder_invoke_safe(prompt: str, model_name: str = DEFAULT_CODE_MODEL, retries: int = 2) -> str:
-    """
-    "groq" and "gemini" route to the existing cloud clients from tools.py;
-    anything else is treated as a local Ollama model name. This lets
-    compare_lab_code_models() (and generate_lab_exercise itself) run cloud
-    and local models through the IDENTICAL decomposition + validate +
-    repair + plan-compliance pipeline for a fair comparison — not raw,
-    un-decomposed first-draft output.
-
-    Local models can be unreachable (Ollama not running, model not pulled)
-    or briefly busy; cloud models can hit rate limits. Either way: retry a
-    couple times, then fail loudly rather than silently falling back.
-    """
-    if model_name in ("groq", "gemini"):
-        invoke_fn = _invoke_groq if model_name == "groq" else _invoke_gemini  # noqa: F821 — from tools.py
-        last_err = None
-        for attempt in range(retries):
-            try:
-                response = invoke_fn(prompt)
-                content = response.content
-                if isinstance(content, list):
-                    content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
-                return content
-            except Exception as e:
-                last_err = e
-                print(f"[{model_name}] attempt {attempt+1} failed: {e}")
-        raise RuntimeError(f"{model_name} unreachable after {retries} attempts: {last_err}")
-
-    llm = _get_coder_llm(model_name)
-    last_err = None
-    for attempt in range(retries):
-        try:
-            response = llm.invoke(prompt)
-            content = response.content
-            if isinstance(content, list):
-                content = "".join(
-                    b.get("text", "") if isinstance(b, dict) else str(b) for b in content
-                )
-            return content
-        except Exception as e:
-            last_err = e
-            print(f"[{model_name}] attempt {attempt+1} failed: {e}")
-    raise RuntimeError(f"{model_name} (Ollama) unreachable after {retries} attempts: {last_err}")
+    return _groq_invoke_safe(prompt)
 
 
 def _extract_code_block(text: str) -> str:
@@ -4322,18 +4273,54 @@ A single sentence may report MULTIPLE metrics for the SAME model (e.g. "X infere
 If none are present, return {"results": []}.
 """.strip()
 
-
 def extract_literature_results(paper: dict) -> list:
     analysis = paper.get("analysis", {}) or {}
     results = analysis.get("results", {}) or {}
-    source_text = "\n".join(str(results.get(k, "")) for k in
-                             ("reported_numbers", "metrics", "baselines_compared", "key_improvements"))
+    reported = results.get("reported_numbers", [])
+
+    out = []
+    if isinstance(reported, list) and reported:
+        for entry in reported:
+            if not isinstance(entry, dict):
+                continue
+            metric_norm = normalize_metric_name(entry.get("metric", ""))
+            out.append({
+                "model": entry.get("model", ""),
+                "metric_raw": entry.get("metric", ""),
+                "metric_normalized": metric_norm,
+                "value_raw": entry.get("value"),
+                "value_normalized": normalize_metric_value(entry.get("value"), metric_norm),
+                "dataset": entry.get("dataset", ""),
+                "source_paper": paper.get("title", ""),
+            })
+        return out
+
+    if isinstance(reported, str) and reported.strip():
+        source_text = reported
+    else:
+        # Summaries can omit exact values or their model/dataset context.
+        source_sections = paper.get("source_sections", {}) or {}
+        source_text = "\n\n".join(
+            section for section in (
+                source_sections.get("results", ""),
+                source_sections.get("experimental_setup", ""),
+            ) if section
+        )
+
+        # Older cached paper objects do not contain source_sections, so keep
+        # the summary fallback for backwards compatibility.
+        if not source_text:
+            exp_setup = analysis.get("experimental_setup", {}) or {}
+            summary = exp_setup.get("summary", "")
+            print("*******************************************************************")
+            print(exp_setup.get("summary", ""))
+            source_text = "\n".join(summary) if isinstance(summary, list) else str(summary)
+
     if not source_text.strip():
         return []
 
-    prompt = f"Text:\n{source_text[:3000]}\n\n{_EXTRACTION_SCHEMA}"
+    prompt = f"Text:\n{source_text[:12000]}\n\n{_EXTRACTION_SCHEMA}"
     parsed = _safe_json_parse(_groq_invoke_safe(prompt))
-    out = []
     for r in parsed.get("results", []) if isinstance(parsed, dict) else []:
         if not isinstance(r, dict):
             continue
@@ -4344,6 +4331,7 @@ def extract_literature_results(paper: dict) -> list:
             "metric_normalized": metric_norm,
             "value_raw": r.get("value"),
             "value_normalized": normalize_metric_value(r.get("value"), metric_norm),
+            "dataset": "",
             "source_paper": paper.get("title", ""),
         })
     return out
@@ -4446,6 +4434,13 @@ def generate_benchmark_evaluation(experiment: dict, papers_with_analysis: list, 
     literature_results = []
     for paper in relevant_papers:
         literature_results.extend(extract_literature_results(paper))
+
+    exp_dataset = (experiment.get("dataset", {}) or {}).get("name", "").strip().lower()
+    if exp_dataset:
+        filtered = [r for r in literature_results if r.get("dataset", "").strip().lower() == exp_dataset]
+        if filtered:
+            literature_results = filtered
+       
 
     student_results = extract_student_results(submission_text)
     if not student_results:

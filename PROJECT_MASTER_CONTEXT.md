@@ -27,7 +27,7 @@ Build an **agentic AI assistant** that automates the preparatory work of a techn
 
 ### 1.4 High-level architecture (current state)
 
-A FastAPI backend, with all agent logic centralized in `agents/tools.py` and all HTTP endpoints in `main.py`. Each "agent" is a Python function (not a separate microservice) that calls out to Groq or Gemini for LLM reasoning, and to various free external APIs for data retrieval. State/caching is handled via multiple ChromaDB collections. No frontend has been built yet (deliberately deferred — see §9). No conversational orchestrator exists yet (deliberately deferred — see §9).
+A FastAPI backend, with all agent logic centralized in `agents/tools.py` and all HTTP endpoints in `main.py`. Each "agent" is a Python function (not a separate microservice) that calls out to Groq or Gemini for LLM reasoning, and to various free external APIs for data retrieval. State/caching is handled via multiple ChromaDB collections. The backend has now progressed beyond the original research-only flow: it includes paper search/analysis, gap detection, technical plan generation, teaching-plan generation, course generation with PowerPoint export, relevance-checking for niche ideas, lab-exercise generation, and benchmark-evaluation endpoints. A frontend is still not built (deliberately deferred — see §9). The conversational orchestrator remains a stubbed/unfinished design element rather than a working system (still deliberately deferred).
 
 ### 1.5 Prior positioning work (SOTA study)
 
@@ -160,6 +160,8 @@ Not a single phase but a recurring thread throughout development — see §7.1 f
 - `export_course_to_pptx` was updated for the new nested shape (`course.modules[].lessons[].sections[]`), and a **second export function**, `export_course_to_pptx_per_lesson`, was added on user request to produce **one standalone `.pptx` file per lesson** instead of one combined deck — with a filename-sanitization helper (initially truncated mid-word at a hard 60-character cut; flagged for a minor cosmetic fix to truncate on a word boundary instead, not yet applied as of the last conversation turn).
 - **Verified end-to-end** on the fake-news-detection domain: 4 modules → 4 lessons → 4 separate `.pptx` files, each with correct grounding (including a legitimate in-context "MERMAID" reference, correctly distinguished from the earlier fabricated-paper-name bug class), correct cross-lesson referencing ("Building on the introduction to fake news detection earlier in this course..."), and substantive per-topic depth matching the explicit "expand, don't summarize" requirement.
 
+**Progress beyond course generation:** the codebase now also includes a working prototype for the follow-on lab and evaluation layer. `generate_lab_exercise`, `generate_experiment_set`, and `generate_benchmark_evaluation` are implemented in `agents/tools.py`, and the corresponding FastAPI routes in `main.py` (`/generate_lab`, `/generate_experiments`, `/evaluate_benchmark`) are active. This is still a prototype layer rather than a final orchestrated workflow, but it is materially more complete than the earlier planning documents suggested.
+
 ### 2.13 Deferred decisions (explicitly discussed, deliberately not yet built)
 
 These were all discussed in detail and deliberately postponed, with stated reasoning:
@@ -187,16 +189,17 @@ These were all discussed in detail and deliberately postponed, with stated reaso
 - Technical project plan generation, grounded and novelty-aware.
 - Teaching/course-skeleton plan generation, grounded and gap-driven.
 - Full hierarchical course content generation (module → lesson → sections) with PowerPoint export (combined-deck and per-lesson-file modes).
-- A partially-built "niche idea" relevance-check and cross-domain broadening feature.
+- Niche-idea relevance checks and adjacent-field exploration (`/check_relevance`, `/explore_niche`).
+- Lab-exercise generation pipeline plus notebook export (`/generate_lab`).
+- Experiment-set generation (`/generate_experiments`).
+- Benchmark-evaluation workflow for teacher/student submissions (`/evaluate_benchmark`).
 
 **Planned, not yet built:**
-- Lab & Experiment-Design Agent (exercises + suggested student experiments, grounded in matched real repos and papers — explicitly **not** an execution engine; students run experiments themselves).
-- Benchmark Evaluation Agent (compares teacher-submitted student results, as PDF/text only, against literature-reported numbers; produces comparison/chart data; feeds discrepancies back into gap detection as the project's "closed loop").
 - Conversational orchestrator (`/chat` endpoint; currently only an unfinished stub referencing a nonexistent `agents/orchestrator.py` executor, commented out in `main.py`).
 - `modify_plan` / general-purpose "edit an existing artifact" capability.
 - Frontend (framework undecided).
 - Progress/state tracking persistence layer.
-- Full integration of the niche-idea broadening feature into the main pipeline (currently a standalone, only partially wired capability).
+- Full integration of the niche-idea broadening feature into the main pipeline (currently a partially wired, but not fully orchestrated, capability).
 
 ### 3.2 Non-functional requirements
 
@@ -225,8 +228,8 @@ These were all discussed in detail and deliberately postponed, with stated reaso
 
 ### 4.1 Backend components
 
-- **`main.py`** — FastAPI application; all HTTP endpoints. Imports agent functions from `agents/tools.py`. Endpoints as of the latest known state: `/upload`, `/ask`, `/debug_chunks`, `/search`, `/smart_search`, `/history` *(references `sqlite3`/`datetime` without visible imports in the shown code — likely incomplete/dead code, [UNKNOWN] whether functional)*, `/similar`, `/analyze_paper`, `/test_search_and_analyze` (temporary/debug), `/gaps`, `/technical_plan`, `/teaching_plan` *[name inferred from usage pattern; exact endpoint not shown verbatim but implied]*, `/generate_course`, `/download_course/{idea_hash}`, and a commented-out `/chat` stub.
-- **`agents/tools.py`** — all agent logic, all LLM client setup, all external-API integration functions, all caching helpers. This is the single largest and most central file in the project. **[Note: this file has grown very large; splitting it into per-agent modules is a reasonable future refactor, not yet done.]**
+- **`main.py`** — FastAPI application; all HTTP endpoints. Imports agent functions from `agents/tools.py`. Endpoints as of the current code state include: `/upload`, `/ask`, `/debug_chunks`, `/search`, `/smart_search`, `/history` *(references `sqlite3`/`datetime` without visible imports in the shown code — likely incomplete/dead code, [UNKNOWN] whether functional)*, `/similar`, `/analyze_paper`, `/test_search_and_analyze`, `/gaps`, `/technical_plan`, `/teaching_plan`, `/check_relevance`, `/explore_niche`, `/generate_course`, `/generate_lab`, `/generate_experiments`, `/evaluate_benchmark`, `/download_course/{idea_hash}`, and a commented-out `/chat` stub.
+- **`agents/tools.py`** — all agent logic, all LLM client setup, all external-API integration functions, all caching helpers. In the current codebase it also contains the more recent lab-exercise, experiment-set, and benchmark-evaluation pipelines, in addition to the earlier literature/search/course-generation flows. This is the single largest and most central file in the project. **[Note: this file has grown very large; splitting it into per-agent modules is a reasonable future refactor, not yet done.]**
 - **`ingestion/`** package — `pdf_processor.py` (PDF upload handling, chunking for RAG), `chroma_client.py` (ChromaDB collection definitions: `cache_collection` for papers/projects semantic cache, `analysis_cache_collection` for section-analysis cache), `embedding_model.py` (`embed()` function, backing model **[INFERRED: `all-MiniLM-L6-v2`, per the originally planned stack; not re-confirmed verbatim during the coding phase]**), `cache.py` (referenced via `get_cached_papers`/`set_cached_papers` imports; **[UNKNOWN exact contents — appears partially superseded by the semantic-cache functions built directly in `tools.py`]**).
 
 ### 4.2 Frontend components
