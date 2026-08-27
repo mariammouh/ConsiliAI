@@ -138,3 +138,29 @@ export async function downloadArtifact(download) {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+export async function uploadDocument(file) {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${API_BASE}/upload`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    clearToken();
+    throw new Error("Session expired — please log in again.");
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Could not upload the file.");
+  }
+  return res.json();
+}

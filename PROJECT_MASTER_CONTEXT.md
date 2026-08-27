@@ -4,7 +4,7 @@
 
 **Project name:** ConsiliAI *[INFERRED from repository path `M:\stage sys\ConsiliAI`]*
 **Context:** Final-year internship project (~2 months), company **[INFERRED: "3D SMART FACTORY"]**, supervisors named in presentation materials as Thierry BERTIN, Omar KELLA, Ibtihal KHALIL *[as stated by the student]*.
-**Document generation date context:** Compiled from the full development conversation history, covering initial concept through a working Course Generator with hierarchical lesson content and per-lesson PowerPoint export.
+**Document generation date context:** Compiled from the full development conversation history and updated based on current codebase analysis (covering core search/RAG, section analysis, gap detection, technical/teaching plans, course generation with PPTX, lab exercise generation with Jupyter notebooks, experiment design, benchmark evaluation, auth via `fastapi-users`, and a LangGraph-powered orchestrator).
 
 ---
 
@@ -27,7 +27,9 @@ Build an **agentic AI assistant** that automates the preparatory work of a techn
 
 ### 1.4 High-level architecture (current state)
 
-A FastAPI backend, with all agent logic centralized in `agents/tools.py` and all HTTP endpoints in `main.py`. Each "agent" is a Python function (not a separate microservice) that calls out to Groq or Gemini for LLM reasoning, and to various free external APIs for data retrieval. State/caching is handled via multiple ChromaDB collections. The backend has now progressed beyond the original research-only flow: it includes paper search/analysis, gap detection, technical plan generation, teaching-plan generation, course generation with PowerPoint export, relevance-checking for niche ideas, lab-exercise generation, and benchmark-evaluation endpoints. A frontend is still not built (deliberately deferred — see §9). The conversational orchestrator remains a stubbed/unfinished design element rather than a working system (still deliberately deferred).
+- **Backend:** FastAPI with full JWT auth system via `fastapi-users` (integrated in `main.py` and `auth/`). Core domain logic centralized in `agents/tools.py` with shared helper `get_papers_with_analysis`.
+- **Conversational Orchestrator:** LangGraph-based stateful agent in `agents/orchestrator.py` with intent gating, calling `agents/tools.py` directly and persisting thread state via `PostgresSaver`.
+- **State Management & Persistence:** Handled via LangGraph checkpointer / PostgreSQL for orchestrator threads, and ChromaDB for vector RAG/caching.
 
 ### 1.5 Prior positioning work (SOTA study)
 
@@ -195,7 +197,7 @@ These were all discussed in detail and deliberately postponed, with stated reaso
 - Benchmark-evaluation workflow for teacher/student submissions (`/evaluate_benchmark`).
 
 **Planned, not yet built:**
-- Conversational orchestrator (`/chat` endpoint; currently only an unfinished stub referencing a nonexistent `agents/orchestrator.py` executor, commented out in `main.py`).
+- Conversational orchestrator (`/chat` endpoint; now fully implemented and active, powered by `agents/orchestrator.py` which manages state per user/thread).
 - `modify_plan` / general-purpose "edit an existing artifact" capability.
 - Frontend (framework undecided).
 - Progress/state tracking persistence layer.
@@ -442,42 +444,41 @@ analyze_all_sections(sections)   ── analyze_section() per section, parameter
 
 - Research Agent (multi-source paper search + semantic caching).
 - Similar Project Agent (multi-source repo search + similarity scoring + novelty analysis).
-- Personal RAG pipeline (basic; upload + ask).
-- Full-text retrieval with graceful fallback.
+- Personal RAG pipeline (`/upload`, `/ask`, `/debug_chunks` with `fastapi-users` auth scoping).
+- Full-text retrieval with graceful fallback (`fetch_full_text`).
 - Section Splitter (heuristic + LLM fallback).
 - Section-Analysis Agent (parameterized, cached).
 - Gap Detection Agent (hardened citation integrity across three verified bug-fix cycles).
-- Technical Plan Agent (grounded, relevance-gated, novelty-aware; verified across 5 domains + 1 stress test).
-- Teaching Plan Agent (grounded, gap-driven, problem/solution-structured; verified across 5 domains).
-- Course Generator (hierarchical lesson generation, per-topic depth, cross-lesson anti-repetition, combined and per-lesson PPTX export; verified end-to-end).
+- Technical Plan Agent (grounded, relevance-gated, novelty-aware).
+- Teaching Plan Agent (grounded, gap-driven, problem/solution-structured).
+- Course Generator (hierarchical lesson generation, per-topic depth, cross-lesson anti-repetition, combined and per-lesson PPTX export).
+- Shared pipeline helper (`get_papers_with_analysis` pulled out and active in `main.py`).
+- Lab & Experiment-Design Agent (`generate_lab_exercise`, `export_lab_to_notebook`, `/generate_lab` endpoint producing runnable `.ipynb` Jupyter notebooks).
+- Experiment Set Generator (`generate_experiment_set`, `/generate_experiments` endpoint).
+- Benchmark Evaluation Agent (`generate_benchmark_evaluation`, `/evaluate_benchmark` endpoint supporting PDF/text student submissions).
+- Auth system (`fastapi-users` integration in `auth/` and `main.py` with JWT auth).
+- Conversational Orchestrator (`agents/orchestrator.py` built on LangGraph with an intent-gating node, direct tool calls into `tools.py`, `PostgresSaver` state persistence, and active `/chat`, `/chat/history`, download endpoints).
 
 ### 8.2 Partially implemented / experimental
 
-- Rate-limit handling: functional (retry + fallback + task routing) but the `TokenBudget` class uses a rough character-based token estimate, not exact tokenization.
-- Niche-query broadening feature: functional in isolation, tested once successfully, **not integrated** into the main pipeline as an automatic gate.
-- Caching layer: functional and effective, but distributed across several slightly different patterns (`cache_collection` for semantic paper/project cache, `analysis_cache_collection` for exact-match section-analysis cache) rather than one unified caching abstraction.
-- `get_papers_with_analysis` shared-helper refactor: proposed with code, **status of actual application to `main.py` unconfirmed**.
+- Rate-limit handling: functional (retry + fallback + task routing) but `TokenBudget` uses character-based token estimates.
+- Niche-query broadening feature: functional in isolation (`/check_relevance`, `/explore_niche`), but standalone rather than automatically chained ahead of pipeline endpoints.
+- Caching layer: functional and effective (`cache_collection` and `analysis_cache_collection` in ChromaDB).
 
 ### 8.3 Known limitations (current, accepted)
 
 - Domain scope is technical/CS/AI/ML only, by design.
 - Result-submission input is PDF/text only, no vision/OCR, by design.
-- No persistence of generated plans/courses across sessions (recomputed or lost each time, aside from the section-analysis cache).
-- No multi-user support, no authentication, no roles.
+- No dedicated custom frontend UI built yet (backend APIs and downloadable PPTX/IPYNB artifacts fully functional).
 - Kaggle dataset listing partially broken (`.file_count` bug).
-- GitLab search returns some non-representative sandbox/test noise (mitigated for Technical Plan Agent via the relevance gate; **not yet applied to the raw `search_gitlab` function itself**, so other consumers of similar-project data are still exposed to this noise).
+- GitLab search returns some non-representative sandbox/test noise (mitigated downstream).
 - PPTX per-lesson filename truncation can cut mid-word (cosmetic only).
 
-### 8.4 Not started
+### 8.4 Not started / Remaining
 
-- Lab & Experiment-Design Agent.
-- Benchmark Evaluation Agent.
-- Conversational orchestrator / `/chat` (only a non-functional stub exists).
-- `modify_plan` / general edit capability.
-- Frontend (any framework).
-- Progress/state tracking database.
-- Ollama local fallback activation.
-- Integration of the broadening feature into the main pipeline.
+- Dedicated custom Web Frontend (React/Vite or template).
+- Ollama local fallback activation (stubbed in code, inactive).
+- Automated integration of niche broadening as a pre-pipeline gate.
 
 ---
 
@@ -487,7 +488,7 @@ analyze_all_sections(sections)   ── analyze_section() per section, parameter
 |---|---|
 | Research Agent | ✅ Completed |
 | Similar Project Agent | ✅ Completed |
-| Personal RAG (upload/ask) | ✅ Completed (basic) |
+| Personal RAG (upload/ask) | ✅ Completed (scoped by user ID) |
 | Full-text retrieval | ✅ Completed |
 | Section Splitter | ✅ Completed |
 | Section-Analysis Agent | ✅ Completed |
@@ -496,18 +497,18 @@ analyze_all_sections(sections)   ── analyze_section() per section, parameter
 | Teaching Plan Agent | ✅ Completed |
 | Course Generator | ✅ Completed |
 | PPTX export (combined + per-lesson) | ✅ Completed |
-| Rate-limit/fallback infrastructure | 🟡 Partially complete |
-| Niche-query broadening | 🟡 Partially complete (built, untegrated) |
-| Shared pipeline refactor (`get_papers_with_analysis`) | 🟡 Proposed, unconfirmed applied |
-| Lab & Experiment-Design Agent | ⚪ Planned, not started |
-| Benchmark Evaluation Agent | ⚪ Planned, not started |
-| Conversational orchestrator | ⚪ Planned, not started (stub exists) |
-| `modify_plan` agent | ⚪ Planned, deferred to orchestrator |
+| Shared pipeline helper (`get_papers_with_analysis`) | ✅ Completed & Active in `main.py` |
+| Lab & Experiment-Design Agent | ✅ Completed (Scaffold + Qwen code gen + `.ipynb` export) |
+| Experiment Set Generator | ✅ Completed |
+| Benchmark Evaluation Agent | ✅ Completed (Grounding vs literature + diff breakdown) |
+| User Auth & Security | ✅ Completed (`fastapi-users` JWT integration) |
+| Conversational Orchestrator | ✅ Completed (LangGraph + Intent Gating + `PostgresSaver` persistence + `/chat` active) |
+| Rate-limit/fallback infrastructure | 🟡 Partially complete (Groq/Gemini fallbacks working) |
+| Niche-query broadening | 🟡 Partially complete (built, unintegrated gate) |
 | Frontend | ⚪ Planned, framework undecided |
-| Progress/tracking database | ⚪ Planned, deliberately deferred |
 | Ollama local fallback | ⚪ Stubbed, not activated |
 | Kaggle dataset `.file_count` fix | ⚪ Known bug, not fixed |
-| GitLab sandbox-noise filter (at source) | ⚪ Known issue, only mitigated downstream in one consumer |
+| GitLab sandbox-noise filter (at source) | ⚪ Known issue, mitigated downstream |
 | PPTX filename word-boundary truncation | ⚪ Known cosmetic bug, not fixed |
 
 ---
@@ -516,36 +517,20 @@ analyze_all_sections(sections)   ── analyze_section() per section, parameter
 
 ### 10.1 Features
 
-- Lab & Experiment-Design Agent (exercise generation + suggested student experiments, grounded in matched repos/papers; explicitly no code execution).
-- Benchmark Evaluation Agent (compare teacher-submitted PDF/text results against literature; produce comparison data suitable for charting; feed discrepancies back into Gap Detection to close the project's core "living loop").
-- Conversational orchestrator (`/chat`) — should call the shared `tools.py` functions directly (not re-call the project's own HTTP endpoints), so it can share in-memory results across multiple agent calls within one conversation turn rather than re-fetching/re-analyzing from scratch each time.
-- `modify_plan`/general edit capability, ideally as an orchestrator feature rather than a standalone agent.
-- Integration of niche-idea broadening into the main pipeline as an automatic, user-confirmed gate.
+- Build a custom Web Frontend (React + Vite or modern template) to surface the `/chat` endpoints, course presentation downloads, and notebook downloads visually.
+- Integrate the niche-idea broadening feature into the main pipeline as an automatic pre-flight gate.
+- Add support for general-purpose artifact editing (`modify_plan` / artifact mutation turns) within the orchestrator graph.
 
-### 10.2 Refactoring
+### 10.2 Refactoring & Cleanup
 
-- Extract `get_papers_with_analysis` (and equivalents) to eliminate the repeated search→filter→fetch→split→analyze block currently duplicated across `/gaps`, `/technical_plan`, `/teaching_plan`, and `/generate_course`.
-- Centralize the "LLM response content may be a string or a list of blocks" normalization into one shared helper (this bug pattern recurred more than once).
-- Consider splitting `agents/tools.py` into per-agent modules as it continues to grow.
+- Split `agents/tools.py` into modular domain submodules (e.g. `research.py`, `education.py`, `eval.py`) to improve maintainability.
+- Centralize LLM content block normalization (`_normalize_llm_content`).
+- Apply word-boundary truncation for per-lesson PPTX exports (matching the `_slug` implementation used in `/generate_lab`).
 
-### 10.3 Bug fixes
+### 10.3 Testing & Polish
 
-- Kaggle `ApiDataset.file_count` AttributeError (dataset listing).
-- GitLab sandbox/test-project filtering, applied at the source (`search_gitlab`) rather than only downstream in Technical Plan Agent.
-- PPTX per-lesson filename truncation (truncate on word boundary).
-- `generate_technical_plan`'s silent `gaps[:8]` truncation — add visibility logging, consistent with the debug-visibility pattern applied everywhere else.
-- Confirm (or apply) the `get_papers_with_analysis` refactor actually landed in `main.py`.
-
-### 10.4 Testing
-
-- Multi-domain verification (already established as the project's standard practice) should be repeated for each new agent as it's built: at minimum a "normal" domain, a structurally different domain, and one deliberately niche/thin-data stress test.
-- Once the shared pipeline refactor is applied, re-verify that `/gaps`, `/technical_plan`, and `/teaching_plan` still behave identically (regression check).
-
-### 10.5 Documentation / deployment / other
-
-- No deployment strategy has been discussed at all — **[UNKNOWN, entirely out of scope of the conversation so far]**.
-- The internship report/write-up is a parallel, ongoing obligation noted repeatedly throughout the project timeline as competing for the same limited remaining time.
-- A LaTeX Beamer weekly-progress presentation was produced mid-project (French-language, Madrid theme, TikZ architecture/workflow diagrams) — this is a snapshot artifact, not part of the codebase, and will need updating for future presentations as new agents are completed.
+- Perform comprehensive multi-domain end-to-end testing across the complete orchestrator workflow (from Chat -> Search -> Gaps -> Plans -> Course/Lab -> Benchmark Evaluation).
+- Complete final presentation slides and internship report.
 
 ---
 
@@ -724,25 +709,34 @@ This is the single most-iterated piece of prompt text in the project. Its evolut
 
 ## 16. Project Roadmap (Priority Order, As Of Latest Known State)
 
-1. **Apply pending refactors and low-effort bug fixes:** shared `get_papers_with_analysis` helper (confirm/apply), `.strip()`-style small fixes already identified (GitLab sandbox filter at source, PPTX filename truncation, `gaps[:8]` visibility logging), centralized LLM-content normalization helper.
-2. **Build Lab & Experiment-Design Agent** — exercise generation + suggested student experiments, grounded in matched repos (via the existing Similar Project Agent + relevance gate) and papers (via existing section analysis); explicitly no code execution.
-3. **Build Benchmark Evaluation Agent** — ingest teacher-submitted PDF/text student results, compare against literature-reported numbers (already extracted into `reported_numbers` during Section Analysis), produce comparison/chart-ready output; wire the "feeds back into Gap Detection" closed-loop concept from the project's original core narrative.
-4. **Build the conversational orchestrator (`/chat`)** — call `tools.py` functions directly; own general "modify an existing artifact" logic; enable multi-turn reuse of already-fetched papers/gaps within one conversation.
-5. **Integrate the niche-idea broadening feature** into the main pipeline as an automatic, user-confirmed gate ahead of Gap Detection/Technical Plan/Teaching Plan.
-6. **Decide and build the frontend** (React+Vite, React+template, or Streamlit/Gradio) once the API surface above is stable.
-7. **Build the progress/state tracking persistence layer**, informed by the actual final shape of all artifact types (plans, courses, labs, evaluations) rather than designed prematurely.
-8. **Polish pass:** address remaining known bugs (Kaggle `.file_count`, PPTX filename truncation), write/finish the internship report, prepare final presentation materials.
+1. **Build a custom Web Frontend:** Connect React/Vite (or styled template) to `/chat`, `/chat/history`, course PowerPoint download endpoints, and lab Jupyter notebook download endpoints.
+2. **Refactor `agents/tools.py` into submodules:** Split the ~200KB file into modular sub-packages for maintainability.
+3. **Integrate Niche-Query Broadening automatically:** Make `/check_relevance` and `/explore_niche` an automated pre-flight gate prior to running heavy plan generation when direct literature matches are low.
+4. **Extend Orchestrator with Artifact Mutation (`modify_plan`):** Support interactive editing/updating of existing generated plans, courses, or labs during ongoing chat turns.
+5. **Minor polish & bug fixes:** Kaggle `.file_count` fix, PPTX per-lesson filename truncation fix, GitLab sandbox filter at source.
 
 ---
 
 ## 17. Current Project State — Summary
 
-**Where the project stands today:** the entire literature-to-curriculum pipeline is built and working, end to end, from a raw user idea through to a downloadable, editable PowerPoint course — covering research search, similar-project search, paper section analysis, cross-paper gap detection, grounded technical-plan generation, grounded and gap-driven teaching-plan generation, and hierarchical, per-topic lesson content generation with two export modes. This represents the "Initialisation and Analysis" and most of the "Planification and Conception" phases of the project's own three-phase architecture diagram.
+**Where the project stands today:** The complete end-to-end "Research-to-Education Transfer Assistant" pipeline is **fully implemented and operational** in the backend. This includes literature search, paper section extraction and analysis, gap synthesis, grounded technical & teaching plans, course generation (with PowerPoint exports), lab exercise generation (with runnable Jupyter notebooks), experiment set design, benchmark evaluation (analyzing student experiment results against literature baselines), user authentication via JWT (`fastapi-users`), and a conversational LangGraph orchestrator with intent gating and PostgreSQL persistence.
 
-**What is fully operational:** Research Agent, Similar Project Agent, personal RAG (basic), Section Splitter, Section-Analysis Agent, Gap Detection Agent (extensively hardened against citation-integrity bugs — the project's most rigorously debugged component), Technical Plan Agent, Teaching Plan Agent, and Course Generator (including PowerPoint export in both combined-deck and per-lesson-file modes).
+**What is fully operational:**
+- Research Agent & Similar Project Agent.
+- Personal RAG pipeline (`/upload`, `/ask`, `/debug_chunks`).
+- Section Splitter & Parameterized Section-Analysis Agent.
+- Gap Detection Agent (hardened against citation hallucination bugs).
+- Technical Plan Agent & Teaching Plan Agent.
+- Course Generator (with combined and per-lesson `.pptx` exports).
+- Lab Exercise Generator (`/generate_lab` with `.ipynb` notebook exports).
+- Experiment Set Generator (`/generate_experiments`).
+- Benchmark Evaluation Agent (`/evaluate_benchmark`).
+- Authentication system (`/auth/jwt`, `/auth/register`, `/users`).
+- Conversational Orchestrator (`agents/orchestrator.py` via `/chat` & `/chat/history`).
 
-**What still requires work:** the "Exécution and Évaluation" phase of the architecture (Lab/Experiment generation, teacher assignment, student result submission, Benchmark Evaluation, feedback into Gap Detection) has not been started at all. The conversational orchestrator that would tie everything into a single chat interface exists only as a non-functional stub. No frontend exists. No persistence/tracking layer exists. A handful of known, low-severity bugs remain unfixed (Kaggle dataset listing, GitLab sandbox noise at the source, PPTX filename truncation).
+**What still requires work:**
+- Custom visual Web Frontend (API surface and downloads are complete; frontend UI remains to be assembled).
+- Integration of automatic niche-broadening pre-flight checks.
+- Refactoring `agents/tools.py` into smaller submodules.
 
-**Biggest remaining challenges:** (1) building the Benchmark Evaluation Agent and closing the project's core "living loop" concept, which is central to the project's differentiation claim but has not yet been attempted; (2) building a real orchestrator without re-introducing the duplicated-pipeline-work problem already identified; (3) making the frontend/persistence-layer decisions well, given they were deliberately and repeatedly deferred and will need to happen under increasing time pressure; (4) continuing to manage free-tier API constraints as agent count and testing volume grow further.
-
-**Immediate next steps (as of the last discussed state):** apply the small pending refactors and bug fixes (§16, item 1), then begin the Lab & Experiment-Design Agent, explicitly reusing the now well-validated grounding-rules block and relevance-gating pattern from the very start rather than rediscovering them a third time.
+**Immediate next steps:** Build/connect the Web Frontend to expose the complete conversational and downloadable capabilities to end users, and complete internship reporting/presentation materials.

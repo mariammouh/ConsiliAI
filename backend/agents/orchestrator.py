@@ -73,6 +73,7 @@ from typing import Annotated, Dict, List, Optional, TypedDict
 
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool, InjectedToolCallId
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import InjectedState, ToolNode, tools_condition
@@ -100,6 +101,7 @@ from agents.tools import (
     get_papers_with_analysis,
     search_papers,
     search_similar_projects,
+    retrieve_from_knowledge_base,
 )
 
 
@@ -140,20 +142,28 @@ def _same_idea(state: dict, idea: str) -> bool:
     return (state.get("idea") or "").strip().lower() == (idea or "").strip().lower()
 
 
+def _papers_have_metadata(papers: list) -> bool:
+    """Return True only if every paper in the cached list has a non-empty url
+    field. Rejects stale state saved before url/source were included."""
+    return bool(papers) and all(bool(p.get("url")) for p in papers)
+
+
 def _ensure_papers_only(state: dict, idea: str, max_papers: int = 3):
     """Like _ensure_papers_and_gaps but deliberately does NOT trigger gap
     detection — used for informational literature questions where full gap
     synthesis isn't needed. Still populates papers_with_analysis for later
     gap/plan tools to reuse without re-fetching."""
-    if _same_idea(state, idea) and state.get("papers_with_analysis"):
-        return state["papers_with_analysis"]
+    cached = state.get("papers_with_analysis") if _same_idea(state, idea) else None
+    if _papers_have_metadata(cached):
+        return cached
     papers = get_papers_with_analysis(idea, max_papers=max_papers)
     return papers or []
 
 
 def _ensure_papers_and_gaps(state: dict, idea: str, max_papers: int = 3):
-    if _same_idea(state, idea) and state.get("papers_with_analysis") and state.get("gaps") is not None:
-        return state["papers_with_analysis"], state["gaps"]
+    cached = state.get("papers_with_analysis") if _same_idea(state, idea) else None
+    if _papers_have_metadata(cached) and state.get("gaps") is not None:
+        return cached, state["gaps"]
     papers = get_papers_with_analysis(idea, max_papers=max_papers)
     if not papers:
         return [], []
@@ -233,6 +243,11 @@ def _extract_literature_qa_text(papers: List[Dict], max_chars: int = 6000) -> st
         abstract = analysis.get("abstract", {}) or {}
 
         piece = [f"Paper: {p.get('title', 'Unknown')}"]
+        if p.get("url"):
+            piece.append(f"URL: {p['url']}")
+        if p.get("pdf_url"):
+            print(f"[orchestrator] paper '{p.get('title','')}' has pdf_url: {p['pdf_url']}")
+            piece.append(f"PDF Link: {p['pdf_url']}")
         if methodology.get("algorithms"):
             piece.append(f"Algorithms/methods: {methodology['algorithms']}")
         if results.get("metrics"):
@@ -685,6 +700,22 @@ def summarize_progress(state: Annotated[dict, InjectedState]) -> str:
     return "\n".join(parts)
 
 
+@tool
+def search_personal_documents(
+    question: str,
+    config: RunnableConfig,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Search through the user's uploaded personal documents to answer a question. 
+    Use this when the user asks a question about their own documents or uploaded files."""
+    user_id = config.get("configurable", {}).get("thread_id")
+    if not user_id:
+        return Command(update={"messages": [ToolMessage("Error: Could not identify user.", tool_call_id=tool_call_id)]})
+    
+    answer = retrieve_from_knowledge_base(question, user_id=user_id)
+    return Command(update={"messages": [ToolMessage(answer, tool_call_id=tool_call_id)]})
+
+
 TOOLS = [
     answer_from_literature,
     find_research_gaps,
@@ -697,6 +728,7 @@ TOOLS = [
     check_topic_relevance,
     explore_adjacent_fields,
     summarize_progress,
+    search_personal_documents,
 ]
 
 
@@ -719,7 +751,7 @@ Definitions:
 - "idea_introduction": the user is introducing, describing, or mentioning a project/learning idea/topic WITHOUT explicitly asking for a specific deliverable (no request for a plan, course, gap list, experiments, comparison, relevance check, etc). This includes the very first mention of an idea, and casual elaboration on an idea already mentioned.
 - "general_chat": greetings, thanks, small talk, or questions unrelated to any research/education pipeline.
 - "action_request": the user explicitly asks for a specific deliverable to be generated or an explicit pipeline step to run (e.g. "generate a technical plan", "find research gaps", "build me a course", "create lab exercises", "design experiments", "check if this idea is niche", "evaluate this submission").
-- "info_question": the user asks a factual/informational question that likely requires checking the literature or paper analysis to answer well (e.g. "has X metric been used before for this?", "what approaches are common for this?", "which datasets do these papers use?"), WITHOUT explicitly asking for a plan/course/gap-list/experiment-set as a deliverable.
+- "info_question": the user asks a factual/informational question that likely requires checking the literature, paper analysis, or their uploaded personal documents to answer well (e.g. "has X metric been used before for this?", "what approaches are common for this?", "what did my uploaded document say about Y?"), WITHOUT explicitly asking for a plan/course/gap-list/experiment-set as a deliverable.
 
 For "idea_introduction", "direct_reply" MUST: (1) briefly restate your understanding of the idea in one sentence, (2) list the concrete things you can do next — literature search & gap analysis, a technical implementation plan, a teaching plan / full course, lab exercises, experiment design, or comparing existing approaches — (3) ask what they'd like to do. Do NOT perform any of these things yet, only offer them.
 
@@ -803,25 +835,17 @@ deliverable — a prior step has already filtered out plain idea
 introductions and small talk, so you do not need to re-check that.
 
 Guidelines:
-- For factual/informational questions about the literature (e.g. "has X
-  metric been used before?", "what datasets are common here?"), call
-  answer_from_literature. Do NOT call create_technical_plan,
-  create_teaching_plan, create_course, create_lab_exercises, or
-  create_experiments for a question — those are only for explicit requests
-  to generate that specific deliverable.
-- Tools are self-sufficient: e.g. create_course will build the teaching
-  plan itself if it doesn't exist yet. You do not need to chain earlier
-  stages manually unless the user specifically wants to see that
-  intermediate output (e.g. "what gaps did you find?").
-- Prefer calling summarize_progress over re-running a tool if you're unsure
-  whether something has already been generated for the current idea.
-- Only call explore_adjacent_fields after check_topic_relevance has
-  reported no direct match AND the user has confirmed they want that.
-- Do not offer to modify or edit an already-generated plan/course — that
-  capability isn't available yet. If asked, say so plainly and offer to
-  regenerate for a revised idea instead.
-- Keep replies conversational and concise; tool results are already
-  summarized for you, don't dump raw JSON back at the user."""
+- For requests asking about "contributions", "novelty", "gaps", or "what does my project offer" regarding an uploaded document or paper:
+  1. Call search_personal_documents FIRST to extract the user's project idea, proposed methodology, and objectives from their uploaded document.
+  2. Call find_research_gaps (or create_technical_plan) using the extracted project idea to search published literature (arXiv, Semantic Scholar, OpenAlex) and detect actual research gaps comparing published papers against the user's project.
+  3. Synthesize the response by combining the user's uploaded project text with the literature gap analysis to highlight true novel contributions!
+- For direct factual questions specifically about what a user's uploaded document says, call search_personal_documents.
+- For general factual/informational questions about public published literature, call answer_from_literature.
+- Do NOT call create_technical_plan, create_teaching_plan, create_course, create_lab_exercises, or create_experiments for a basic question unless explicitly requested.
+- Tools are self-sufficient: e.g. create_course will build the teaching plan itself if it doesn't exist yet.
+- Prefer calling summarize_progress over re-running a tool if you're unsure whether something has already been generated for the current idea.
+- Only call explore_adjacent_fields after check_topic_relevance has reported no direct match AND the user has confirmed they want that.
+- Keep replies conversational and concise; tool results are already summarized for you, don't dump raw JSON back at the user."""
 
 _llm_with_tools = None
 

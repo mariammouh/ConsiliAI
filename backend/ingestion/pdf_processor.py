@@ -48,7 +48,7 @@ def simple_text_splitter(text: str, chunk_size: int = 500, overlap: int = 50) ->
     return final_chunks
 
 
-def process_pdf(file_path: str, chunk_size: int = 500, chunk_overlap: int = 50):
+def process_pdf(file_path: str, user_id: str, chunk_size: int = 500, chunk_overlap: int = 50):
     # 1. Extract text
     doc = fitz.open(file_path)
     text = ""
@@ -71,7 +71,7 @@ def process_pdf(file_path: str, chunk_size: int = 500, chunk_overlap: int = 50):
         collection.add(
             documents=[chunk],
             embeddings=[embedding],
-            metadatas=[{"source": file_name, "chunk_id": i}],
-            ids=[f"{file_name}_{i}"]
+            metadatas=[{"source": file_name, "chunk_id": i, "user_id": str(user_id)}],
+            ids=[f"{user_id}_{file_name}_{i}"]
         )
     return len(chunks)

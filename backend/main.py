@@ -20,9 +20,50 @@ load_dotenv()
 
 
 def _chat_state_response(state: dict) -> dict:
+    papers_raw = state.get("papers_with_analysis") or []
+    formatted_papers = []
+    for p in papers_raw:
+        analysis = p.get("analysis", {}) or {}
+        sections_detected = list(analysis.keys()) if isinstance(analysis, dict) else []
+        url_val = p.get("url", "")
+        pdf_url_val = p.get("pdf_url", "")
+        source_val = p.get("source", "N/A")
+        # DEBUG: log what we're sending to the frontend
+        print(f"[DEBUG _chat_state_response] title={p.get('title','?')!r} | url={url_val!r} | pdf_url={pdf_url_val!r} | source={source_val!r}")
+        formatted_papers.append({
+            "title": p.get("title", "Untitled Paper"),
+            "authors": p.get("authors", []),
+            "url": url_val,
+            "pdf_url": pdf_url_val,
+            "source": source_val,
+            "sections_detected": sections_detected,
+            "abstract": p.get("abstract", "") or (analysis.get("abstract", {}).get("summary", "") if isinstance(analysis, dict) else ""),
+            "analysis": analysis,
+        })
+
+    scored_projects = state.get("similar_projects_scored") or []
+    formatted_projects = []
+    for item in scored_projects:
+        if isinstance(item, tuple) and len(item) == 2:
+            score, proj = item
+        elif isinstance(item, dict):
+            proj = item
+            score = proj.get("score", 0.5)
+        else:
+            continue
+        formatted_projects.append({
+            "name": proj.get("name", "Unnamed Repo"),
+            "url": proj.get("url", ""),
+            "source": proj.get("source", "N/A"),
+            "description": proj.get("description", "") or proj.get("readme_snippet", ""),
+            "similarity_score": round(score * 100, 1) if isinstance(score, (int, float)) else score,
+        })
+
     return {
         "idea": state.get("idea"),
-        "papers": state.get("papers_with_analysis"),
+        "papers": formatted_papers,
+        "similar_projects": formatted_projects,
+        "novelty_analysis": state.get("novelty_analysis"),
         "gaps": state.get("gaps"),
         "technical_plan": state.get("technical_plan"),
         "teaching_plan": state.get("teaching_plan"),
@@ -215,23 +256,32 @@ def get_pptx_output_path(idea: str) -> str:
     filename = f"course_{_hash_text(idea)[:8]}.pptx"
     return os.path.join(output_dir, filename)
 @app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(
+    file: UploadFile = File(...),
+    user: User = Depends(current_active_user),
+):
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    num_chunks = process_pdf(file_path)
+    num_chunks = process_pdf(file_path, user_id=str(user.id))
     return {"message": f"✅ {file.filename} uploaded and indexed.", "chunks": num_chunks}
 
 @app.post("/ask")
-async def ask_question(question: str = Form(...)):
-    answer = retrieve_from_knowledge_base(question)
+async def ask_question(
+    question: str = Form(...),
+    user: User = Depends(current_active_user)
+):
+    answer = retrieve_from_knowledge_base(question, user_id=str(user.id))
     return {"answer": answer}
 
 # Optional: keep debug endpoint
 @app.post("/debug_chunks")
-async def debug_chunks(question: str = Form(...)):
+async def debug_chunks(
+    question: str = Form(...),
+    user: User = Depends(current_active_user)
+):
     from ingestion.chroma_client import query_chroma
-    chunks = query_chroma(question)
+    chunks = query_chroma(question, user_id=str(user.id))
     return {"chunks": chunks}
 
 

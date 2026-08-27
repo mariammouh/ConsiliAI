@@ -102,12 +102,12 @@ def _invoke_gemini(prompt: str):
 def _invoke_groq(prompt: str):
     groq_llm = _ensure_llm_clients()[1]
     return groq_llm.invoke(prompt)
-def retrieve_from_knowledge_base(question: str) -> str:
+def retrieve_from_knowledge_base(question: str, user_id: str) -> str:
     """
     Retrieve relevant information from the user's uploaded PDFs
     and answer the question.
     """
-    chunks = query_chroma(question, n_results=3)
+    chunks = query_chroma(question, user_id=str(user_id), n_results=3)
     if not chunks:
         return "No relevant documents found."
 
@@ -191,7 +191,8 @@ def search_papers(query: str, max_results: int = 15) -> List[Dict]:
         return cached[:max_results]
 
     # 2. Use whatever cache we have as a base
-    base_papers = cached if cached else []
+    base_papers = cached if cached else []    # 2. Use whatever cache we have as a base, but keep only entries that actually have a URL
+    base_valid = [p for p in base_papers if p.get('url')]
     
     # 3. Fetch fresh from APIs
     fresh_papers = []
@@ -227,16 +228,18 @@ def search_papers(query: str, max_results: int = 15) -> List[Dict]:
         print(f"OpenAlex integration error: {e}")
 
     # 4. Merge cache + fresh, deduplicate by URL
-    seen = {p.get('url') for p in base_papers if p.get('url')}
-    combined = list(base_papers)
+    seen = {p.get('url') for p in base_valid if p.get('url')}
+    combined = list(base_valid)
     for p in fresh_papers:
         if p.get('url') not in seen:
+            print("link : ",p.get('url'))
             seen.add(p.get('url'))
             combined.append(p)
 
     # 5. Update cache with the combined list
     if combined:
         set_cached_papers_semantic(query, combined)
+
 
     return combined[:max_results]
 def search_semantic_scholar(query: str, max_results: int = 5) -> List[Dict]:
@@ -1170,6 +1173,65 @@ def analyze_all_sections(sections: Dict[str, str]) -> Dict[str, Dict]:
     return results
 
 
+def get_papers_with_analysis(idea: str, max_papers: int = 3) -> List[Dict]:
+    """
+    Shared helper pipeline: search -> hybrid filter -> fetch full text -> split -> analyze.
+    Preserves title, url, pdf_url, source, abstract, and analysis dictionary.
+    """
+    raw_papers = search_papers(idea, max_results=10)
+
+    if not raw_papers:
+        return []
+
+    relevant = filter_papers_hybrid(raw_papers, idea, embed_top_k=8, llm_top_n=max_papers)
+    results = []
+    for paper in relevant:
+        full_text = fetch_full_text(paper)
+        if not full_text.strip():
+            
+            results.append({
+                "title": paper.get("title", "Untitled Paper"),
+                "authors": paper.get("authors", []),
+                "url": paper.get("url", ""),
+                "pdf_url": paper.get("pdf_url", ""),
+                "source": paper.get("source", "academic"),
+                "abstract": paper.get("abstract", ""),
+                "analysis": {"abstract": {"summary": paper.get("abstract", "")}}
+            })
+            continue
+
+        sections = split_paper_sections(full_text)
+        if not sections:
+            results.append({
+                "title": paper.get("title", "Untitled Paper"),
+                "authors": paper.get("authors", []),
+                "url": paper.get("url", ""),
+                "pdf_url": paper.get("pdf_url", ""),
+                "source": paper.get("source", "academic"),
+                "abstract": paper.get("abstract", ""),
+                "analysis": {"abstract": {"summary": paper.get("abstract", "")}}
+            })
+            continue
+
+        analysis = analyze_all_sections(sections)
+        print("link :",paper.get("pdf_url", ""))
+        results.append({
+            "title": paper.get("title", "Untitled Paper"),
+            "authors": paper.get("authors", []),
+            "url": paper.get("url", ""),
+            "pdf_url": paper.get("pdf_url", ""),
+            "source": paper.get("source") or ("arxiv" if "arxiv" in paper.get("url", "") else "academic"),
+            "abstract": paper.get("abstract", ""),
+            "sections_detected": list(sections.keys()),
+            "analysis": analysis,
+               
+           
+            "source_sections": sections
+        })
+
+    return results
+
+
 
 import time
 
@@ -1921,32 +1983,9 @@ def _format_papers_with_match_type(papers_with_analysis: List[Dict]) -> str:
         )
     return "\n\n===\n\n".join(parts)
 
-def get_papers_with_analysis(idea: str, max_papers: int = 2) -> List[Dict]:
-    """Shared pipeline: search -> filter -> fetch full text -> split -> analyze."""
-    raw_papers = search_papers(idea, max_results=15)
-    relevant_papers = filter_papers_hybrid(raw_papers, idea, embed_top_k=8, llm_top_n=max_papers)
+# Duplicate get_papers_with_analysis removed – using earlier definition
 
-    papers_with_analysis = []
-    for paper in relevant_papers:
-        full_text = fetch_full_text(paper)
-        if not full_text.strip():
-            papers_with_analysis.append({
-                "title": paper["title"],
-                "analysis": {"abstract": {"summary": paper.get("abstract", "")}}
-            })
-            continue
-        sections = split_paper_sections(full_text)
-        if not sections:
-            continue
-        papers_with_analysis.append({
-            "title": paper["title"],
-            "analysis": analyze_all_sections(sections),
-            # Section analyses are lossy summaries; retain source text for
-            # exact reported-number extraction in benchmark evaluation.
-            "source_sections": sections,
-        })
 
-    return papers_with_analysis
 
 
 

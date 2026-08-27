@@ -10,7 +10,7 @@ import {
   IconButton,
 } from "@chakra-ui/react";
 import { useNavigate } from "react-router-dom";
-import { sendChatMessage, getChatHistory, downloadArtifact, logout } from "../api.js";
+import { sendChatMessage, getChatHistory, downloadArtifact, logout, uploadDocument } from "../api.js";
 import MessageBubble from "../components/MessageBubble.jsx";
 import Sidebar from "../components/Sidebar.jsx";
 
@@ -24,10 +24,12 @@ export default function Chat() {
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [state, setState] = useState({});
   const [error, setError] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(true);
   const scrollRef = useRef(null);
+  const fileInputRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -100,6 +102,35 @@ export default function Chat() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  }
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploading(true);
+    setError("");
+    
+    try {
+      const res = await uploadDocument(file);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `✅ File "${file.name}" uploaded successfully. You can now ask questions about it.`,
+        },
+      ]);
+    } catch (err) {
+      setError(err.message);
+      if (err.message.includes("Session expired")) {
+        navigate("/login");
+      }
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   }
 
@@ -181,6 +212,22 @@ export default function Chat() {
 
         {/* Input */}
         <Flex px={6} py={4} borderTop="1px solid" borderColor="paper.300" gap={3}>
+          <input 
+            type="file" 
+            hidden 
+            ref={fileInputRef} 
+            onChange={handleFileUpload}
+            accept="application/pdf"
+          />
+          <Button 
+            onClick={() => fileInputRef.current?.click()} 
+            isLoading={uploading} 
+            px={4}
+            variant="outline"
+            title="Upload personal document"
+          >
+            📎
+          </Button>
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
