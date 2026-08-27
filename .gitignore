@@ -18,3 +18,6 @@ sota.html
 ch.txt
 md.md
 .gitignore
+chroma_data/
+user_uploads/
+test_output/

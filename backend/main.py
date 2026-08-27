@@ -1,4 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import HTTPException
+from fastapi.params import Depends
 from fastapi.responses import JSONResponse
 import os, shutil
 import requests
@@ -7,31 +9,18 @@ from ingestion.pdf_processor import process_pdf, UPLOAD_DIR
 from agents.tools import _hash_text,generate_experiment_set, retrieve_from_knowledge_base,broaden_idea,get_papers_with_analysis
 from agents.tools import search_papers, filter_relevant_papers,filter_papers_hybrid, summarize_papers_with_groq
 from agents.tools import search_papers_formatted,fetch_full_text,extract_text_from_pdf_bytes
-load_dotenv()
-
-app = FastAPI()
+from auth.db import create_db_and_tables, User
+from auth.schemas import UserRead, UserCreate, UserUpdate
+from auth.users import fastapi_users, current_active_user, auth_backend
 import tempfile
 import os
 from fastapi import Form
 from agents.orchestrator import run_orchestrator_turn, get_state_snapshot
+load_dotenv()
 
 
-@app.post("/chat")
-async def chat_endpoint(
-    message: str = Form(...),
-    thread_id: str = Form("default"),
-):
-    reply = run_orchestrator_turn(
-        message=message,
-        thread_id=thread_id,
-    )
-
-    state = get_state_snapshot(thread_id)
-
+def _chat_state_response(state: dict) -> dict:
     return {
-    "reply": reply,
-    "thread_id": thread_id,
-    "state": {
         "idea": state.get("idea"),
         "papers": state.get("papers_with_analysis"),
         "gaps": state.get("gaps"),
@@ -40,7 +29,185 @@ async def chat_endpoint(
         "course": state.get("course"),
         "experiments": state.get("experiments"),
     }
-}
+
+
+def _course_downloads(state: dict) -> list[dict]:
+    export_path = state.get("course_export_path")
+    if not export_path or not isinstance(export_path, str):
+        return []
+
+    paths = [path.strip() for path in export_path.split(",") if path.strip()]
+    return [
+        {
+            "label": f"Download lesson {index}",
+            "filename": os.path.basename(path),
+            "url": f"/chat/course-download/{os.path.basename(path)}",
+        }
+        for index, path in enumerate(paths, start=1)
+    ]
+
+
+def _lab_downloads(state: dict) -> list[dict]:
+    downloads = []
+    for module in state.get("lab_exercises") or []:
+        for lesson in module.get("lessons", []):
+            lesson_title = next(
+                (
+                    item.get("lab", {}).get("based_on_lesson")
+                    for item in [lesson]
+                    if item.get("lab")
+                ),
+                "lesson",
+            )
+            for notebook_type, path in (lesson.get("notebook_files") or {}).items():
+                if path:
+                    filename = os.path.basename(path)
+                    downloads.append({
+                        "label": f"Download {lesson_title} ({notebook_type.replace('_', ' ')})",
+                        "filename": filename,
+                        "url": f"/chat/lab-download/{filename}",
+                    })
+    return downloads
+
+app = FastAPI()
+app.include_router(
+    fastapi_users.get_auth_router(auth_backend), prefix="/auth/jwt", tags=["auth"]
+)
+app.include_router(
+    fastapi_users.get_register_router(UserRead, UserCreate), prefix="/auth", tags=["auth"]
+)
+app.include_router(
+    fastapi_users.get_users_router(UserRead, UserUpdate), prefix="/users", tags=["users"]
+)
+
+
+@app.on_event("startup")
+async def on_startup():
+    await create_db_and_tables()
+
+
+
+@app.post("/chat")
+async def chat_endpoint(
+    message: str = Form(...),
+    user: User = Depends(current_active_user),
+):
+    thread_id = str(user.id)  # derived from the authenticated user, never client-supplied
+
+    reply = run_orchestrator_turn(
+        message=message,
+        thread_id=thread_id,
+    )
+
+    state = get_state_snapshot(thread_id)
+
+    return {
+        "reply": reply,
+        "state": _chat_state_response(state),
+        "course_downloads": _course_downloads(state),
+        "lab_downloads": _lab_downloads(state),
+    }
+
+
+@app.get("/chat/history")
+async def chat_history_endpoint(
+    user: User = Depends(current_active_user),
+):
+    thread_id = str(user.id)
+    state = get_state_snapshot(thread_id)
+
+    messages = []
+    for message in state.get("messages", []):
+        message_type = getattr(message, "type", None)
+        if message_type not in {"human", "ai"}:
+            continue
+        role = "user" if message_type == "human" else "assistant"
+
+        content = message.content
+        if isinstance(content, list):
+            content = "".join(
+                block.get("text", "") if isinstance(block, dict) else str(block)
+                for block in content
+            )
+        if not str(content).strip():
+            continue
+        messages.append({"role": role, "content": str(content)})
+
+    return {
+        "messages": messages,
+        "state": _chat_state_response(state),
+        "course_downloads": _course_downloads(state),
+        "lab_downloads": _lab_downloads(state),
+    }
+
+
+@app.get("/chat/course-download/{filename}")
+async def chat_course_download_endpoint(
+    filename: str,
+    user: User = Depends(current_active_user),
+):
+    state = get_state_snapshot(str(user.id))
+    output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
+    requested_filename = os.path.basename(filename)
+    export_paths = [
+        path.strip()
+        for path in (state.get("course_export_path") or "").split(",")
+        if path.strip()
+    ]
+    matching_path = next(
+        (path for path in export_paths if os.path.basename(path) == requested_filename),
+        None,
+    )
+
+    if not matching_path:
+        raise HTTPException(status_code=404, detail="Course lesson presentation not found.")
+
+    filepath = os.path.abspath(matching_path)
+    if os.path.dirname(filepath) != os.path.abspath(output_dir) or not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Course presentation not found.")
+
+    return FileResponse(
+        filepath,
+        filename=os.path.basename(filepath),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+
+
+@app.get("/chat/lab-download/{filename}")
+async def chat_lab_download_endpoint(
+    filename: str,
+    user: User = Depends(current_active_user),
+):
+    state = get_state_snapshot(str(user.id))
+    output_dir = os.path.abspath(os.path.join(tempfile.gettempdir(), "consiliai_labs"))
+    requested_filename = os.path.basename(filename)
+    matching_path = None
+
+    for module in state.get("lab_exercises") or []:
+        for lesson in module.get("lessons", []):
+            for path in (lesson.get("notebook_files") or {}).values():
+                if path and os.path.basename(path) == requested_filename:
+                    matching_path = path
+                    break
+            if matching_path:
+                break
+        if matching_path:
+            break
+
+    if not matching_path:
+        raise HTTPException(status_code=404, detail="Lab notebook not found.")
+
+    filepath = os.path.abspath(matching_path)
+    if not filepath.startswith(output_dir + os.sep) or not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Lab notebook not found.")
+
+    return FileResponse(
+        filepath,
+        filename=requested_filename,
+        media_type="application/x-ipynb+json",
+    )
+
+
 def get_pptx_output_path(idea: str) -> str:
     """Cross-platform temp path for generated course pptx files."""
     output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
@@ -531,10 +698,20 @@ async def evaluate_benchmark_endpoint(
         text = submission_text
     else:
         return {"error": "Provide either submission_text or submission_file."}
-
+    print(f"[evaluate_benchmark] received submission text length: {len(text)} characters")
     result = generate_benchmark_evaluation(
         experiment=experiment_dict,
         papers_with_analysis=papers_dict,
         submission_text=text,
     )
     return result
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

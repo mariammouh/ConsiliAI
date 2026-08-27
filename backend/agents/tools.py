@@ -466,8 +466,8 @@ def search_similar_projects(query: str, max_results: int = 15) -> List[Dict]:
     
     #projects.extend(search_bitbucket(query, max_results))
     #projects.extend(search_paperswithcode(query, max_results))
-    for p in projects:
-        print(f"[debug] {p.get('name')}: readme={p.get('readme', '')[:200]!r}")
+    #for p in projects:
+       # print(f"[debug] {p.get('name')}: readme={p.get('readme', '')[:200]!r}")
     if projects:
         set_cached_projects_semantic(query, projects)
 
@@ -502,7 +502,7 @@ def compute_similarity_scores(user_idea: str, projects: List[Dict]) -> List[Tupl
             continue
         proj_emb = np.array(embed(text))
         sim = np.dot(idea_emb, proj_emb) / (np.linalg.norm(idea_emb) * np.linalg.norm(proj_emb))
-        scored.append((sim, proj))
+        scored.append((float(sim), proj))
     scored.sort(key=lambda x: x[0], reverse=True)
     return scored
 
@@ -587,7 +587,7 @@ def search_kaggle(query: str, max_results: int =15 ) -> List[Dict]:
 
                 "readme": (m.description or "")[:500]
             })
-            print(f"kaggle models: {len(projects)} results added")
+           # print(f"kaggle models: {len(projects)} results added")
         # --- Datasets ---
         datasets = api.dataset_list(search=query, max_size=max_results)
         for ds in datasets:
@@ -616,7 +616,7 @@ def search_kaggle(query: str, max_results: int =15 ) -> List[Dict]:
     "votes": k.total_votes,
     "readme": (k.description or "")[:500] 
             })
-            print(f"kaggle kernels: {len(projects)} results added")
+           # print(f"kaggle kernels: {len(projects)} results added")
         models = api.model_list(search=query, page_size=max_results)
         for m in models:
             
@@ -627,7 +627,7 @@ def search_kaggle(query: str, max_results: int =15 ) -> List[Dict]:
                 "source": "kaggle_model",
                 "readme": (m.description or "")[:500]
             })
-            print(f"kaggle models: {len(projects)} results added")
+         #   print(f"kaggle models: {len(projects)} results added")
     except Exception as e:
         print(f"Kaggle error: {e}")
     return projects
@@ -705,7 +705,7 @@ def search_huggingface(query, max_results):
                 "architecture":model.config.architectures[0] if hasattr(model, "config") and hasattr(model.config, "architectures") else "",    
                 "readme": ""   # Models don't have a README directly
             })
-        print(f"Hugging Face: {len(projects)} results added")
+      #  print(f"Hugging Face: {len(projects)} results added")
     except Exception as e:
         print(f"Hugging Face error: {e}")
     return projects
@@ -733,7 +733,7 @@ def search_paperswithcode(query: str, max_results: int = 5) -> List[Dict]:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         resp = requests.get(url, params=params, headers=headers, timeout=10)
         if resp.status_code != 200:
-            print(f"PapersWithCode status {resp.status_code}: {resp.text[:200]}")
+           # print(f"PapersWithCode status {resp.status_code}: {resp.text[:200]}")
             return projects
         # The response should now be JSON
         try:
@@ -753,7 +753,7 @@ def search_paperswithcode(query: str, max_results: int = 5) -> List[Dict]:
                     "source": "paperswithcode",
                     "readme": abstract[:1000]
                 })
-        print(f"PapersWithCode: {len(projects)} results added")
+       # print(f"PapersWithCode: {len(projects)} results added")
     except Exception as e:
         print(f"PapersWithCode error: {e}")
     return projects
@@ -764,7 +764,7 @@ def search_gitlab(query, max_results):
         gl_url = "https://gitlab.com/api/v4/projects"
         params = {"q": f"title.search:{query.strip()}", "items_per_page": max_results} 
         resp = requests.get(gl_url, params=params)
-        print(f"GitLab status: {resp.status_code}")
+        #print(f"GitLab status: {resp.status_code}")
         if resp.status_code == 200:
             for proj in resp.json():
                 projects.append({
@@ -927,7 +927,7 @@ def heuristic_split_sections(text: str) -> Dict[str, str]:
         if section_name:
             found_headers.append((i, section_name, stripped))
 
-    print("headers from heuristic:", found_headers)
+    #print("headers from heuristic:", found_headers)
 
     if len(found_headers) < 2:
         return {}
@@ -1444,8 +1444,8 @@ Paper text:
 
     # NEW: see exactly what's going into consolidation, per paper
     print(f"[debug] partial_gaps BEFORE consolidation ({len(partial_gaps)} total):")
-    for g in partial_gaps:
-        print(f"  - {g.get('papers_involved')}: {g.get('gap_description', '')[:80]}")
+    #for g in partial_gaps:
+        #print(f"  - {g.get('papers_involved')}: {g.get('gap_description', '')[:80]}")
 
     if not partial_gaps:
         return {"gaps": [], "_error": "No gaps extracted from any chunk."}
@@ -3830,13 +3830,14 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
 
     def _build(use_solution: bool) -> "nbf.NotebookNode":
         nb = nbf.v4.new_notebook()
+        nb.metadata.language_info = {"name": "python"}
         intro = f"# {lab.get('exercise_title','Exercise')}\n\n" \
                 f"**Objective:** {lab.get('learning_objective','')}\n\n" \
                 f"{lab.get('instructions','')}\n\n" \
                 f"**Difficulty:** {lab.get('difficulty','')}"
         if lab.get("based_on_repo"):
             intro += f"\n\n**Reference implementation:** [{lab['based_on_repo']['name']}]({lab['based_on_repo']['url']})"
-        cells = [nbf.v4.new_markdown_cell(intro)]
+        cells = [nbf.v4.new_markdown_cell(intro, metadata={"language": "markdown"})]
 
         if lab.get("debug_mode"):
             cells.append(nbf.v4.new_markdown_cell(
@@ -3844,7 +3845,7 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
                 f"{lab.get('debug_hint', 'This code contains at least one bug.')}\n\n"
                 "Automated generation could not produce a verified working version of this "
                 "exercise — your task is to find and fix the issue(s) yourself."
-            ))
+            , metadata={"language": "markdown"}))
             if use_solution:
                 v = lab.get("validation", {}).get("solution", {})
                 cells.append(nbf.v4.new_markdown_cell(
@@ -3852,25 +3853,27 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
                     "Automated repair could not fully resolve this, so there is no confirmed "
                     "correct answer key — only what the static checker detected:\n\n"
                     f"```json\n{json.dumps(v, indent=2)}\n```"
-                ))
-            cells.append(nbf.v4.new_code_cell(lab.get("starter_code", "")))
+                , metadata={"language": "markdown"}))
+            cells.append(nbf.v4.new_code_cell(lab.get("starter_code", ""), metadata={"language": "python"}))
             nb["cells"] = cells
             return nb
 
         if lab.get("hints"):
             hints_md = "**Hints:**\n" + "\n".join(f"- {h}" for h in lab["hints"])
-            cells.append(nbf.v4.new_markdown_cell(hints_md))
+            cells.append(nbf.v4.new_markdown_cell(hints_md, metadata={"language": "markdown"}))
 
         topic_cells = lab.get("cells")
         if topic_cells:
             for step in topic_cells:
-                cells.append(nbf.v4.new_markdown_cell(f"### {step['topic']}"))
+                cells.append(nbf.v4.new_markdown_cell(
+                    f"### {step['topic']}", metadata={"language": "markdown"}
+                ))
                 code = step["solution"] if use_solution else step["starter"]
-                cells.append(nbf.v4.new_code_cell(code))
+                cells.append(nbf.v4.new_code_cell(code, metadata={"language": "python"}))
         else:
             code = lab.get("solution_code" if use_solution else "starter_code", "") \
                 or "# solution not generated"
-            cells.append(nbf.v4.new_code_cell(code))
+            cells.append(nbf.v4.new_code_cell(code, metadata={"language": "python"}))
 
         nb["cells"] = cells
         return nb
@@ -4270,6 +4273,10 @@ Respond with ONLY a JSON object:
 Extract ONLY numbers literally present in the text. Do not infer, estimate, or round.
 A single sentence may report MULTIPLE metrics for the SAME model (e.g. "X inference time: A, training time: B")
 — extract each metric mentioned as its own separate object, all sharing that model name.
+If a model name is stated once and then several dataset/number pairs follow without repeating
+the model name (e.g. "Model X achieves 97% on A, 99% on B, and 82% on C"), attribute ALL of
+those numbers to that same model — do not leave "model" blank just because it wasn't restated
+next to each individual number.
 If none are present, return {"results": []}.
 """.strip()
 
@@ -4321,6 +4328,7 @@ def extract_literature_results(paper: dict) -> list:
 
     prompt = f"Text:\n{source_text[:12000]}\n\n{_EXTRACTION_SCHEMA}"
     parsed = _safe_json_parse(_groq_invoke_safe(prompt))
+    print("EXTRACTED FROM FALLBACK:", parsed)
     for r in parsed.get("results", []) if isinstance(parsed, dict) else []:
         if not isinstance(r, dict):
             continue
@@ -4432,7 +4440,9 @@ def generate_benchmark_evaluation(experiment: dict, papers_with_analysis: list, 
     relevant_papers = [p for p in papers_with_analysis if p.get("title") in involved_titles] or papers_with_analysis
 
     literature_results = []
+    print(f"[generate_benchmark_evaluation] Extracting results from {len(relevant_papers)} relevant paper(s).")
     for paper in relevant_papers:
+        print(f"[generate_benchmark_evaluation] Extracting results from paper: {paper.get('title', '')}")
         literature_results.extend(extract_literature_results(paper))
 
     exp_dataset = (experiment.get("dataset", {}) or {}).get("name", "").strip().lower()

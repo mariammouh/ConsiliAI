@@ -50,9 +50,12 @@ Design notes (carried over from v1):
   classify node + a tool-bound agent node + ToolNode), rather than via the
   `create_react_agent` prebuilt, specifically so the classify gate can sit
   in front of the tool loop as its own node.
-- State persistence uses LangGraph's checkpointer (`MemorySaver`, per
-  explicit instruction to ignore scale/rate-limit concerns at this stage)
-  keyed by `thread_id`. This IS the "shadow database" from §2.13/§8.4.
+- State persistence uses LangGraph's checkpointer, keyed by `thread_id`
+  (now derived from the authenticated user's id, not client-supplied — see
+  main.py's /chat). Backed by Postgres via `PostgresSaver` (swapped from
+  the original `MemorySaver` once real multi-user usage became a concrete
+  near-term need, not just a future-proofing guess). This IS the "shadow
+  database" from §2.13/§8.4.
 - Groq-first, Gemini-fallback is preserved via `.with_fallbacks()`, but
   applied AFTER `.bind_tools()` on each underlying model individually —
   `RunnableWithFallbacks` does not itself implement `.bind_tools()`, so
@@ -70,7 +73,6 @@ from typing import Annotated, Dict, List, Optional, TypedDict
 
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool, InjectedToolCallId
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import InjectedState, ToolNode, tools_condition
@@ -122,6 +124,7 @@ class OrchestratorState(TypedDict):
     teaching_plan: Optional[Dict]
     course: Optional[Dict]
     course_export_path: Optional[str]
+    lab_exercises: Optional[List[Dict]]
     experiments: Optional[Dict]
     _route: Optional[str]   # internal: set by classify_node, consumed by the routing edge only
 
@@ -415,22 +418,16 @@ def create_course(
     sections) from the teaching plan and export it to PowerPoint. ONLY call
     this when the user explicitly asks for a full course / slides / lesson
     content to be generated. Automatically builds the teaching plan first if
-    not already available. Set export_per_lesson to true for one .pptx file
-    per lesson, false for a single combined deck."""
+    not already available. The chat application always exports one .pptx file
+    per lesson; export_per_lesson is retained for tool compatibility."""
     papers, gaps, teaching_plan, course = _ensure_course(state, idea)
     if course.get("_error"):
         return Command(update={"messages": [ToolMessage(course["_error"], tool_call_id=tool_call_id)]})
 
-    if export_per_lesson:
-        output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
-        paths = export_course_to_pptx_per_lesson(course, output_dir)
-        export_note = f"Exported {len(paths)} per-lesson .pptx file(s) to {output_dir}"
-        export_path_value = ", ".join(paths)
-    else:
-        single_path = _pptx_output_path(idea)
-        export_course_to_pptx(course, single_path)
-        export_note = f"Exported combined .pptx deck to {single_path}"
-        export_path_value = single_path
+    output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
+    paths = export_course_to_pptx_per_lesson(course, output_dir)
+    export_note = f"Exported {len(paths)} lesson PowerPoint file(s)."
+    export_path_value = ", ".join(paths)
 
     num_modules = len(course.get("modules", []))
     num_lessons = sum(len(m.get("lessons", [])) for m in course.get("modules", []))
@@ -509,6 +506,7 @@ def create_lab_exercises(
         "gaps": gaps,
         "teaching_plan": teaching_plan,
         "course": course,
+        "lab_exercises": modules_output,
         "similar_projects_raw": raw,
         "similar_projects_scored": scored,
         "novelty_analysis": novelty,
@@ -679,7 +677,7 @@ def summarize_progress(state: Annotated[dict, InjectedState]) -> str:
     if state.get("teaching_plan"):
         parts.append("- Teaching plan: generated")
     if state.get("course"):
-        parts.append("- Course: generated" + (f" (exported to {state['course_export_path']})" if state.get("course_export_path") else ""))
+        parts.append("- Course: generated (the PowerPoint presentation is ready to download)")
     if state.get("experiments"):
         parts.append(f"- {len(state['experiments'].get('experiments', []))} experiment(s) generated")
     if len(parts) == 1:
@@ -856,7 +854,24 @@ def agent_node(state: OrchestratorState) -> dict:
 # GRAPH ASSEMBLY
 # =============================================================================
 
-_checkpointer = MemorySaver()
+_checkpointer_cm = None
+
+def _build_checkpointer():
+    global _checkpointer_cm
+
+    db_uri = os.getenv("DATABASE_URL_SYNC")
+    if not db_uri:
+        raise ValueError("DATABASE_URL_SYNC is not set")
+
+    from langgraph.checkpoint.postgres import PostgresSaver
+
+    _checkpointer_cm = PostgresSaver.from_conn_string(db_uri)
+    checkpointer = _checkpointer_cm.__enter__()
+    checkpointer.setup()
+    return checkpointer
+
+
+_checkpointer = _build_checkpointer()
 _graph = None
 
 
