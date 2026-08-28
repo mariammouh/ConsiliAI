@@ -10,18 +10,16 @@ import {
   IconButton,
 } from "@chakra-ui/react";
 import { useNavigate } from "react-router-dom";
-import { sendChatMessage, getChatHistory, downloadArtifact, logout, uploadDocument } from "../api.js";
+import { sendChatMessage, getChatHistory, downloadArtifact, logout, uploadDocument, getConversations, createConversation, deleteConversation } from "../api.js";
 import MessageBubble from "../components/MessageBubble.jsx";
 import Sidebar from "../components/Sidebar.jsx";
+import LeftSidebar from "../components/LeftSidebar.jsx";
 
 export default function Chat() {
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content:
-        "Tell me about a project or research idea you're working on, and I can help with literature gaps, a technical plan, a teaching plan and course, lab exercises, or experiment design.",
-    },
-  ]);
+  const [conversations, setConversations] = useState([]);
+  const [activeConversationId, setActiveConversationId] = useState(null);
+  
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -33,19 +31,42 @@ export default function Chat() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    async function loadHistory() {
+    async function init() {
       try {
-        const data = await getChatHistory();
+        let convs = await getConversations();
+        if (convs.length === 0) {
+          const newConv = await createConversation();
+          convs = [newConv];
+        }
+        setConversations(convs);
+        setActiveConversationId(convs[0].id);
+      } catch (err) {
+        setError(err.message);
+        if (err.message.includes("Session expired")) {
+          navigate("/login");
+        }
+      }
+    }
+    init();
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!activeConversationId) return;
+
+    async function loadHistory() {
+      setLoadingHistory(true);
+      try {
+        const data = await getChatHistory(activeConversationId);
         if (data.messages?.length) {
-          const restoredMessages = [...data.messages];
-          const lastMessage = restoredMessages[restoredMessages.length - 1];
-          if (lastMessage?.role === "assistant") {
-            lastMessage.downloads = [
-              ...(data.course_downloads || []),
-              ...(data.lab_downloads || []),
-            ];
-          }
-          setMessages(restoredMessages);
+          setMessages([...data.messages]);
+        } else {
+          setMessages([
+            {
+              role: "assistant",
+              content:
+                "Tell me about a project or research idea you're working on, and I can help with literature gaps, a technical plan, a teaching plan and course, lab exercises, or experiment design.",
+            },
+          ]);
         }
         setState(data.state || {});
       } catch (err) {
@@ -59,7 +80,7 @@ export default function Chat() {
     }
 
     loadHistory();
-  }, [navigate]);
+  }, [activeConversationId, navigate]);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -67,7 +88,7 @@ export default function Chat() {
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || sending || loadingHistory) return;
+    if (!text || sending || loadingHistory || !activeConversationId) return;
 
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setInput("");
@@ -75,16 +96,17 @@ export default function Chat() {
     setError("");
 
     try {
-      const data = await sendChatMessage(text);
+      const data = await sendChatMessage(text, activeConversationId);
+      
+      if (data.title) {
+        setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, title: data.title } : c));
+      }
+      
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content: data.reply,
-          downloads: [
-            ...(data.course_downloads || []),
-            ...(data.lab_downloads || []),
-          ],
         },
       ]);
       setState(data.state || {});
@@ -95,6 +117,33 @@ export default function Chat() {
       }
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleNewChat() {
+    try {
+      const newConv = await createConversation();
+      setConversations([newConv, ...conversations]);
+      setActiveConversationId(newConv.id);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleDeleteChat(id) {
+    try {
+      await deleteConversation(id);
+      const newConvs = conversations.filter(c => c.id !== id);
+      setConversations(newConvs);
+      if (activeConversationId === id) {
+        if (newConvs.length > 0) {
+          setActiveConversationId(newConvs[0].id);
+        } else {
+          handleNewChat();
+        }
+      }
+    } catch (err) {
+      setError(err.message);
     }
   }
 
@@ -113,7 +162,7 @@ export default function Chat() {
     setError("");
     
     try {
-      const res = await uploadDocument(file);
+      const res = await uploadDocument(file, activeConversationId);
       setMessages((prev) => [
         ...prev,
         {
@@ -141,6 +190,14 @@ export default function Chat() {
 
   return (
     <Flex h="100vh" bg="paper.100">
+      <LeftSidebar 
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onSelectConversation={setActiveConversationId}
+        onNewChat={handleNewChat}
+        onDeleteChat={handleDeleteChat}
+      />
+
       <Flex direction="column" flex="1" minW="0">
         {/* Header */}
         <Flex

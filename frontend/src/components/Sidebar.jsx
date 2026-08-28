@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { downloadArtifact } from "../api.js";
 import {
   Box,
   Text,
@@ -18,7 +19,8 @@ import {
   AccordionPanel,
   AccordionIcon,
   Link,
-  Code,
+  Button,
+  IconButton
 } from "@chakra-ui/react";
 
 function LedgerRow({ index, label, detail, done, onClick }) {
@@ -175,6 +177,7 @@ export default function Sidebar({ state }) {
         onMouseDown={startResizing}
         zIndex={10}
       />
+
 
       <Text fontFamily="mono" fontSize="xs" color="slate.500" letterSpacing="wide" mb={4}>
         [ RESEARCH LEDGER ]
@@ -337,24 +340,135 @@ export default function Sidebar({ state }) {
                               </Box>
                               <AccordionIcon />
                             </AccordionButton>
-                            <AccordionPanel pb={3} px={1} pt={3} maxH="400px" overflowY="auto">
-                              <VStack align="stretch" spacing={3} fontSize="sm">
-                                {Object.entries(paper.analysis).map(([secKey, secVal]) => (
-                                  <Box key={secKey} bg="paper.50" p={3} border="1px solid" borderColor="paper.300" borderRadius="md">
-                                    <Text fontWeight="bold" fontSize="sm" color="teal.800" mb={1.5}>
-                                      {secKey.toUpperCase()}
-                                    </Text>
-                                    {typeof secVal === "object" ? (
-                                      Object.entries(secVal).map(([k, v]) => (
-                                        <Text key={k} color="ink.800" fontSize="sm" mb={1}>
-                                          <b>{k.replace("_", " ")}:</b> {typeof v === "object" ? JSON.stringify(v) : String(v)}
-                                        </Text>
-                                      ))
-                                    ) : (
-                                      <Text color="ink.800" fontSize="sm">{String(secVal)}</Text>
-                                    )}
-                                  </Box>
-                                ))}
+                            <AccordionPanel pb={3} px={1} pt={3} maxH="500px" overflowY="auto">
+                              <VStack align="stretch" spacing={4} fontSize="sm">
+                                {Object.entries(paper.analysis).map(([secKey, secVal]) => {
+                                  // Helper: render a value smartly based on type
+                                  const renderValue = (val) => {
+                                    if (val == null) return null;
+                                    if (Array.isArray(val)) {
+                                      if (val.length === 0) return <Text fontSize="xs" color="ink.500" fontStyle="italic">None</Text>;
+                                      // Check if it's an array of objects (like reported_numbers)
+                                      if (typeof val[0] === "object" && val[0] !== null) {
+                                        return null; // handled by special table renderer below
+                                      }
+                                      return (
+                                        <VStack align="stretch" spacing={1} pl={1}>
+                                          {val.map((item, i) => (
+                                            <HStack key={i} align="start" spacing={2}>
+                                              <Text color="slate.400" fontSize="xs" mt="1px" flexShrink={0}>•</Text>
+                                              <Text fontSize="xs" color="ink.700" lineHeight="1.6">{String(item)}</Text>
+                                            </HStack>
+                                          ))}
+                                        </VStack>
+                                      );
+                                    }
+                                    return <Text fontSize="xs" color="ink.700" lineHeight="1.6" whiteSpace="pre-wrap">{String(val)}</Text>;
+                                  };
+
+                                  // Special renderer for reported_numbers: grouped table
+                                  const METRIC_LABELS = {
+                                    "A": "Accuracy", "a": "Accuracy", "accuracy": "Accuracy", "Accuracy": "Accuracy",
+                                    "P": "Precision", "p": "Precision", "precision": "Precision", "Precision": "Precision",
+                                    "R": "Recall", "r": "Recall", "recall": "Recall", "Recall": "Recall",
+                                    "F1": "F1-Score", "f1": "F1-Score", "F1-score": "F1-Score", "F1-Score": "F1-Score", "f1-score": "F1-Score",
+                                  };
+                                  const formatMetric = (m) => METRIC_LABELS[m] || m;
+
+                                  const renderReportedNumbers = (numbers) => {
+                                    if (!Array.isArray(numbers) || numbers.length === 0) return null;
+                                    // Group by dataset
+                                    const byDataset = {};
+                                    numbers.forEach((r) => {
+                                      const ds = r.dataset || "N/A";
+                                      if (!byDataset[ds]) byDataset[ds] = [];
+                                      byDataset[ds].push(r);
+                                    });
+                                    return (
+                                      <VStack align="stretch" spacing={3}>
+                                        {Object.entries(byDataset).map(([dataset, rows]) => (
+                                          <Box key={dataset}>
+                                            <Badge colorScheme="blue" fontSize="xs" mb={2}>{dataset}</Badge>
+                                            <Box overflowX="auto">
+                                              <Box as="table" width="100%" fontSize="xs">
+                                                <Box as="thead">
+                                                  <Box as="tr" borderBottom="2px solid" borderColor="paper.300">
+                                                    <Box as="th" textAlign="left" py={1.5} px={2} color="slate.600" fontWeight="700">Model</Box>
+                                                    <Box as="th" textAlign="left" py={1.5} px={2} color="slate.600" fontWeight="700">Metric</Box>
+                                                    <Box as="th" textAlign="right" py={1.5} px={2} color="slate.600" fontWeight="700">Value</Box>
+                                                  </Box>
+                                                </Box>
+                                                <Box as="tbody">
+                                                  {rows.map((r, ri) => (
+                                                    <Box as="tr" key={ri} borderBottom="1px solid" borderColor="paper.200" _hover={{ bg: "paper.50" }}>
+                                                      <Box as="td" py={1} px={2} color="ink.800" fontWeight="600">{r.model || "N/A"}</Box>
+                                                      <Box as="td" py={1} px={2} color="ink.600">{formatMetric(r.metric) || "N/A"}</Box>
+                                                      <Box as="td" py={1} px={2} color="teal.700" fontWeight="700" textAlign="right">
+                                                        {typeof r.value === "number" && r.value <= 1 ? `${(r.value * 100).toFixed(1)}%` : String(r.value ?? "N/A")}
+                                                      </Box>
+                                                    </Box>
+                                                  ))}
+                                                </Box>
+                                              </Box>
+                                            </Box>
+                                          </Box>
+                                        ))}
+                                      </VStack>
+                                    );
+                                  };
+
+                                  return (
+                                    <Box key={secKey} bg="paper.50" p={4} border="1px solid" borderColor="paper.300" borderRadius="md">
+                                      <Text fontWeight="bold" fontSize="sm" color="teal.800" mb={3} textTransform="uppercase" letterSpacing="wide">
+                                        {secKey.replace(/_/g, " ")}
+                                      </Text>
+                                      {typeof secVal === "object" && !Array.isArray(secVal) ? (
+                                        <VStack align="stretch" spacing={3}>
+                                          {Object.entries(secVal).map(([k, v]) => {
+                                            const label = k.replace(/_/g, " ");
+                                            // Special case: reported_numbers gets a table
+                                            if (k === "reported_numbers" || k === "reported numbers") {
+                                              return (
+                                                <Box key={k}>
+                                                  <Text fontSize="xs" color="slate.600" fontWeight="700" mb={2} textTransform="uppercase">{label}</Text>
+                                                  {renderReportedNumbers(v)}
+                                                </Box>
+                                              );
+                                            }
+                                            // Arrays of objects (other than reported_numbers)
+                                            if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object") {
+                                              return (
+                                                <Box key={k}>
+                                                  <Text fontSize="xs" color="slate.600" fontWeight="700" mb={1.5} textTransform="uppercase">{label}</Text>
+                                                  <VStack align="stretch" spacing={1.5} pl={1}>
+                                                    {v.map((item, vi) => (
+                                                      <Box key={vi} bg="white" p={2} borderRadius="sm" border="1px solid" borderColor="paper.200">
+                                                        {Object.entries(item).map(([ik, iv]) => (
+                                                          <Text key={ik} fontSize="xs" color="ink.700">
+                                                            <Text as="span" fontWeight="600" color="ink.800">{ik.replace(/_/g, " ")}: </Text>
+                                                            {String(iv)}
+                                                          </Text>
+                                                        ))}
+                                                      </Box>
+                                                    ))}
+                                                  </VStack>
+                                                </Box>
+                                              );
+                                            }
+                                            return (
+                                              <Box key={k}>
+                                                <Text fontSize="xs" color="slate.600" fontWeight="700" mb={1} textTransform="uppercase">{label}</Text>
+                                                {renderValue(v)}
+                                              </Box>
+                                            );
+                                          })}
+                                        </VStack>
+                                      ) : (
+                                        renderValue(secVal)
+                                      )}
+                                    </Box>
+                                  );
+                                })}
                               </VStack>
                             </AccordionPanel>
                           </AccordionItem>
@@ -433,41 +547,400 @@ export default function Sidebar({ state }) {
               </Box>
             )}
 
-            {selectedSection === "technical_plan" && (
-              <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
-                <Text fontSize="xs" color="slate.500" mb={2}>TECHNICAL PLAN OVERVIEW</Text>
-                <Code display="block" whitespace="pre-wrap" p={3} borderRadius="sm" fontSize="xs">
-                  {JSON.stringify(s.technical_plan, null, 2)}
-                </Code>
-              </Box>
-            )}
+            {selectedSection === "technical_plan" && s.technical_plan && (() => {
+              const tp = s.technical_plan;
+              const stack = tp.recommended_stack || {};
+              const milestones = tp.milestones || [];
+              const deliverables = tp.deliverables || [];
+              const risks = tp.risks || [];
+              return (
+                <VStack align="stretch" spacing={4}>
+                  {tp.novelty_assessment && (
+                    <Box p={4} bg="green.50" borderRadius="md" border="1px solid" borderColor="green.200">
+                      <Text fontSize="xs" color="green.700" fontWeight="bold" mb={1}>NOVELTY ASSESSMENT</Text>
+                      <Text fontSize="sm" color="ink.800">{tp.novelty_assessment}</Text>
+                    </Box>
+                  )}
+                  {tp.differentiation_strategy && (
+                    <Box p={4} bg="blue.50" borderRadius="md" border="1px solid" borderColor="blue.200">
+                      <Text fontSize="xs" color="blue.700" fontWeight="bold" mb={1}>DIFFERENTIATION STRATEGY</Text>
+                      <Text fontSize="sm" color="ink.800">{tp.differentiation_strategy}</Text>
+                    </Box>
+                  )}
+                  {Object.keys(stack).length > 0 && (
+                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                      <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>RECOMMENDED STACK</Text>
+                      {stack.core_technologies && (
+                        <HStack spacing={1.5} mb={2} wrap="wrap">
+                          {(Array.isArray(stack.core_technologies) ? stack.core_technologies : [stack.core_technologies]).map((t) => (
+                            <Badge key={t} colorScheme="purple" fontSize="xs" px={2} py={0.5} borderRadius="sm">{t}</Badge>
+                          ))}
+                        </HStack>
+                      )}
+                      {stack.frameworks && (
+                        <Box mb={2}>
+                          <Text fontSize="xs" color="ink.600" fontWeight="bold" mb={1}>Frameworks:</Text>
+                          <HStack spacing={1.5} wrap="wrap">
+                            {(Array.isArray(stack.frameworks) ? stack.frameworks : [stack.frameworks]).map((f) => (
+                              <Badge key={f} colorScheme="teal" fontSize="xs" px={2} py={0.5} borderRadius="sm">{f}</Badge>
+                            ))}
+                          </HStack>
+                        </Box>
+                      )}
+                      {stack.rationale && <Text fontSize="xs" color="ink.600" mt={1}><b>Rationale:</b> {stack.rationale}</Text>}
+                    </Box>
+                  )}
+                  {tp.architecture_overview && (
+                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                      <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>ARCHITECTURE OVERVIEW</Text>
+                      <Text fontSize="sm" color="ink.800" whiteSpace="pre-wrap">{tp.architecture_overview}</Text>
+                    </Box>
+                  )}
+                  {milestones.length > 0 && (
+                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                      <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={3}>MILESTONES ({milestones.length})</Text>
+                      <VStack align="stretch" spacing={3}>
+                        {milestones.map((m, idx) => {
+                          const title = typeof m === "string" ? m : (m.title || m.name || `Milestone ${idx + 1}`);
+                          const desc = typeof m === "object" ? (m.description || "") : "";
+                          const duration = typeof m === "object" ? (m.duration || m.timeline || "") : "";
+                          return (
+                            <HStack key={idx} align="start" spacing={3}>
+                              <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" minW="24px" textAlign="center" mt="2px">
+                                {idx + 1}
+                              </Badge>
+                              <Box>
+                                <Text fontSize="sm" fontWeight="600" color="ink.900">{title}</Text>
+                                {desc && <Text fontSize="xs" color="ink.600" mt={0.5}>{desc}</Text>}
+                                {duration && <Text fontSize="xs" color="slate.500" mt={0.5}>⏱ {duration}</Text>}
+                              </Box>
+                            </HStack>
+                          );
+                        })}
+                      </VStack>
+                    </Box>
+                  )}
+                  {deliverables.length > 0 && (
+                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                      <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>DELIVERABLES</Text>
+                      <VStack align="stretch" spacing={1}>
+                        {deliverables.map((d, idx) => (
+                          <Text key={idx} fontSize="sm" color="ink.800">• {typeof d === "string" ? d : (d.name || d.description || JSON.stringify(d))}</Text>
+                        ))}
+                      </VStack>
+                    </Box>
+                  )}
+                  {risks.length > 0 && (
+                    <Box p={4} bg="orange.50" borderRadius="md" border="1px solid" borderColor="orange.200">
+                      <Text fontSize="xs" color="orange.700" fontWeight="bold" mb={2}>RISKS</Text>
+                      <VStack align="stretch" spacing={1}>
+                        {risks.map((r, idx) => (
+                          <Text key={idx} fontSize="sm" color="ink.800">⚠ {typeof r === "string" ? r : (r.description || r.risk || JSON.stringify(r))}</Text>
+                        ))}
+                      </VStack>
+                    </Box>
+                  )}
+                </VStack>
+              );
+            })()}
 
-            {selectedSection === "teaching_plan" && (
-              <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
-                <Text fontSize="xs" color="slate.500" mb={2}>TEACHING PLAN OVERVIEW</Text>
-                <Code display="block" whitespace="pre-wrap" p={3} borderRadius="sm" fontSize="xs">
-                  {JSON.stringify(s.teaching_plan, null, 2)}
-                </Code>
-              </Box>
-            )}
+            {selectedSection === "teaching_plan" && s.teaching_plan && (() => {
+              const plan = s.teaching_plan;
+              const modules = plan.modules || [];
+              const objectives = plan.learning_objectives || [];
+              const prereqs = plan.prerequisites || [];
+              const frontier = plan.frontier_topics || [];
+              return (
+                <VStack align="stretch" spacing={4}>
+                  <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                    <Text fontSize="lg" fontWeight="700" color="ink.900" mb={1}>{plan.course_title || "Untitled Course"}</Text>
+                    <HStack spacing={2} wrap="wrap">
+                      {plan.target_audience && <Badge colorScheme="blue" fontSize="xs">{plan.target_audience}</Badge>}
+                      {plan.suggested_duration && <Badge colorScheme="green" fontSize="xs">⏱ {plan.suggested_duration}</Badge>}
+                    </HStack>
+                  </Box>
+                  {objectives.length > 0 && (
+                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                      <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>LEARNING OBJECTIVES</Text>
+                      <VStack align="stretch" spacing={1.5}>
+                        {objectives.map((obj, idx) => (
+                          <HStack key={idx} align="start" spacing={2}>
+                            <Text color="green.500" fontSize="sm" mt="1px">✓</Text>
+                            <Text fontSize="sm" color="ink.800">{obj}</Text>
+                          </HStack>
+                        ))}
+                      </VStack>
+                    </Box>
+                  )}
+                  {prereqs.length > 0 && (
+                    <Box p={4} bg="paper.100" borderRadius="md" border="1px solid" borderColor="paper.300">
+                      <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>PREREQUISITES</Text>
+                      <VStack align="stretch" spacing={1}>
+                        {prereqs.map((pr, idx) => (
+                          <Text key={idx} fontSize="sm" color="ink.700">• {pr}</Text>
+                        ))}
+                      </VStack>
+                    </Box>
+                  )}
+                  {modules.length > 0 && (
+                    <Box>
+                      <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={3}>MODULES ({modules.length})</Text>
+                      <Accordion allowMultiple>
+                        {modules.map((m, idx) => (
+                          <AccordionItem key={idx} border="1px solid" borderColor="paper.300" borderRadius="md" mb={2} overflow="hidden">
+                            <AccordionButton px={4} py={3} _hover={{ bg: "paper.100" }}>
+                              <HStack flex="1" spacing={2}>
+                                <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" minW="24px" textAlign="center">{idx + 1}</Badge>
+                                <Text fontSize="sm" fontWeight="600" color="ink.900" textAlign="left">{m.title || "Untitled Module"}</Text>
+                              </HStack>
+                              <AccordionIcon />
+                            </AccordionButton>
+                            <AccordionPanel px={4} pb={4} bg="white">
+                              {m.description && <Text fontSize="sm" color="ink.700" mb={2}>{m.description}</Text>}
+                              {m.problem_addressed && (
+                                <Box mb={2}><Text fontSize="xs" color="slate.600"><b>Problem:</b> {m.problem_addressed}</Text></Box>
+                              )}
+                              {m.solution_approach && (
+                                <Box mb={2}><Text fontSize="xs" color="slate.600"><b>Approach:</b> {m.solution_approach}</Text></Box>
+                              )}
+                              {m.based_on_papers && (
+                                <HStack spacing={1} wrap="wrap" mt={1}>
+                                  <Text fontSize="xs" color="slate.500" fontWeight="bold">Papers:</Text>
+                                  {(Array.isArray(m.based_on_papers) ? m.based_on_papers : [m.based_on_papers]).map((paper, pi) => (
+                                    <Badge key={pi} fontSize="xs" colorScheme="purple" variant="subtle">{paper}</Badge>
+                                  ))}
+                                </HStack>
+                              )}
+                            </AccordionPanel>
+                          </AccordionItem>
+                        ))}
+                      </Accordion>
+                    </Box>
+                  )}
+                  {frontier.length > 0 && (
+                    <Box p={4} bg="purple.50" borderRadius="md" border="1px solid" borderColor="purple.200">
+                      <Text fontSize="xs" color="purple.700" fontWeight="bold" mb={2}>FRONTIER TOPICS ({frontier.length})</Text>
+                      <VStack align="stretch" spacing={2}>
+                        {frontier.map((ft, idx) => (
+                          <Box key={idx}>
+                            <Text fontSize="sm" fontWeight="600" color="ink.900">
+                              🔬 {typeof ft === "string" ? ft : (ft.topic || ft.title || "Untitled")}
+                            </Text>
+                            {typeof ft === "object" && (ft.description || ft.relevance) && (
+                              <Text fontSize="xs" color="ink.600" mt={0.5}>{ft.description || ft.relevance}</Text>
+                            )}
+                          </Box>
+                        ))}
+                      </VStack>
+                    </Box>
+                  )}
+                </VStack>
+              );
+            })()}
 
-            {selectedSection === "course" && (
-              <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
-                <Text fontSize="xs" color="slate.500" mb={2}>GENERATED COURSE STRUCTURE</Text>
-                <Code display="block" whitespace="pre-wrap" p={3} borderRadius="sm" fontSize="xs">
-                  {JSON.stringify(s.course, null, 2)}
-                </Code>
-              </Box>
-            )}
+            {selectedSection === "course" && s.course && (() => {
+              const course = s.course;
+              const modules = course.modules || [];
+              const downloads = s.course_downloads || [];
+              return (
+                <VStack align="stretch" spacing={4}>
+                  <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                    <Text fontSize="lg" fontWeight="700" color="ink.900" mb={1}>{course.course_title || "Generated Course"}</Text>
+                    <Text fontSize="xs" color="slate.500" mb={downloads.length > 0 ? 3 : 0}>
+                      {modules.length} module(s), {modules.reduce((acc, m) => acc + (m.lessons?.length || 0), 0)} lesson(s)
+                    </Text>
+                    {downloads.length > 0 && (
+                      <Box mt={2} pt={3} borderTop="1px solid" borderColor="paper.200">
+                        <Text fontSize="xs" color="teal.700" fontWeight="bold" mb={2}>AVAILABLE DOWNLOADS:</Text>
+                        <HStack spacing={2} wrap="wrap">
+                          {downloads.map((download, idx) => (
+                            <Button
+                              key={idx}
+                              size="xs"
+                              colorScheme="teal"
+                              onClick={() => downloadArtifact(download)}
+                            >
+                              📄 {download.label || `Download Presentation ${idx + 1}`}
+                            </Button>
+                          ))}
+                        </HStack>
+                      </Box>
+                    )}
+                  </Box>
+                  <Accordion allowMultiple>
+                    {modules.map((mod, mi) => (
+                      <AccordionItem key={mi} border="1px solid" borderColor="paper.300" borderRadius="md" mb={3} overflow="hidden">
+                        <AccordionButton px={4} py={3} bg="paper.50" _hover={{ bg: "paper.100" }}>
+                          <HStack flex="1" spacing={2}>
+                            <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" minW="28px" textAlign="center">M{mi + 1}</Badge>
+                            <Text fontSize="sm" fontWeight="700" color="ink.900" textAlign="left">{mod.module_title || "Untitled Module"}</Text>
+                          </HStack>
+                          <AccordionIcon />
+                        </AccordionButton>
+                        <AccordionPanel px={0} pb={0} bg="white">
+                          {(mod.lessons || []).map((lesson, li) => (
+                            <Accordion key={li} allowToggle>
+                              <AccordionItem border="none" borderTop="1px solid" borderColor="paper.200">
+                                <AccordionButton px={4} py={2.5} _hover={{ bg: "paper.50" }}>
+                                  <HStack flex="1" spacing={2}>
+                                    <Text fontSize="xs" color="slate.500" fontFamily="mono">L{li + 1}</Text>
+                                    <Text fontSize="sm" fontWeight="600" color="ink.800" textAlign="left">{lesson.lesson_title || "Untitled Lesson"}</Text>
+                                  </HStack>
+                                  <AccordionIcon />
+                                </AccordionButton>
+                                <AccordionPanel px={4} pb={4}>
+                                  <VStack align="stretch" spacing={3}>
+                                    {(lesson.sections || []).map((sec, si) => (
+                                      <Box key={si} p={3} bg="paper.50" borderRadius="md" border="1px solid" borderColor="paper.200">
+                                        <Text fontSize="sm" fontWeight="600" color="teal.800" mb={1.5}>{sec.topic || "Untitled Section"}</Text>
+                                        {sec.explanation && (
+                                          <Text fontSize="xs" color="ink.700" mb={2} whiteSpace="pre-wrap" lineHeight="1.6">{sec.explanation}</Text>
+                                        )}
+                                        {sec.example_or_evidence && (
+                                          <Box bg="blue.50" p={2} borderRadius="sm" mb={2} border="1px solid" borderColor="blue.100">
+                                            <Text fontSize="xs" color="blue.800"><b>Example / Evidence:</b> {sec.example_or_evidence}</Text>
+                                          </Box>
+                                        )}
+                                        {sec.key_terms && sec.key_terms.length > 0 && (
+                                          <HStack spacing={1} wrap="wrap">
+                                            {(Array.isArray(sec.key_terms) ? sec.key_terms : [sec.key_terms]).map((term, ti) => (
+                                              <Badge key={ti} fontSize="xs" colorScheme="gray" variant="subtle">{term}</Badge>
+                                            ))}
+                                          </HStack>
+                                        )}
+                                      </Box>
+                                    ))}
+                                  </VStack>
+                                </AccordionPanel>
+                              </AccordionItem>
+                            </Accordion>
+                          ))}
+                        </AccordionPanel>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
+                </VStack>
+              );
+            })()}
 
-            {selectedSection === "experiments" && (
-              <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
-                <Text fontSize="xs" color="slate.500" mb={2}>GENERATED EXPERIMENTS</Text>
-                <Code display="block" whitespace="pre-wrap" p={3} borderRadius="sm" fontSize="xs">
-                  {JSON.stringify(s.experiments, null, 2)}
-                </Code>
-              </Box>
-            )}
+            {selectedSection === "experiments" && s.experiments && (() => {
+              const expData = s.experiments;
+              const exps = expData.experiments || [];
+              const labDownloads = s.lab_downloads || [];
+              return (
+                <VStack align="stretch" spacing={4}>
+                  {labDownloads.length > 0 && (
+                    <Box p={3} bg="purple.50" borderRadius="md" border="1px solid" borderColor="purple.200">
+                      <Text fontSize="xs" color="purple.800" fontWeight="bold" mb={2}>LAB NOTEBOOK DOWNLOADS:</Text>
+                      <HStack spacing={2} wrap="wrap">
+                        {labDownloads.map((download, idx) => (
+                          <Button
+                            key={idx}
+                            size="xs"
+                            colorScheme="purple"
+                            onClick={() => downloadArtifact(download)}
+                          >
+                            📓 {download.label || `Download Notebook ${idx + 1}`}
+                          </Button>
+                        ))}
+                      </HStack>
+                    </Box>
+                  )}
+                  <Text fontSize="md" fontWeight="600" color="ink.800" mb={1}>
+                    {exps.length} Suggested Experiment{exps.length !== 1 ? "s" : ""}
+                  </Text>
+                  {exps.map((exp, idx) => (
+                    <Box key={idx} p={4} bg="white" borderRadius="md" border="1.5px solid" borderColor="paper.300" boxShadow="sm">
+                      <HStack justify="space-between" mb={2} align="center">
+                        <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" px={2.5}>
+                          Experiment {idx + 1}
+                        </Badge>
+                        {exp.difficulty && <Badge colorScheme="purple" fontSize="xs">{exp.difficulty}</Badge>}
+                      </HStack>
+                      <Text fontWeight="700" fontSize="sm" color="ink.900" mb={2}>{exp.title || "Untitled Experiment"}</Text>
+                      {exp.hypothesis && (
+                        <Box bg="blue.50" p={2.5} borderRadius="md" mb={2} border="1px solid" borderColor="blue.100">
+                          <Text fontSize="xs" color="blue.800"><b>Hypothesis:</b> {exp.hypothesis}</Text>
+                        </Box>
+                      )}
+                      {exp.gap_addressed && (
+                        <Text fontSize="xs" color="ink.600" mb={2}><b>Gap Addressed:</b> {exp.gap_addressed}</Text>
+                      )}
+                      {exp.dataset && (
+                        <Box bg="paper.50" p={2.5} borderRadius="md" mb={2} border="1px solid" borderColor="paper.200">
+                          <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1}>DATASET</Text>
+                          {typeof exp.dataset === "object" ? (
+                            <VStack align="stretch" spacing={1}>
+                              {exp.dataset.name && <Text fontSize="xs" color="ink.800"><b>Name:</b> {exp.dataset.name}</Text>}
+                              {exp.dataset.source && <Text fontSize="xs" color="ink.700"><b>Source:</b> {exp.dataset.source}</Text>}
+                              {exp.dataset.notes && <Text fontSize="xs" color="ink.700"><b>Notes:</b> {exp.dataset.notes}</Text>}
+                              {Object.entries(exp.dataset).map(([dk, dv]) => {
+                                if (["name", "source", "notes", "grounded"].includes(dk)) return null;
+                                return <Text key={dk} fontSize="xs" color="ink.700"><b>{dk.replace(/_/g, " ")}:</b> {String(dv)}</Text>;
+                              })}
+                            </VStack>
+                          ) : (
+                            <Text fontSize="xs" color="ink.700">{String(exp.dataset)}</Text>
+                          )}
+                        </Box>
+                      )}
+                      {exp.metrics && (
+                        <Box mb={2}>
+                          <Text fontSize="xs" color="ink.600" fontWeight="bold" mb={1}>Metrics:</Text>
+                          <HStack spacing={1.5} wrap="wrap">
+                            {(Array.isArray(exp.metrics) ? exp.metrics : [exp.metrics]).map((m, mi) => {
+                              const label = typeof m === "object" ? (m.name || m.metric || JSON.stringify(m)) : String(m);
+                              return <Badge key={mi} fontSize="xs" colorScheme="green" px={2} py={0.5} borderRadius="sm">{label}</Badge>;
+                            })}
+                          </HStack>
+                        </Box>
+                      )}
+                      {exp.baselines && (
+                        <Box mb={2}>
+                          <Text fontSize="xs" color="ink.600" fontWeight="bold" mb={1}>Baselines:</Text>
+                          <HStack spacing={1.5} wrap="wrap">
+                            {(Array.isArray(exp.baselines) ? exp.baselines : [exp.baselines]).map((b, bi) => {
+                              const label = typeof b === "object" ? (b.name || b.baseline || JSON.stringify(b)) : String(b);
+                              return <Badge key={bi} fontSize="xs" colorScheme="orange" px={2} py={0.5} borderRadius="sm">{label}</Badge>;
+                            })}
+                          </HStack>
+                        </Box>
+                      )}
+                      {exp.protocol && (
+                        <Box mt={2} p={2.5} bg="paper.100" borderRadius="md" border="1px solid" borderColor="paper.300">
+                          <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1}>PROTOCOL</Text>
+                          {Array.isArray(exp.protocol) ? (
+                            <VStack align="stretch" spacing={1}>
+                              {exp.protocol.map((step, si) => (
+                                <HStack key={si} align="start" spacing={2}>
+                                  <Text fontSize="xs" color="gold.800" fontWeight="bold" minW="18px">{si + 1}.</Text>
+                                  <Text fontSize="xs" color="ink.800">{typeof step === "object" ? (step.step || step.description || JSON.stringify(step)) : String(step)}</Text>
+                                </HStack>
+                              ))}
+                            </VStack>
+                          ) : typeof exp.protocol === "object" ? (
+                            <VStack align="stretch" spacing={1}>
+                              {Object.entries(exp.protocol).map(([pk, pv]) => (
+                                <Text key={pk} fontSize="xs" color="ink.700">
+                                  <b>{pk.replace(/_/g, " ")}:</b> {typeof pv === "object" ? JSON.stringify(pv) : String(pv)}
+                                </Text>
+                              ))}
+                            </VStack>
+                          ) : (
+                            <Text fontSize="xs" color="ink.700" whiteSpace="pre-wrap">{String(exp.protocol)}</Text>
+                          )}
+                        </Box>
+                      )}
+                      {exp.expected_outcome && (
+                        <Box mt={2} p={2} bg="green.50" borderRadius="sm" border="1px solid" borderColor="green.100">
+                          <Text fontSize="xs" color="green.800"><b>Expected Outcome:</b> {exp.expected_outcome}</Text>
+                        </Box>
+                      )}
+                    </Box>
+                  ))}
+                </VStack>
+              );
+            })()}
           </DrawerBody>
         </DrawerContent>
       </Drawer>

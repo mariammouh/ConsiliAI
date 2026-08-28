@@ -67,14 +67,15 @@ export function logout() {
  * from the authenticated user now — the frontend never generates or sends
  * one (see main.py's /chat).
  */
-export async function sendChatMessage(message) {
+export async function sendChatMessage(message, conversationId) {
   const token = getToken();
   if (!token) throw new Error("Not authenticated");
+  if (!conversationId) throw new Error("No active conversation");
 
   const body = new URLSearchParams();
   body.set("message", message);
 
-  const res = await fetch(`${API_BASE}/chat`, {
+  const res = await fetch(`${API_BASE}/chat/${conversationId}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -91,14 +92,15 @@ export async function sendChatMessage(message) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || "Something went wrong talking to the assistant.");
   }
-  return res.json(); // { reply, state: {...} }
+  return res.json(); // { reply, state: {...}, title: "..." }
 }
 
-export async function getChatHistory() {
+export async function getChatHistory(conversationId) {
   const token = getToken();
   if (!token) throw new Error("Not authenticated");
+  if (!conversationId) return { messages: [], state: {} };
 
-  const res = await fetch(`${API_BASE}/chat/history`, {
+  const res = await fetch(`${API_BASE}/chat/${conversationId}/history`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -110,6 +112,44 @@ export async function getChatHistory() {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || "Could not load chat history.");
   }
+  return res.json();
+}
+
+export async function getConversations() {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const res = await fetch(`${API_BASE}/conversations`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) throw new Error("Failed to load conversations");
+  return res.json();
+}
+
+export async function createConversation() {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const res = await fetch(`${API_BASE}/conversations`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) throw new Error("Failed to create conversation");
+  return res.json();
+}
+
+export async function deleteConversation(conversationId) {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const res = await fetch(`${API_BASE}/conversations/${conversationId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) throw new Error("Failed to delete conversation");
   return res.json();
 }
 
@@ -135,16 +175,21 @@ export async function downloadArtifact(download) {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  document.body.appendChild(link);
   link.click();
+  document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
 
-export async function uploadDocument(file) {
+export async function uploadDocument(file, conversationId) {
   const token = getToken();
   if (!token) throw new Error("Not authenticated");
 
   const formData = new FormData();
   formData.append("file", file);
+  if (conversationId) {
+    formData.append("conversation_id", conversationId);
+  }
 
   const res = await fetch(`${API_BASE}/upload`, {
     method: "POST",

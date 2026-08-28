@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi import HTTPException
 from fastapi.params import Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import os, shutil
 import requests
 from dotenv import load_dotenv
@@ -9,9 +9,11 @@ from ingestion.pdf_processor import process_pdf, UPLOAD_DIR
 from agents.tools import _hash_text,generate_experiment_set, retrieve_from_knowledge_base,broaden_idea,get_papers_with_analysis
 from agents.tools import search_papers, filter_relevant_papers,filter_papers_hybrid, summarize_papers_with_groq
 from agents.tools import search_papers_formatted,fetch_full_text,extract_text_from_pdf_bytes
-from auth.db import create_db_and_tables, User
+from auth.db import create_db_and_tables, User, Conversation, get_async_session
 from auth.schemas import UserRead, UserCreate, UserUpdate
 from auth.users import fastapi_users, current_active_user, auth_backend
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 import tempfile
 import os
 from fastapi import Form
@@ -41,22 +43,22 @@ def _chat_state_response(state: dict) -> dict:
             "analysis": analysis,
         })
 
-    scored_projects = state.get("similar_projects_scored") or []
+    scored_projects = state.get("similar_projects_scored") or state.get("similar_projects_raw") or []
     formatted_projects = []
     for item in scored_projects:
-        if isinstance(item, tuple) and len(item) == 2:
-            score, proj = item
+        if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], dict):
+            score, proj = item[0], item[1]
         elif isinstance(item, dict):
             proj = item
-            score = proj.get("score", 0.5)
+            score = proj.get("similarity_score", proj.get("score", 0.5))
         else:
             continue
         formatted_projects.append({
-            "name": proj.get("name", "Unnamed Repo"),
-            "url": proj.get("url", ""),
+            "name": proj.get("name") or proj.get("title", "Unnamed Repo"),
+            "url": proj.get("url", "") or proj.get("html_url", ""),
             "source": proj.get("source", "N/A"),
-            "description": proj.get("description", "") or proj.get("readme_snippet", ""),
-            "similarity_score": round(score * 100, 1) if isinstance(score, (int, float)) else score,
+            "description": proj.get("description", "") or proj.get("readme_snippet", "") or proj.get("readme", ""),
+            "similarity_score": round(score * 100, 1) if isinstance(score, (int, float)) and score <= 1.0 else (round(score, 1) if isinstance(score, (int, float)) else score),
         })
 
     return {
@@ -68,6 +70,8 @@ def _chat_state_response(state: dict) -> dict:
         "technical_plan": state.get("technical_plan"),
         "teaching_plan": state.get("teaching_plan"),
         "course": state.get("course"),
+        "course_downloads": _course_downloads(state),
+        "lab_downloads": _lab_downloads(state),
         "experiments": state.get("experiments"),
     }
 
@@ -128,12 +132,66 @@ async def on_startup():
 
 
 
-@app.post("/chat")
+@app.post("/conversations")
+async def create_conversation(
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    new_conv = Conversation(user_id=user.id, title="New Conversation")
+    session.add(new_conv)
+    await session.commit()
+    await session.refresh(new_conv)
+    return {"id": new_conv.id, "title": new_conv.title, "created_at": new_conv.created_at.isoformat()}
+
+@app.get("/conversations")
+async def get_conversations(
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    result = await session.execute(
+        select(Conversation).where(Conversation.user_id == user.id).order_by(Conversation.updated_at.desc())
+    )
+    convs = result.scalars().all()
+    return [{"id": c.id, "title": c.title, "created_at": c.created_at.isoformat()} for c in convs]
+
+@app.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    result = await session.execute(
+        select(Conversation).where(Conversation.id == conversation_id, Conversation.user_id == user.id)
+    )
+    conv = result.scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await session.delete(conv)
+    await session.commit()
+    return {"message": "Deleted"}
+
+
+@app.post("/chat/{conversation_id}")
 async def chat_endpoint(
+    conversation_id: str,
     message: str = Form(...),
     user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
 ):
-    thread_id = str(user.id)  # derived from the authenticated user, never client-supplied
+    result = await session.execute(
+        select(Conversation).where(Conversation.id == conversation_id, Conversation.user_id == user.id)
+    )
+    conv = result.scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    thread_id = conversation_id 
+
+    # Truncate first message as title if it's the default
+    if conv.title == "New Conversation":
+        truncated = message[:30] + "..." if len(message) > 30 else message
+        conv.title = truncated
+        await session.commit()
 
     reply = run_orchestrator_turn(
         message=message,
@@ -147,14 +205,24 @@ async def chat_endpoint(
         "state": _chat_state_response(state),
         "course_downloads": _course_downloads(state),
         "lab_downloads": _lab_downloads(state),
+        "title": conv.title
     }
 
 
-@app.get("/chat/history")
+@app.get("/chat/{conversation_id}/history")
 async def chat_history_endpoint(
+    conversation_id: str,
     user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
 ):
-    thread_id = str(user.id)
+    result = await session.execute(
+        select(Conversation).where(Conversation.id == conversation_id, Conversation.user_id == user.id)
+    )
+    conv = result.scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    thread_id = conversation_id
     state = get_state_snapshot(thread_id)
 
     messages = []
@@ -187,29 +255,27 @@ async def chat_course_download_endpoint(
     filename: str,
     user: User = Depends(current_active_user),
 ):
-    state = get_state_snapshot(str(user.id))
-    output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
+    output_dir = os.path.abspath(os.path.join(tempfile.gettempdir(), "consiliai_courses"))
     requested_filename = os.path.basename(filename)
-    export_paths = [
-        path.strip()
-        for path in (state.get("course_export_path") or "").split(",")
-        if path.strip()
-    ]
-    matching_path = next(
-        (path for path in export_paths if os.path.basename(path) == requested_filename),
-        None,
-    )
+    target_path = os.path.abspath(os.path.join(output_dir, requested_filename))
 
-    if not matching_path:
-        raise HTTPException(status_code=404, detail="Course lesson presentation not found.")
+    matching_path = None
+    if target_path.startswith(output_dir) and os.path.isfile(target_path):
+        matching_path = target_path
+    else:
+        for root, dirs, files in os.walk(output_dir):
+            if requested_filename in files:
+                candidate = os.path.abspath(os.path.join(root, requested_filename))
+                if candidate.startswith(output_dir):
+                    matching_path = candidate
+                    break
 
-    filepath = os.path.abspath(matching_path)
-    if os.path.dirname(filepath) != os.path.abspath(output_dir) or not os.path.isfile(filepath):
-        raise HTTPException(status_code=404, detail="Course presentation not found.")
+    if not matching_path or not os.path.isfile(matching_path):
+        raise HTTPException(status_code=404, detail="Course presentation file not found.")
 
     return FileResponse(
-        filepath,
-        filename=os.path.basename(filepath),
+        matching_path,
+        filename=requested_filename,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
     )
 
@@ -219,31 +285,26 @@ async def chat_lab_download_endpoint(
     filename: str,
     user: User = Depends(current_active_user),
 ):
-    state = get_state_snapshot(str(user.id))
     output_dir = os.path.abspath(os.path.join(tempfile.gettempdir(), "consiliai_labs"))
     requested_filename = os.path.basename(filename)
+    target_path = os.path.abspath(os.path.join(output_dir, requested_filename))
+
     matching_path = None
-
-    for module in state.get("lab_exercises") or []:
-        for lesson in module.get("lessons", []):
-            for path in (lesson.get("notebook_files") or {}).values():
-                if path and os.path.basename(path) == requested_filename:
-                    matching_path = path
+    if target_path.startswith(output_dir) and os.path.isfile(target_path):
+        matching_path = target_path
+    else:
+        for root, dirs, files in os.walk(output_dir):
+            if requested_filename in files:
+                candidate = os.path.abspath(os.path.join(root, requested_filename))
+                if candidate.startswith(output_dir):
+                    matching_path = candidate
                     break
-            if matching_path:
-                break
-        if matching_path:
-            break
 
-    if not matching_path:
-        raise HTTPException(status_code=404, detail="Lab notebook not found.")
-
-    filepath = os.path.abspath(matching_path)
-    if not filepath.startswith(output_dir + os.sep) or not os.path.isfile(filepath):
-        raise HTTPException(status_code=404, detail="Lab notebook not found.")
+    if not matching_path or not os.path.isfile(matching_path):
+        raise HTTPException(status_code=404, detail="Lab notebook file not found.")
 
     return FileResponse(
-        filepath,
+        matching_path,
         filename=requested_filename,
         media_type="application/x-ipynb+json",
     )
@@ -258,12 +319,17 @@ def get_pptx_output_path(idea: str) -> str:
 @app.post("/upload")
 async def upload_pdf(
     file: UploadFile = File(...),
+    conversation_id: str = Form(None),
     user: User = Depends(current_active_user),
 ):
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    num_chunks = process_pdf(file_path, user_id=str(user.id))
+    num_chunks = process_pdf(
+        file_path,
+        user_id=str(user.id),
+        conversation_id=str(conversation_id) if conversation_id else None
+    )
     return {"message": f"✅ {file.filename} uploaded and indexed.", "chunks": num_chunks}
 
 @app.post("/ask")

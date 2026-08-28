@@ -10,12 +10,15 @@ requires psycopg. Two connection strings to one database, not two databases.
 """
 
 import os
+import uuid
+import datetime
 from typing import AsyncGenerator
 
 from fastapi import Depends
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyUserDatabase
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import Column, String, DateTime, ForeignKey, UUID
 
 # e.g. postgresql+asyncpg://consiliai:consiliai@localhost:5432/consiliai
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -35,6 +38,15 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     is_active, is_superuser, is_verified) for v1. Extend here later if you
     need e.g. a role (student/teacher) or display name."""
     pass
+
+
+class Conversation(Base):
+    __tablename__ = "conversation"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    title = Column(String, nullable=False, default="New Conversation")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 
 engine = create_async_engine(DATABASE_URL)

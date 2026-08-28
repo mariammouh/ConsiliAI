@@ -313,7 +313,12 @@ CRITICAL — grounding rules:
 Paper information:
 {source_text}
 
-Answer in 2-4 sentences.
+Provide a thorough, well-structured answer. Use Markdown formatting:
+- Use **bold** for key terms and paper titles
+- Use bullet points or numbered lists where appropriate
+- Cite specific papers by name when attributing claims
+- Include concrete numbers, metrics, or methods when available
+- If the literature is limited, say so clearly
 """
     answer = _groq_invoke_safe(prompt)
 
@@ -340,10 +345,20 @@ def find_research_gaps(
         msg = f"No papers could be found or analyzed for the idea: '{idea}'."
         return Command(update={"messages": [ToolMessage(msg, tool_call_id=tool_call_id)]})
 
-    summary = (
-        f"Analyzed {len(papers)} paper(s) for '{idea}' and found {len(gaps)} research gap(s):\n"
-        f"{_gaps_preview(gaps)}"
-    )
+    summary_parts = [f"Analyzed {len(papers)} paper(s) for '{idea}' and found {len(gaps)} research gap(s).\n"]
+    summary_parts.append("Papers analyzed:")
+    for p in papers:
+        summary_parts.append(f"- **{p.get('title', 'Untitled')}**")
+    summary_parts.append("\nResearch gaps identified:")
+    for i, g in enumerate(gaps, 1):
+        summary_parts.append(f"\n**Gap {i}: {g.get('gap_description', 'N/A')}**")
+        if g.get('supporting_evidence'):
+            summary_parts.append(f"  Evidence: {g['supporting_evidence']}")
+        if g.get('papers_involved'):
+            summary_parts.append(f"  Papers involved: {', '.join(g['papers_involved'])}")
+        if g.get('potential_impact'):
+            summary_parts.append(f"  Potential impact: {g['potential_impact']}")
+    summary = "\n".join(summary_parts)
     return Command(update={
         "idea": idea,
         "papers_with_analysis": papers,
@@ -373,12 +388,40 @@ def create_technical_plan(
     top_similar = scored[:8]
     plan = generate_technical_plan(idea, gaps, top_similar, novelty_analysis=novelty)
 
-    summary = (
-        f"Technical plan generated for '{idea}'.\n"
-        f"Novelty assessment: {plan.get('novelty_assessment', 'N/A')}\n"
-        f"Recommended stack: {', '.join(plan.get('recommended_stack', {}).get('core_technologies', [])) or 'N/A'}\n"
-        f"Milestones: {len(plan.get('milestones', []))}"
-    )
+    summary_parts = [f"Technical plan generated for '{idea}'.\n"]
+    if plan.get('novelty_assessment'):
+        summary_parts.append(f"**Novelty Assessment:** {plan['novelty_assessment']}")
+    if plan.get('differentiation_strategy'):
+        summary_parts.append(f"**Differentiation Strategy:** {plan['differentiation_strategy']}")
+    stack = plan.get('recommended_stack', {})
+    if stack:
+        summary_parts.append("\n**Recommended Stack:**")
+        if stack.get('core_technologies'):
+            summary_parts.append(f"- Core technologies: {', '.join(stack['core_technologies'])}")
+        if stack.get('frameworks'):
+            summary_parts.append(f"- Frameworks: {', '.join(stack['frameworks']) if isinstance(stack['frameworks'], list) else stack['frameworks']}")
+        if stack.get('rationale'):
+            summary_parts.append(f"- Rationale: {stack['rationale']}")
+    if plan.get('architecture_overview'):
+        summary_parts.append(f"\n**Architecture Overview:** {plan['architecture_overview']}")
+    milestones = plan.get('milestones', [])
+    if milestones:
+        summary_parts.append(f"\n**Milestones ({len(milestones)}):**")
+        for i, m in enumerate(milestones, 1):
+            title = m.get('title', m.get('name', f'Milestone {i}')) if isinstance(m, dict) else str(m)
+            desc = m.get('description', '') if isinstance(m, dict) else ''
+            summary_parts.append(f"{i}. **{title}**" + (f" — {desc}" if desc else ""))
+    deliverables = plan.get('deliverables', [])
+    if deliverables:
+        summary_parts.append("\n**Deliverables:**")
+        for d in deliverables:
+            summary_parts.append(f"- {d if isinstance(d, str) else d.get('name', str(d))}")
+    risks = plan.get('risks', [])
+    if risks:
+        summary_parts.append("\n**Risks:**")
+        for r in risks:
+            summary_parts.append(f"- {r if isinstance(r, str) else r.get('description', str(r))}")
+    summary = "\n".join(summary_parts)
     return Command(update={
         "idea": idea,
         "papers_with_analysis": papers,
@@ -407,12 +450,40 @@ def create_teaching_plan(
         return Command(update={"messages": [ToolMessage(teaching_plan["_error"], tool_call_id=tool_call_id)]})
 
     modules = teaching_plan.get("modules", [])
-    summary = (
-        f"Teaching plan generated for '{idea}': \"{teaching_plan.get('course_title', '')}\"\n"
-        f"Target audience: {teaching_plan.get('target_audience', 'N/A')}\n"
-        f"Modules ({len(modules)}): " + ", ".join(m.get("title", "") for m in modules) + "\n"
-        f"Frontier topics: {len(teaching_plan.get('frontier_topics', []))}"
-    )
+    summary_parts = [f"Teaching plan generated for '{idea}': **\"{teaching_plan.get('course_title', '')}\"**\n"]
+    summary_parts.append(f"**Target Audience:** {teaching_plan.get('target_audience', 'N/A')}")
+    if teaching_plan.get('suggested_duration'):
+        summary_parts.append(f"**Suggested Duration:** {teaching_plan['suggested_duration']}")
+    objectives = teaching_plan.get('learning_objectives', [])
+    if objectives:
+        summary_parts.append("\n**Learning Objectives:**")
+        for obj in objectives:
+            summary_parts.append(f"- {obj}")
+    prereqs = teaching_plan.get('prerequisites', [])
+    if prereqs:
+        summary_parts.append("\n**Prerequisites:**")
+        for pr in prereqs:
+            summary_parts.append(f"- {pr}")
+    if modules:
+        summary_parts.append(f"\n**Modules ({len(modules)}):**")
+        for i, m in enumerate(modules, 1):
+            summary_parts.append(f"\n{i}. **{m.get('title', 'Untitled Module')}**")
+            if m.get('description'):
+                summary_parts.append(f"   {m['description']}")
+            if m.get('problem_addressed'):
+                summary_parts.append(f"   Problem addressed: {m['problem_addressed']}")
+            if m.get('based_on_papers'):
+                papers_list = m['based_on_papers'] if isinstance(m['based_on_papers'], list) else [m['based_on_papers']]
+                summary_parts.append(f"   Based on: {', '.join(papers_list)}")
+    frontier = teaching_plan.get('frontier_topics', [])
+    if frontier:
+        summary_parts.append(f"\n**Frontier Topics ({len(frontier)}):**")
+        for ft in frontier:
+            if isinstance(ft, dict):
+                summary_parts.append(f"- **{ft.get('topic', ft.get('title', 'N/A'))}**: {ft.get('description', ft.get('relevance', ''))}")
+            else:
+                summary_parts.append(f"- {ft}")
+    summary = "\n".join(summary_parts)
     return Command(update={
         "idea": idea,
         "papers_with_analysis": papers,
@@ -446,11 +517,20 @@ def create_course(
 
     num_modules = len(course.get("modules", []))
     num_lessons = sum(len(m.get("lessons", [])) for m in course.get("modules", []))
-    summary = (
-        f"Course generated for '{idea}': \"{course.get('course_title', '')}\"\n"
-        f"{num_modules} module(s), {num_lessons} lesson(s).\n"
-        f"{export_note}"
-    )
+    summary_parts = [
+        f"Course generated for '{idea}': **\"{course.get('course_title', '')}\"**",
+        f"{num_modules} module(s), {num_lessons} lesson(s). {export_note}\n",
+    ]
+    for mi, mod in enumerate(course.get("modules", []), 1):
+        summary_parts.append(f"**Module {mi}: {mod.get('module_title', 'Untitled')}**")
+        for li, lesson in enumerate(mod.get("lessons", []), 1):
+            summary_parts.append(f"  Lesson {li}: {lesson.get('lesson_title', 'Untitled')}")
+            for sec in lesson.get("sections", [])[:3]:
+                summary_parts.append(f"    - {sec.get('topic', 'N/A')}")
+            remaining = len(lesson.get("sections", [])) - 3
+            if remaining > 0:
+                summary_parts.append(f"    - ...and {remaining} more section(s)")
+    summary = "\n".join(summary_parts)
     return Command(update={
         "idea": idea,
         "papers_with_analysis": papers,
@@ -556,11 +636,24 @@ def create_experiments(
         max_experiments=max_experiments or 6,
     )
 
-    titles = [e.get("title", "(untitled)") for e in experiment_set.get("experiments", [])]
-    summary = (
-        f"Generated {len(titles)} experiment(s) for '{idea}':\n" +
-        "\n".join(f"- {t}" for t in titles)
-    )
+    exps = experiment_set.get("experiments", [])
+    summary_parts = [f"Generated {len(exps)} experiment(s) for '{idea}':\n"]
+    for i, e in enumerate(exps, 1):
+        summary_parts.append(f"**Experiment {i}: {e.get('title', 'Untitled')}**")
+        if e.get('hypothesis'):
+            summary_parts.append(f"  Hypothesis: {e['hypothesis']}")
+        if e.get('dataset'):
+            summary_parts.append(f"  Dataset: {e['dataset']}")
+        if e.get('metrics'):
+            metrics = e['metrics'] if isinstance(e['metrics'], list) else [e['metrics']]
+            summary_parts.append(f"  Metrics: {', '.join(str(m) for m in metrics)}")
+        if e.get('baselines'):
+            baselines = e['baselines'] if isinstance(e['baselines'], list) else [e['baselines']]
+            summary_parts.append(f"  Baselines: {', '.join(str(b) for b in baselines)}")
+        if e.get('gap_addressed'):
+            summary_parts.append(f"  Gap addressed: {e['gap_addressed']}")
+        summary_parts.append("")
+    summary = "\n".join(summary_parts)
     return Command(update={
         "idea": idea,
         "papers_with_analysis": papers,
@@ -834,6 +927,20 @@ question about the literature, or explicitly requested a specific
 deliverable — a prior step has already filtered out plain idea
 introductions and small talk, so you do not need to re-check that.
 
+Response style — IMPORTANT:
+- Your responses must be **substantive, detailed, and well-explained**.
+- Use **Markdown formatting** throughout: headings (##, ###), **bold** for
+  emphasis, bullet points, numbered lists, and blockquotes where useful.
+- When presenting results from a tool, DO NOT just echo the summary. Instead,
+  **synthesize and explain** the findings in a way that is helpful to the user.
+  For example, when presenting research gaps, explain WHY each gap matters and
+  how it relates to the user's idea. When presenting a technical plan, discuss
+  the rationale behind the recommended stack and how milestones build on each other.
+- Include specific paper titles, metrics, numbers, and evidence whenever the
+  tool results provide them. Cite papers by name.
+- If results are limited or uncertain, say so clearly rather than padding.
+- Structure longer responses with clear sections so they are easy to scan.
+
 Guidelines:
 - For requests asking about "contributions", "novelty", "gaps", or "what does my project offer" regarding an uploaded document or paper:
   1. Call search_personal_documents FIRST to extract the user's project idea, proposed methodology, and objectives from their uploaded document.
@@ -844,8 +951,7 @@ Guidelines:
 - Do NOT call create_technical_plan, create_teaching_plan, create_course, create_lab_exercises, or create_experiments for a basic question unless explicitly requested.
 - Tools are self-sufficient: e.g. create_course will build the teaching plan itself if it doesn't exist yet.
 - Prefer calling summarize_progress over re-running a tool if you're unsure whether something has already been generated for the current idea.
-- Only call explore_adjacent_fields after check_topic_relevance has reported no direct match AND the user has confirmed they want that.
-- Keep replies conversational and concise; tool results are already summarized for you, don't dump raw JSON back at the user."""
+- Only call explore_adjacent_fields after check_topic_relevance has reported no direct match AND the user has confirmed they want that."""
 
 _llm_with_tools = None
 
