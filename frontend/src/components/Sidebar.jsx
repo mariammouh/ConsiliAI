@@ -22,29 +22,32 @@ import {
   Button,
   IconButton
 } from "@chakra-ui/react";
-
-function LedgerRow({ index, label, detail, done, onClick }) {
+import { Icon } from "@chakra-ui/react"; 
+import { FiBookOpen, FiGitBranch, FiAlertCircle, FiCpu, FiUsers, FiLayers, FiCircle } from "react-icons/fi";
+import { FaLightbulb, FaFlask } from "react-icons/fa";
+const LEDGER_ICONS = {
+  idea: FaLightbulb,
+  literature: FiBookOpen,
+  similar_projects: FiGitBranch,
+  gaps: FiAlertCircle,
+  technical_plan: FiCpu,
+  teaching_plan: FiUsers,
+  course: FiLayers,
+  experiments: FaFlask,
+};
+function LedgerRow({ id, label, detail, done, onClick }) {
+  const RowIcon = LEDGER_ICONS[id] || FiCircle;
   return (
-    <HStack
-      align="start"
-      spacing={3}
-      py={3}
-      px={2}
-      borderRadius="md"
+    <HStack align="start" spacing={3} py={3} px={3} mb={2} borderRadius="14px"
+      bg={done ? "paper.100" : "transparent"}
+      boxShadow={done ? "0px 2px 8px rgba(30,25,17,0.06)" : "none"}
       cursor={done ? "pointer" : "default"}
-      _hover={done ? { bg: "paper.200" } : {}}
+      _hover={done ? { boxShadow: "0px 4px 14px rgba(30,25,17,0.10)" } : {}}
       onClick={done ? onClick : undefined}
-      transition="background 0.2s"
-    >
-      <Text
-        fontFamily="mono"
-        fontSize="xs"
-        color={done ? "gold.600" : "paper.300"}
-        minW="28px"
-        pt="1px"
-      >
-        [{String(index).padStart(2, "0")}]
-      </Text>
+      transition="all 0.15s">
+      <Box minW="28px" pt="1px" display="flex" justifyContent="center">
+        <Icon as={RowIcon} boxSize={4} color={done ? "gold.600" : "paper.300"} />
+      </Box>
       <Box flex="1">
         <Text fontSize="sm" fontWeight="600" color={done ? "ink.900" : "ink.500"}>
           {label}
@@ -63,7 +66,6 @@ function LedgerRow({ index, label, detail, done, onClick }) {
     </HStack>
   );
 }
-
 export default function Sidebar({ state }) {
   const [selectedSection, setSelectedSection] = useState(null);
   const [drawerSize, setDrawerSize] = useState("md"); // md, lg, xl, full
@@ -156,9 +158,7 @@ export default function Sidebar({ state }) {
     <Box
       w={`${sidebarWidth}px`}
       flexShrink={0}
-      bg="paper.50"
-      borderLeft="1px solid"
-      borderColor="paper.300"
+      bg="paper.50" boxShadow="-4px 0px 24px rgba(30,25,17,0.06)"
       p={5}
       overflowY="auto"
       position="relative"
@@ -179,10 +179,10 @@ export default function Sidebar({ state }) {
       />
 
 
-      <Text fontFamily="mono" fontSize="xs" color="slate.500" letterSpacing="wide" mb={4}>
-        [ RESEARCH LEDGER ]
-      </Text>
-      <VStack align="stretch" spacing={0} divider={<Divider borderColor="paper.200" />}>
+<Text fontFamily="heading" fontSize="xxs" fontWeight="bold" color="gold.700" letterSpacing="wide" mb={4}>
+  RESEARCH LEDGER
+</Text>
+      <VStack align="stretch" spacing={0} >
         {rows.map((row, i) => (
           <LedgerRow
             key={row.id}

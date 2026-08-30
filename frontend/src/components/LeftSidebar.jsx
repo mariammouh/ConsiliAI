@@ -77,7 +77,7 @@ export default function LeftSidebar({
 
       <HStack justify="space-between" mb={6}>
         <Text fontFamily="mono" fontSize="xs" color="slate.500" letterSpacing="wide">
-          [ CONVERSATIONS ]
+          {/* [ CONVERSATIONS ] */}
         </Text>
         <Button size="xs" variant="outline" onClick={onNewChat}>
           + New Chat
@@ -88,8 +88,9 @@ export default function LeftSidebar({
         {(conversations || []).map((c) => (
           <HStack 
             key={c.id} 
-            bg={activeConversationId === c.id ? "paper.200" : "transparent"}
-            _hover={{ bg: "paper.200" }}
+  bg={activeConversationId === c.id ? "paper.100" : "transparent"}
+  _hover={{ bg: "paper.100" }}
+  boxShadow="-4px 0px 24px rgba(30,25,17,0.06)"
             p={2}
             borderRadius="md"
             cursor="pointer"
@@ -110,8 +111,8 @@ export default function LeftSidebar({
         ))}
       </VStack>
 
-      <Box pt={4} borderTop="1px solid" borderColor="paper.300">
-        <Button width="100%" variant="ghost" onClick={onOpen}>
+      <Box pt={4} borderTop="1px solid" borderColor="paper.300" > 
+        <Button width="100%" bg="gold.400" variant="ghost" onClick={onOpen}>
           ⚙ Settings
         </Button>
       </Box>

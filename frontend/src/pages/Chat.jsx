@@ -189,7 +189,7 @@ export default function Chat() {
   }
 
   return (
-    <Flex h="100vh" bg="paper.100">
+    <Flex h="100vh" bg="paper.50">
       <LeftSidebar 
         conversations={conversations}
         activeConversationId={activeConversationId}
@@ -200,14 +200,8 @@ export default function Chat() {
 
       <Flex direction="column" flex="1" minW="0">
         {/* Header */}
-        <Flex
-          align="center"
-          justify="space-between"
-          px={6}
-          py={4}
-          borderBottom="1px solid"
-          borderColor="paper.300"
-        >
+        <Flex align="center" justify="space-between" px={6} py={4}
+  boxShadow="0px 1px 0px rgba(30,25,17,0.06)">
           <HStack spacing={3}>
             <Text fontFamily="mono" fontSize="xs" color="slate.500" letterSpacing="wide">
               [ CONSILIAI ]
@@ -242,14 +236,7 @@ export default function Chat() {
           ))}
           {sending && (
             <Flex justify="flex-start">
-              <Box
-                bg="paper.50"
-                border="1px solid"
-                borderColor="paper.300"
-                borderRadius="lg"
-                px={4}
-                py={3}
-              >
+              <Box bg="paper.200" borderRadius="18px" borderBottomLeftRadius="4px" px={4} py={3}>
                 <Text fontSize="sm" color="ink.500" fontStyle="italic">
                   Thinking…
                 </Text>
@@ -268,7 +255,7 @@ export default function Chat() {
         )}
 
         {/* Input */}
-        <Flex px={6} py={4} borderTop="1px solid" borderColor="paper.300" gap={3}>
+        <Flex px={6} py={4} gap={3} boxShadow="0px -1px 0px rgba(30,25,17,0.06)">
           <input 
             type="file" 
             hidden 
@@ -285,19 +272,14 @@ export default function Chat() {
           >
             📎
           </Button>
-          <Textarea
-            value={input}
+           <Textarea value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe an idea, or ask a question…"
-            resize="none"
-            rows={1}
-            bg="paper.50"
-          />
-          <Button onClick={handleSend} isLoading={sending} px={6}>
-            Send
-          </Button>
-        </Flex>
+            placeholder="Describe an idea, or ask a question…" resize="none" rows={1} bg="paper.50" borderRadius="14px" border="none"
+    boxShadow="inset 0 0 0 1px var(--chakra-colors-paper-300)" />
+  <Button onClick={handleSend} isLoading={sending} px={6} borderRadius="14px"
+    boxShadow="0px 4px 10px rgba(193,90,54,0.28)">Send</Button>
+</Flex>
       </Flex>
 
       <Sidebar state={state} />
