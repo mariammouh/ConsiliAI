@@ -20,10 +20,12 @@ import {
   AccordionIcon,
   Link,
   Button,
-  IconButton
+  IconButton,
+  Tooltip,
+  useColorModeValue
 } from "@chakra-ui/react";
 import { Icon } from "@chakra-ui/react"; 
-import { FiBookOpen, FiGitBranch, FiAlertCircle, FiCpu, FiUsers, FiLayers, FiCircle } from "react-icons/fi";
+import { FiBookOpen, FiGitBranch, FiAlertCircle, FiCpu, FiUsers, FiLayers, FiCircle, FiChevronRight } from "react-icons/fi";
 import { FaLightbulb, FaFlask } from "react-icons/fa";
 const LEDGER_ICONS = {
   idea: FaLightbulb,
@@ -37,9 +39,13 @@ const LEDGER_ICONS = {
 };
 function LedgerRow({ id, label, detail, done, onClick }) {
   const RowIcon = LEDGER_ICONS[id] || FiCircle;
+  const bgRow = useColorModeValue("paper.100", "gray.800");
+  const textPrimary = useColorModeValue("ink.900", "gray.100");
+  const textSecondary = useColorModeValue("ink.500", "gray.400");
+
   return (
     <HStack align="start" spacing={3} py={3} px={3} mb={2} borderRadius="14px"
-      bg={done ? "paper.100" : "transparent"}
+      bg={done ? bgRow : "transparent"}
       boxShadow={done ? "0px 2px 8px rgba(30,25,17,0.06)" : "none"}
       cursor={done ? "pointer" : "default"}
       _hover={done ? { boxShadow: "0px 4px 14px rgba(30,25,17,0.10)" } : {}}
@@ -49,11 +55,11 @@ function LedgerRow({ id, label, detail, done, onClick }) {
         <Icon as={RowIcon} boxSize={4} color={done ? "gold.600" : "paper.300"} />
       </Box>
       <Box flex="1">
-        <Text fontSize="sm" fontWeight="600" color={done ? "ink.900" : "ink.500"}>
+        <Text fontSize="sm" fontWeight="600" color={done ? textPrimary : textSecondary}>
           {label}
         </Text>
         {detail && (
-          <Text fontSize="xs" color="ink.500" mt="1px">
+          <Text fontSize="xs" color={textSecondary} mt="1px">
             {detail}
           </Text>
         )}
@@ -66,7 +72,7 @@ function LedgerRow({ id, label, detail, done, onClick }) {
     </HStack>
   );
 }
-export default function Sidebar({ state }) {
+export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }) {
   const [selectedSection, setSelectedSection] = useState(null);
   const [drawerSize, setDrawerSize] = useState("md"); // md, lg, xl, full
   const [sidebarWidth, setSidebarWidth] = useState(300);
@@ -154,34 +160,57 @@ export default function Sidebar({ state }) {
     },
   ];
 
+  const bgSidebar = useColorModeValue("paper.50", "gray.900");
+
   return (
     <Box
-      w={`${sidebarWidth}px`}
+      w={isCollapsed ? "0px" : `${sidebarWidth}px`}
       flexShrink={0}
-      bg="paper.50" boxShadow="-4px 0px 24px rgba(30,25,17,0.06)"
-      p={5}
-      overflowY="auto"
+      bg={bgSidebar}
+      boxShadow={isCollapsed ? "none" : "-4px 0px 24px rgba(30,25,17,0.06)"}
+      p={isCollapsed ? 0 : 5}
+      opacity={isCollapsed ? 0 : 1}
+      overflowX="hidden"
+      overflowY={isCollapsed ? "hidden" : "auto"}
       position="relative"
       userSelect={isResizing ? "none" : "auto"}
+      transition={isResizing ? "none" : "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)"}
     >
       {/* Resizable Drag Handle */}
-      <Box
-        position="absolute"
-        left="0"
-        top="0"
-        bottom="0"
-        w="5px"
-        cursor="col-resize"
-        _hover={{ bg: "gold.400" }}
-        bg={isResizing ? "gold.500" : "transparent"}
-        onMouseDown={startResizing}
-        zIndex={10}
-      />
+      {!isCollapsed && (
+        <Box
+          position="absolute"
+          left="0"
+          top="0"
+          bottom="0"
+          w="5px"
+          cursor="col-resize"
+          _hover={{ bg: "gold.400" }}
+          bg={isResizing ? "gold.500" : "transparent"}
+          onMouseDown={startResizing}
+          zIndex={10}
+        />
+      )}
 
+      <HStack justify="space-between" align="center" mb={4}>
+        <Text fontFamily="heading" fontSize="xxs" fontWeight="bold" color="gold.700" letterSpacing="wide">
+          RESEARCH LEDGER
+        </Text>
+        {onToggleCollapse && (
+          <Tooltip label="Collapse right sidebar" placement="bottom-end">
+            <IconButton
+              icon={<FiChevronRight />}
+              size="xs"
+              variant="ghost"
+              color="slate.500"
+              _hover={{ bg: "paper.200", color: "ink.900" }}
+              aria-label="Collapse right sidebar"
+              onClick={onToggleCollapse}
+            />
+          </Tooltip>
+        )}
+      </HStack>
 
-<Text fontFamily="heading" fontSize="xxs" fontWeight="bold" color="gold.700" letterSpacing="wide" mb={4}>
-  RESEARCH LEDGER
-</Text>
       <VStack align="stretch" spacing={0} >
         {rows.map((row, i) => (
           <LedgerRow

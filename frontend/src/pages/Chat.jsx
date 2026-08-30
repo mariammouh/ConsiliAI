@@ -8,8 +8,11 @@ import {
   VStack,
   HStack,
   IconButton,
+  Tooltip,
+  useColorModeValue,
 } from "@chakra-ui/react";
 import { useNavigate } from "react-router-dom";
+import { FiChevronLeft, FiChevronRight, FiPaperclip } from "react-icons/fi";
 import { sendChatMessage, getChatHistory, downloadArtifact, logout, uploadDocument, getConversations, createConversation, deleteConversation } from "../api.js";
 import MessageBubble from "../components/MessageBubble.jsx";
 import Sidebar from "../components/Sidebar.jsx";
@@ -26,9 +29,26 @@ export default function Chat() {
   const [state, setState] = useState({});
   const [error, setError] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(true);
+
+  const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
+  const [isRightCollapsed, setIsRightCollapsed] = useState(false);
+  const [density, setDensity] = useState(() => localStorage.getItem("consiliai_density") || "comfortable");
+
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
   const navigate = useNavigate();
+
+  const bgMain = useColorModeValue("paper.50", "gray.900");
+  const bgFloatingBtn = useColorModeValue("paper.100", "gray.800");
+  const colorFloatingBtn = useColorModeValue("ink.700", "gray.200");
+  const borderColorFloatingBtn = useColorModeValue("paper.300", "gray.700");
+  const bgInputArea = useColorModeValue("paper.50", "gray.800");
+  const textColorInput = useColorModeValue("ink.900", "gray.100");
+
+  const handleDensityChange = (newDensity) => {
+    setDensity(newDensity);
+    localStorage.setItem("consiliai_density", newDensity);
+  };
 
   useEffect(() => {
     async function init() {
@@ -167,7 +187,7 @@ export default function Chat() {
         ...prev,
         {
           role: "assistant",
-          content: `✅ File "${file.name}" uploaded successfully. You can now ask questions about it.`,
+          content: `File "${file.name}" uploaded successfully. You can now ask questions about it.`,
         },
       ]);
     } catch (err) {
@@ -189,55 +209,93 @@ export default function Chat() {
   }
 
   return (
-    <Flex h="100vh" bg="paper.50">
+    <Flex h="100vh" bg={bgMain}>
       <LeftSidebar 
         conversations={conversations}
         activeConversationId={activeConversationId}
         onSelectConversation={setActiveConversationId}
         onNewChat={handleNewChat}
         onDeleteChat={handleDeleteChat}
+        onLogout={handleLogout}
+        state={state}
+        messages={messages}
+        isCollapsed={isLeftCollapsed}
+        onToggleCollapse={() => setIsLeftCollapsed(!isLeftCollapsed)}
+        density={density}
+        onDensityChange={handleDensityChange}
       />
 
-      <Flex direction="column" flex="1" minW="0">
-        {/* Header */}
-        <Flex align="center" justify="space-between" px={6} py={4}
-  boxShadow="0px 1px 0px rgba(30,25,17,0.06)">
-          <HStack spacing={3}>
-            <Text fontFamily="mono" fontSize="xs" color="slate.500" letterSpacing="wide">
-              [ CONSILIAI ]
-            </Text>
-            <Text fontSize="sm" color="ink.500">
-              Research-to-education transfer assistant
-            </Text>
-          </HStack>
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
-            Sign out
-          </Button>
-        </Flex>
+      <Flex direction="column" flex="1" minW="0" position="relative">
+        {/* Floating expand buttons when sidebars are collapsed */}
+        {isLeftCollapsed && (
+          <Tooltip label="Expand left sidebar" placement="right">
+            <IconButton
+              icon={<FiChevronRight />}
+              aria-label="Expand left sidebar"
+              size="sm"
+              variant="solid"
+              bg={bgFloatingBtn}
+              color={colorFloatingBtn}
+              boxShadow="0px 2px 8px rgba(30,25,17,0.12)"
+              border="1px solid"
+              borderColor={borderColorFloatingBtn}
+              _hover={{ bg: bgFloatingBtn }}
+              position="absolute"
+              top="16px"
+              left="16px"
+              zIndex={20}
+              onClick={() => setIsLeftCollapsed(false)}
+            />
+          </Tooltip>
+        )}
+
+        {isRightCollapsed && (
+          <Tooltip label="Expand right sidebar" placement="left">
+            <IconButton
+              icon={<FiChevronLeft />}
+              aria-label="Expand right sidebar"
+              size="sm"
+              variant="solid"
+              bg={bgFloatingBtn}
+              color={colorFloatingBtn}
+              boxShadow="0px 2px 8px rgba(30,25,17,0.12)"
+              border="1px solid"
+              borderColor={borderColorFloatingBtn}
+              _hover={{ bg: bgFloatingBtn }}
+              position="absolute"
+              top="16px"
+              right="16px"
+              zIndex={20}
+              onClick={() => setIsRightCollapsed(false)}
+            />
+          </Tooltip>
+        )}
 
         {/* Messages */}
         <VStack
           flex="1"
           overflowY="auto"
           align="stretch"
-          spacing={4}
-          px={6}
-          py={6}
+          spacing={density === "compact" ? 2 : 4}
+          px={density === "compact" ? 4 : 6}
+          py={density === "compact" ? 3 : 6}
         >
           {messages.map((m, i) => (
             <Flex key={i} justify={m.role === "user" ? "flex-end" : "flex-start"}>
               <MessageBubble
                 role={m.role}
+                bg="paper.50"
                 content={m.content}
                 downloads={m.downloads}
                 onDownload={downloadArtifact}
+                density={density}
               />
             </Flex>
           ))}
           {sending && (
             <Flex justify="flex-start">
-              <Box bg="paper.200" borderRadius="18px" borderBottomLeftRadius="4px" px={4} py={3}>
-                <Text fontSize="sm" color="ink.500" fontStyle="italic">
+              <Box bg={bgFloatingBtn} borderRadius="18px" borderBottomLeftRadius="4px" px={4} py={3}>
+                <Text fontSize="sm" color={colorFloatingBtn} fontStyle="italic">
                   Thinking…
                 </Text>
               </Box>
@@ -263,26 +321,45 @@ export default function Chat() {
             onChange={handleFileUpload}
             accept="application/pdf"
           />
-          <Button 
+          <IconButton 
+            icon={<FiPaperclip />}
+            aria-label="Upload personal document"
             onClick={() => fileInputRef.current?.click()} 
             isLoading={uploading} 
-            px={4}
             variant="outline"
-            title="Upload personal document"
-          >
-            📎
-          </Button>
-           <Textarea value={input}
+          />
+          <Textarea 
+            value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe an idea, or ask a question…" resize="none" rows={1} bg="paper.50" borderRadius="14px" border="none"
-    boxShadow="inset 0 0 0 1px var(--chakra-colors-paper-300)" />
-  <Button onClick={handleSend} isLoading={sending} px={6} borderRadius="14px"
-    boxShadow="0px 4px 10px rgba(193,90,54,0.28)">Send</Button>
-</Flex>
+            placeholder="Describe an idea, or ask a question…" 
+            resize="none" 
+            rows={1} 
+            bg={bgInputArea} 
+            color={textColorInput}
+            borderRadius="14px" 
+            border="none"
+            boxShadow="inset 0 0 0 1px var(--chakra-colors-paper-300)" 
+          />
+          <Button 
+            onClick={handleSend} 
+            isLoading={sending} 
+            px={6} 
+            borderRadius="14px"
+            boxShadow="0px 4px 10px rgba(193,90,54,0.28)"
+          >
+            Send
+          </Button>
+        </Flex>
       </Flex>
 
-      <Sidebar state={state} />
+      <Sidebar 
+        state={state} 
+        isCollapsed={isRightCollapsed}
+        onToggleCollapse={() => setIsRightCollapsed(!isRightCollapsed)}
+      />
     </Flex>
   );
 }
+
+

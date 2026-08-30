@@ -209,3 +209,16 @@ export async function uploadDocument(file, conversationId) {
   }
   return res.json();
 }
+
+export async function getUserMe() {
+  const token = getToken();
+  if (!token) return null;
+
+  const res = await fetch(`${API_BASE}/users/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) return null;
+  return res.json();
+}
+

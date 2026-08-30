@@ -31,6 +31,10 @@ const colors = {
     800: "#2A2412",
     900: "#1E1A0C",  // primary text
   },
+  brandy:{
+    50:"#E77F73",
+    900:"#922519",
+  },
   gold: {
     50:  "#FBF0DD",
     400: "#DDA15E",  // your tan — lighter accent, hover states
@@ -66,18 +70,24 @@ const fonts = {
   mono: `'IBM Plex Mono', monospace`,
 };
 
+const config = {
+  initialColorMode: "light",
+  useSystemColorMode: false,
+};
+
 const theme = extendTheme({
+  config,
   colors,
   shadows,
   radii,
   fonts,
   styles: {
-    global: {
+    global: (props) => ({
       body: {
-        bg: "paper.200",
-        color: "ink.900",
+        bg: props.colorMode === "dark" ? "gray.900" : "paper.200",
+        color: props.colorMode === "dark" ? "gray.100" : "ink.900",
       },
-    },
+    }),
   },
   components: {
     // Generic card wrapper — apply via <Box variant="card"> anywhere you
