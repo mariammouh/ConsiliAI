@@ -72,6 +72,8 @@ def _chat_state_response(state: dict) -> dict:
         "course": state.get("course"),
         "course_downloads": _course_downloads(state),
         "lab_downloads": _lab_downloads(state),
+        "lab_exercises": state.get("lab_exercises"),
+        "practical_exercises": state.get("lab_exercises") or state.get("practical_exercises"),
         "experiments": state.get("experiments"),
     }
 
@@ -94,24 +96,43 @@ def _course_downloads(state: dict) -> list[dict]:
 
 def _lab_downloads(state: dict) -> list[dict]:
     downloads = []
-    for module in state.get("lab_exercises") or []:
-        for lesson in module.get("lessons", []):
-            lesson_title = next(
-                (
-                    item.get("lab", {}).get("based_on_lesson")
-                    for item in [lesson]
-                    if item.get("lab")
-                ),
-                "lesson",
+    raw_labs = state.get("lab_exercises") or []
+    if isinstance(raw_labs, dict):
+        modules = raw_labs.get("modules") or raw_labs.get("lab_exercises") or []
+    elif isinstance(raw_labs, list):
+        modules = raw_labs
+    else:
+        modules = []
+
+    if not isinstance(modules, list):
+        return downloads
+
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        lessons = module.get("lessons") or []
+        if not isinstance(lessons, list):
+            continue
+        for lesson in lessons:
+            if not isinstance(lesson, dict):
+                continue
+            lab_obj = lesson.get("lab") if isinstance(lesson.get("lab"), dict) else lesson
+            lesson_title = (
+                lab_obj.get("based_on_lesson")
+                or lab_obj.get("exercise_title")
+                or lab_obj.get("title")
+                or "lesson"
             )
-            for notebook_type, path in (lesson.get("notebook_files") or {}).items():
-                if path:
-                    filename = os.path.basename(path)
-                    downloads.append({
-                        "label": f"Download {lesson_title} ({notebook_type.replace('_', ' ')})",
-                        "filename": filename,
-                        "url": f"/chat/lab-download/{filename}",
-                    })
+            notebook_files = lesson.get("notebook_files") or lab_obj.get("notebook_files") or {}
+            if isinstance(notebook_files, dict):
+                for notebook_type, path in notebook_files.items():
+                    if path and isinstance(path, str):
+                        filename = os.path.basename(path)
+                        downloads.append({
+                            "label": f"Download {lesson_title} ({notebook_type.replace('_', ' ')})",
+                            "filename": filename,
+                            "url": f"/chat/lab-download/{filename}",
+                        })
     return downloads
 
 app = FastAPI()

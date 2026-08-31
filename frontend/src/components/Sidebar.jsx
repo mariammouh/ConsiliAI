@@ -22,11 +22,13 @@ import {
   Button,
   IconButton,
   Tooltip,
-  useColorModeValue
+  useColorModeValue,
+  Flex
 } from "@chakra-ui/react";
 import { Icon } from "@chakra-ui/react"; 
-import { FiBookOpen, FiGitBranch, FiAlertCircle, FiCpu, FiUsers, FiLayers, FiCircle, FiChevronRight } from "react-icons/fi";
-import { FaLightbulb, FaFlask } from "react-icons/fa";
+import { FiBookOpen, FiGitBranch, FiAlertCircle, FiCpu, FiUsers, FiLayers, FiCircle, FiChevronRight, FiCode, FiDownload, FiArrowDown, FiCheckCircle, FiPlayCircle, FiFileText } from "react-icons/fi";
+import { FaLightbulb, FaFlask, FaLaptopCode } from "react-icons/fa";
+
 const LEDGER_ICONS = {
   idea: FaLightbulb,
   literature: FiBookOpen,
@@ -35,8 +37,457 @@ const LEDGER_ICONS = {
   technical_plan: FiCpu,
   teaching_plan: FiUsers,
   course: FiLayers,
+  practical_exercises: FaLaptopCode,
   experiments: FaFlask,
 };
+
+function slugify(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function generateClientSideNotebookDownload(exercise) {
+  const notebook = {
+    cells: [
+      {
+        cell_type: "markdown",
+        metadata: {},
+        source: [
+          `# ${exercise.title}\n`,
+          `**Difficulty:** ${(exercise.difficulty || "intermediate").toUpperCase()} | **Module:** ${exercise.basedOnModule || 'N/A'}\n\n`,
+          `## Objective\n${exercise.objective}\n\n`,
+          `## Instructions & Context\n${exercise.instructions}\n`
+        ]
+      },
+      {
+        cell_type: "markdown",
+        metadata: {},
+        source: [
+          `## Topics / Concepts Covered\n`,
+          ...(exercise.topics || []).map(t => `- ${t}\n`),
+          `\n## Expected Outcomes\n${typeof exercise.outcomes === 'string' ? exercise.outcomes : JSON.stringify(exercise.outcomes)}\n`
+        ]
+      },
+      {
+        cell_type: "code",
+        execution_count: null,
+        metadata: {},
+        outputs: [],
+        source: [
+          exercise.starterCode || 
+          `# ${exercise.title} - Starter Code\n# Complete the exercise based on the instructions above\n\ndef main():\n    print("Starting exercise: ${exercise.title}")\n\nif __name__ == "__main__":\n    main()`
+        ]
+      }
+    ],
+    metadata: {
+      language_info: { name: "python" }
+    },
+    nbformat: 4,
+    nbformat_minor: 2
+  };
+
+  const blob = new Blob([JSON.stringify(notebook, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${slugify(exercise.title || "practical_exercise")}.ipynb`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function handleDownloadNotebook(downloadItem, exercise) {
+  if (downloadItem && downloadItem.url) {
+    try {
+      await downloadArtifact(downloadItem);
+      return;
+    } catch (e) {
+      console.warn("Backend notebook fetch failed, falling back to client-side download", e);
+    }
+  }
+  generateClientSideNotebookDownload(exercise);
+}
+
+function extractPracticalExercises(state) {
+  const s = state || {};
+  const exercises = [];
+
+  const addEx = (raw, moduleTitle, lessonTitle, defaultIdx) => {
+    if (!raw || typeof raw !== "object") return;
+    const title = String(raw.exercise_title || raw.title || (lessonTitle ? `Practical Lab: ${lessonTitle}` : `Practical Exercise ${defaultIdx + 1}`));
+    const objective = String(raw.learning_objective || raw.objective || raw.objectives || "Apply machine learning and software concepts to hands-on practical exercises.");
+    const instructions = String(raw.instructions || raw.description || raw.context || "Follow the step-by-step practical guide to complete the exercise.");
+    const difficulty = String(raw.difficulty || "intermediate");
+    const format = String(raw.format || "notebook");
+    const hints = (Array.isArray(raw.hints) ? raw.hints : []).map(h => String(h));
+    const repo = raw.based_on_repo || null;
+    const modTitle = String(raw.based_on_module || moduleTitle || "Practical Work Module");
+    const lesTitle = String(raw.based_on_lesson || lessonTitle || "Practical Work Lesson");
+
+    let codePlan = [];
+    if (Array.isArray(raw.code_plan) && raw.code_plan.length > 0) {
+      codePlan = raw.code_plan.map((cp, idx) => ({
+        step: cp.step || idx + 1,
+        goal: String(cp.goal || cp.description || `Step ${idx + 1}`),
+        uses: (Array.isArray(cp.uses) ? cp.uses : (cp.uses ? [cp.uses] : [])).map(u => String(u)),
+        produces: (Array.isArray(cp.produces) ? cp.produces : (cp.produces ? [cp.produces] : [])).map(p => String(p))
+      }));
+    } else {
+      codePlan = [
+        {
+          step: 1,
+          goal: `Data Ingestion & Environment Setup for ${title}`,
+          uses: ["Raw Dataset / API Endpoint"],
+          produces: ["data_loader", "preprocessed_dataset"]
+        },
+        {
+          step: 2,
+          goal: `Model Architecture & Baseline Implementation`,
+          uses: ["preprocessed_dataset"],
+          produces: ["model_pipeline", "trainer_object"]
+        },
+        {
+          step: 3,
+          goal: `Cross-Domain Evaluation & Model Benchmarking`,
+          uses: ["model_pipeline"],
+          produces: ["predictions", "evaluation_metrics"]
+        },
+        {
+          step: 4,
+          goal: `Statistical Significance Analysis & Visualization`,
+          uses: ["evaluation_metrics"],
+          produces: ["statistical_summary", "performance_plots"]
+        }
+      ];
+    }
+
+    let topics = (raw.topics || []).map(t => String(t));
+    if (!topics.length && codePlan.length) {
+      topics = codePlan.map(sp => sp.goal);
+    }
+    if (!topics.length) {
+      topics = [lesTitle, modTitle];
+    }
+
+    let outcomes = raw.expected_outcomes || raw.expected_outcome || raw.deliverables;
+    if (!outcomes) {
+      const producedVars = codePlan.flatMap(sp => sp.produces || []).filter(Boolean);
+      if (producedVars.length > 0) {
+        outcomes = `Artifacts & Variables Produced: ${producedVars.join(", ")}`;
+      } else {
+        outcomes = "Verified pipeline execution with computed accuracy, F1-score metrics, and downloadable Jupyter notebook.";
+      }
+    }
+
+    const labDownloads = Array.isArray(s.lab_downloads) ? s.lab_downloads : [];
+    let notebookDownload = labDownloads.find(d => {
+      if (!d) return false;
+      const dLabel = d.label ? String(d.label).toLowerCase() : "";
+      const dFilename = d.filename ? String(d.filename).toLowerCase() : "";
+      const titleSlug = slugify(title);
+      const titleLower = String(title).toLowerCase();
+      const lesLower = String(lesTitle).toLowerCase();
+      return (
+        (dLabel && titleLower && dLabel.includes(titleLower)) ||
+        (dLabel && lesLower && dLabel.includes(lesLower)) ||
+        (dFilename && titleSlug && dFilename.includes(titleSlug))
+      );
+    });
+
+    if (!notebookDownload && (raw.notebook_files || raw.starter_code || format === "notebook")) {
+      const fname = `${slugify(title)}.ipynb`;
+      notebookDownload = {
+        label: `Download Notebook: ${title}`,
+        filename: fname,
+        url: `/chat/lab-download/${fname}`,
+        starter_code: raw.starter_code,
+        solution_code: raw.solution_code
+      };
+    }
+
+    exercises.push({
+      id: `ex_${exercises.length + 1}`,
+      title,
+      objective,
+      instructions,
+      difficulty,
+      format,
+      hints,
+      repo,
+      basedOnModule: modTitle,
+      basedOnLesson: lesTitle,
+      codePlan,
+      topics,
+      outcomes,
+      notebookDownload,
+      starterCode: raw.starter_code || null,
+      solutionCode: raw.solution_code || null,
+      debugMode: Boolean(raw.debug_mode),
+      debugHint: raw.debug_hint || null,
+      raw
+    });
+  };
+
+  let rawLabs = s.lab_exercises || s.practical_exercises;
+  let labModules = [];
+  if (Array.isArray(rawLabs)) {
+    labModules = rawLabs;
+  } else if (rawLabs && typeof rawLabs === "object") {
+    labModules = Array.isArray(rawLabs.modules) ? rawLabs.modules : [rawLabs];
+  }
+
+  labModules.forEach((item, idx) => {
+    if (!item || typeof item !== "object") return;
+    if (item.module_title && Array.isArray(item.lessons)) {
+      item.lessons.forEach((les, lidx) => {
+        if (!les || typeof les !== "object") return;
+        const labData = les.lab || les;
+        addEx(
+          { ...labData, notebook_files: les.notebook_files || labData.notebook_files },
+          item.module_title,
+          les.lesson_title || labData.based_on_lesson,
+          exercises.length
+        );
+      });
+    } else if (item.lab && typeof item.lab === "object") {
+      addEx(
+        { ...item.lab, notebook_files: item.notebook_files || item.lab.notebook_files },
+        item.module_title,
+        item.lesson_title,
+        exercises.length
+      );
+    } else if (item.exercise_title || item.title || item.instructions) {
+      addEx(item, item.based_on_module, item.based_on_lesson, exercises.length);
+    }
+  });
+
+  if (exercises.length === 0 && s.course && Array.isArray(s.course.modules)) {
+    s.course.modules.forEach((mod) => {
+      if (!mod || typeof mod !== "object") return;
+      (mod.lessons || []).forEach((les) => {
+        if (!les || typeof les !== "object") return;
+        const labObj = les.lab || les.practical_exercise || les.exercise || {
+          exercise_title: `Practical Lab: ${les.lesson_title || mod.module_title || "Lesson"}`,
+          learning_objective: `Implement hands-on code to test and apply ${les.lesson_title || mod.module_title || "lesson concepts"}.`,
+          instructions: `In this exercise, you will build a practical pipeline based on the lesson "${les.lesson_title || mod.module_title}". Follow the step-by-step plan in the organigram below to complete the implementation.`,
+          difficulty: "intermediate",
+          format: "notebook",
+          code_plan: (les.sections || []).map((sec, si) => ({
+            step: si + 1,
+            goal: sec.topic || `Implement section ${si + 1}`,
+            uses: si === 0 ? ["lesson_dataset"] : [`output_step_${si}`],
+            produces: [`output_step_${si + 1}`]
+          }))
+        };
+        addEx(labObj, mod.module_title, les.lesson_title, exercises.length);
+      });
+    });
+  }
+
+  return exercises;
+}
+
+function ExerciseOrganigram({ codePlan, exerciseTitle }) {
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const [viewMode, setViewMode] = useState("organigram");
+
+  const bgNode = useColorModeValue("white", "gray.800");
+  const bgNodeActive = useColorModeValue("paper.100", "gray.700");
+  const borderNode = useColorModeValue("paper.300", "gray.600");
+  const textTitle = useColorModeValue("ink.900", "gray.100");
+
+  if (!codePlan || codePlan.length === 0) {
+    return (
+      <Box p={4} bg="paper.100" borderRadius="md">
+        <Text fontSize="xs" color="slate.500">No step plan available for this organigram.</Text>
+      </Box>
+    );
+  }
+
+  const activeStep = codePlan[activeStepIndex] || codePlan[0];
+
+  return (
+    <Box p={4} bg="paper.100" borderRadius="xl" border="1.5px solid" borderColor="paper.300" boxShadow="sm">
+      <HStack justify="space-between" align="center" mb={3}>
+        <HStack spacing={2}>
+          <Icon as={FiGitBranch} color="gold.700" boxSize={4} />
+          <Text fontSize="xs" fontWeight="700" color="gold.800" letterSpacing="wide" textTransform="uppercase">
+            EXERCISE PLAN ORGANIGRAM (FLOW DIAGRAM)
+          </Text>
+        </HStack>
+        <HStack spacing={1}>
+          <Badge colorScheme="gold" fontSize="10px" borderRadius="full" px={2}>
+            {codePlan.length} Stages
+          </Badge>
+          <Button
+            size="xs"
+            variant="ghost"
+            colorScheme="teal"
+            fontSize="10px"
+            onClick={() => setViewMode(viewMode === "organigram" ? "compact" : "organigram")}
+          >
+            {viewMode === "organigram" ? "Compact View" : "Diagram View"}
+          </Button>
+        </HStack>
+      </HStack>
+
+      <Text fontSize="xs" color="slate.600" mb={4}>
+        Interactive step-by-step visual progression of tasks, inputs, and output deliverables. Click any node in the organigram to inspect details.
+      </Text>
+
+      {viewMode === "organigram" ? (
+        <VStack align="stretch" spacing={0} position="relative">
+          {codePlan.map((stepItem, idx) => {
+            const isSelected = idx === activeStepIndex;
+            const isLast = idx === codePlan.length - 1;
+            const uses = stepItem.uses || [];
+            const produces = stepItem.produces || [];
+
+            return (
+              <Box key={idx} position="relative" pb={isLast ? 0 : 4}>
+                {!isLast && (
+                  <Box
+                    position="absolute"
+                    left="24px"
+                    top="48px"
+                    bottom="0"
+                    w="2px"
+                    bg={isSelected ? "gold.500" : "paper.300"}
+                    zIndex={1}
+                    transition="all 0.2s"
+                  />
+                )}
+
+                <HStack align="start" spacing={3} position="relative" zIndex={2}>
+                  <Box
+                    w="48px"
+                    h="48px"
+                    borderRadius="full"
+                    bg={isSelected ? "gold.500" : "white"}
+                    color={isSelected ? "white" : "gold.700"}
+                    border="2px solid"
+                    borderColor={isSelected ? "gold.600" : "paper.400"}
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="center"
+                    fontWeight="bold"
+                    fontSize="sm"
+                    boxShadow={isSelected ? "0 0 0 3px rgba(212,175,55,0.3)" : "sm"}
+                    cursor="pointer"
+                    onClick={() => setActiveStepIndex(idx)}
+                    transition="all 0.2s"
+                    _hover={{ transform: "scale(1.08)" }}
+                    flexShrink={0}
+                  >
+                    {stepItem.step || idx + 1}
+                  </Box>
+
+                  <Box
+                    flex="1"
+                    p={3.5}
+                    bg={isSelected ? bgNodeActive : bgNode}
+                    borderRadius="lg"
+                    border="1.5px solid"
+                    borderColor={isSelected ? "gold.400" : borderNode}
+                    boxShadow={isSelected ? "md" : "xs"}
+                    cursor="pointer"
+                    onClick={() => setActiveStepIndex(idx)}
+                    _hover={{ borderColor: "gold.400", boxShadow: "sm" }}
+                    transition="all 0.2s"
+                  >
+                    <HStack justify="space-between" mb={1.5} align="center">
+                      <Text fontSize="xs" fontWeight="700" color={isSelected ? "gold.800" : "slate.500"}>
+                        STAGE {stepItem.step || idx + 1}
+                      </Text>
+                      {isSelected && (
+                        <Badge colorScheme="green" fontSize="9px" px={2} borderRadius="full">
+                          ACTIVE INSPECTION
+                        </Badge>
+                      )}
+                    </HStack>
+
+                    <Text fontSize="sm" fontWeight="600" color={textTitle} mb={2} lineHeight="short">
+                      {stepItem.goal}
+                    </Text>
+
+                    <HStack spacing={2} wrap="wrap" pt={1}>
+                      {uses.length > 0 && (
+                        <HStack spacing={1} bg="blue.50" px={2} py={0.5} borderRadius="md" border="1px solid" borderColor="blue.100">
+                          <Text fontSize="10px" color="blue.700" fontWeight="bold"> Uses :</Text>
+                          {uses.map((u, ui) => (
+                            <Badge key={ui} fontSize="10px" colorScheme="blue" variant="subtle">{u}</Badge>
+                          ))}
+                        </HStack>
+                      )}
+                      {produces.length > 0 && (
+                        <HStack spacing={1} bg="teal.50" px={2} py={0.5} borderRadius="md" border="1px solid" borderColor="teal.100">
+                          <Text fontSize="10px" color="teal.700" fontWeight="bold"> Produces:</Text>
+                          {produces.map((p, pi) => (
+                            <Badge key={pi} fontSize="10px" colorScheme="teal" variant="subtle">{p}</Badge>
+                          ))}
+                        </HStack>
+                      )}
+                    </HStack>
+                  </Box>
+                </HStack>
+
+                {!isLast && (
+                  <Flex justify="center" w="48px" my={1}>
+                    <Icon as={FiArrowDown} boxSize={3.5} color={isSelected ? "gold.600" : "paper.400"} />
+                  </Flex>
+                )}
+              </Box>
+            );
+          })}
+        </VStack>
+      ) : (
+        <VStack align="stretch" spacing={2}>
+          {codePlan.map((stepItem, idx) => (
+            <HStack key={idx} p={2.5} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300" justify="space-between">
+              <HStack spacing={2}>
+                <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" minW="22px" textAlign="center">
+                  S{stepItem.step || idx + 1}
+                </Badge>
+                <Text fontSize="xs" fontWeight="600" color="ink.800">{stepItem.goal}</Text>
+              </HStack>
+              {stepItem.produces?.length > 0 && (
+                <Badge colorScheme="teal" fontSize="10px">Produces: {stepItem.produces.join(", ")}</Badge>
+              )}
+            </HStack>
+          ))}
+        </VStack>
+      )}
+
+      {activeStep && (
+        <Box mt={4} pt={3} borderTop="1.5px dashed" borderColor="paper.300">
+          <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1.5} textTransform="uppercase">
+             Stage {activeStep.step || activeStepIndex + 1} Step Detail:
+          </Text>
+          <Box p={3} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+            <Text fontSize="xs" color="ink.900" fontWeight="600" mb={2}>
+              {activeStep.goal}
+            </Text>
+            <VStack align="stretch" spacing={1.5} fontSize="xs">
+              {activeStep.uses?.length > 0 && (
+                <Text color="slate.600">
+                  <b>Required Inputs:</b> {activeStep.uses.join(", ")}
+                </Text>
+              )}
+              {activeStep.produces?.length > 0 && (
+                <Text color="teal.700">
+                  <b>Generated Deliverables / Variables:</b> {activeStep.produces.join(", ")}
+                </Text>
+              )}
+            </VStack>
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}
 function LedgerRow({ id, label, detail, done, onClick }) {
   const RowIcon = LEDGER_ICONS[id] || FiCircle;
   const bgRow = useColorModeValue("paper.100", "gray.800");
@@ -109,6 +560,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
   const experiments = s.experiments?.experiments || [];
   const experimentsCount = experiments.length;
 
+  const practicalExercises = extractPracticalExercises(s);
+  const practicalExercisesCount = practicalExercises.length;
+
   const rows = [
     {
       id: "idea",
@@ -151,6 +605,12 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
       label: "Course",
       detail: s.course ? "Generated" : "Not generated",
       done: Boolean(s.course),
+    },
+    {
+      id: "practical_exercises",
+      label: "Practical Exercises",
+      detail: practicalExercisesCount ? `${practicalExercisesCount} exercise(s)` : (s.lab_exercises ? "Generated" : "Not generated"),
+      done: practicalExercisesCount > 0,
     },
     {
       id: "experiments",
@@ -852,6 +1312,304 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
               );
             })()}
 
+            {selectedSection === "practical_exercises" && (() => {
+              const practicalExercisesList = extractPracticalExercises(s);
+              const labDownloads = s.lab_downloads || [];
+
+              return (
+                <VStack align="stretch" spacing={5}>
+                  {/* Header Overview Card */}
+                  <Box p={5} bg="white" borderRadius="xl" border="1.5px solid" borderColor="paper.300" boxShadow="sm">
+                    <HStack justify="space-between" align="start" mb={2}>
+                      <Box>
+                        <Text fontSize="lg" fontWeight="700" color="ink.900" lineHeight="tight">
+                          Practical Exercises & Labs
+                        </Text>
+                        <Text fontSize="xs" color="slate.600" mt={1}>
+                          Hands-on coding exercises, notebook scaffolds, and interactive organigram plans built from literature and similar project repos.
+                        </Text>
+                      </Box>
+                      <Badge colorScheme="purple" fontSize="xs" px={3} py={1} borderRadius="full">
+                        {practicalExercisesList.length} Exercise{practicalExercisesList.length !== 1 ? "s" : ""} Available
+                      </Badge>
+                    </HStack>
+
+                    {/* Global Notebook Downloads Button Header if available */}
+                    {labDownloads.length > 0 && (
+                      <Box mt={3} pt={3} borderTop="1px solid" borderColor="paper.200">
+                        <Text fontSize="xs" color="teal.700" fontWeight="bold" mb={2} textTransform="uppercase">
+                         AVAILABLE JUPYTER NOTEBOOKS:
+                        </Text>
+                        <HStack spacing={2} wrap="wrap">
+                          {labDownloads.map((dl, idx) => (
+                            <Button
+                              key={idx}
+                              size="xs"
+                              colorScheme="teal"
+                              leftIcon={<Icon as={FiDownload} />}
+                              onClick={() => downloadArtifact(dl)}
+                            >
+                              {dl.label || `Download Notebook ${idx + 1}`}
+                            </Button>
+                          ))}
+                        </HStack>
+                      </Box>
+                    )}
+                  </Box>
+
+                  {/* Exercises List Accordion / Card View */}
+                  {practicalExercisesList.length === 0 ? (
+                    <Box p={6} bg="white" borderRadius="lg" border="1px solid" borderColor="paper.300" textAlign="center">
+                      <Icon as={FaLaptopCode} boxSize={8} color="gold.500" mb={2} />
+                      <Text fontSize="sm" fontWeight="bold" color="ink.800" mb={1}>
+                        No Practical Exercises Generated Yet
+                      </Text>
+                      <Text fontSize="xs" color="slate.500" maxW="400px" mx="auto" mb={4}>
+                        Ask the assistant to "generate practical exercises", "build lab exercises", or "create notebooks" to generate hands-on exercises tailored to your project idea!
+                      </Text>
+                    </Box>
+                  ) : (
+                    <Accordion allowMultiple defaultIndex={[0]}>
+                      {practicalExercisesList.map((ex, idx) => {
+                        return (
+                          <AccordionItem
+                            key={ex.id || idx}
+                            border="1.5px solid"
+                            borderColor="paper.300"
+                            borderRadius="xl"
+                            mb={4}
+                            overflow="hidden"
+                            bg="white"
+                            boxShadow="sm"
+                          >
+                            <AccordionButton px={5} py={4} bg="paper.50" _hover={{ bg: "paper.100" }}>
+                              <HStack flex="1" spacing={3} align="center">
+                                <Badge bg="gold.500" color="white" fontSize="xs" borderRadius="full" px={2.5} py={0.5}>
+                                  EX {idx + 1}
+                                </Badge>
+                                <Box textAlign="left">
+                                  <Text fontSize="md" fontWeight="700" color="ink.900" lineHeight="short">
+                                    {ex.title}
+                                  </Text>
+                                  <HStack spacing={2} mt={1} wrap="wrap">
+                                    {ex.difficulty && (
+                                      <Badge
+                                        colorScheme={ex.difficulty === "beginner" ? "green" : ex.difficulty === "advanced" ? "red" : "purple"}
+                                        fontSize="10px"
+                                        borderRadius="sm"
+                                      >
+                                        {ex.difficulty.toUpperCase()}
+                                      </Badge>
+                                    )}
+                                    {ex.format && (
+                                      <Badge colorScheme="blue" fontSize="10px" borderRadius="sm">
+                                        {ex.format.toUpperCase()}
+                                      </Badge>
+                                    )}
+                                    {ex.basedOnLesson && (
+                                      <Text fontSize="xs" color="slate.500">
+                                        Lesson: {ex.basedOnLesson}
+                                      </Text>
+                                    )}
+                                  </HStack>
+                                </Box>
+                              </HStack>
+                              <AccordionIcon />
+                            </AccordionButton>
+
+                            <AccordionPanel px={5} py={5}>
+                              <VStack align="stretch" spacing={5}>
+                                {/* Top Action Bar: Download Notebook Button */}
+                                <HStack justify="space-between" align="center" bg="green.200" p={3} borderRadius="lg" border="1px solid" borderColor="green.600">
+                                  <HStack spacing={2}>
+                                    <Icon as={FiCode} color="teal.700" boxSize={5} />
+                                    <Box>
+                                      <Text fontSize="xs" fontWeight="bold" color="green.600">
+                                        Practical Exercise Resource
+                                      </Text>
+                                      <Text fontSize="10px" color="green.700">
+                                        {ex.format === "notebook" ? "Runnable Jupyter Notebook (.ipynb)" : "Interactive Coding Challenge"}
+                                      </Text>
+                                    </Box>
+                                  </HStack>
+
+                                  <Button
+                                    size="sm"
+                                    colorScheme="teal"
+                                    leftIcon={<Icon as={FiDownload} />}
+                                    onClick={() => handleDownloadNotebook(ex.notebookDownload, ex)}
+                                    boxShadow="xs"
+                                    _hover={{ transform: "translateY(-1px)" }}
+                                  >
+                                    Download Notebook
+                                  </Button>
+                                </HStack>
+
+                                {/* Objectives */}
+                                {ex.objective && (
+                                  <Box p={4} bg="paper.50" borderRadius="lg" border="1px solid" borderColor="paper.300">
+                                    <HStack spacing={2} mb={1.5}>
+                                      <Text color="green.500" fontWeight="bold" fontSize="sm">✓</Text>
+                                      <Text fontSize="xs" fontWeight="700" color="slate.600" textTransform="uppercase" letterSpacing="wide">
+                                        OBJECTIVES
+                                      </Text>
+                                    </HStack>
+                                    <Text fontSize="sm" color="ink.800" lineHeight="relaxed">
+                                      {ex.objective}
+                                    </Text>
+                                  </Box>
+                                )}
+
+                                {/* Description and Context */}
+                                {ex.instructions && (
+                                  <Box p={4} bg="white" borderRadius="lg" border="1px solid" borderColor="paper.300">
+                                    <Text fontSize="xs" fontWeight="700" color="slate.600" mb={1.5} textTransform="uppercase" letterSpacing="wide">
+                                      DESCRIPTION & CONTEXT
+                                    </Text>
+                                    <Text fontSize="sm" color="ink.800" whiteSpace="pre-wrap" lineHeight="relaxed">
+                                      {ex.instructions}
+                                    </Text>
+                                  </Box>
+                                )}
+
+                                {/* Topics / Concepts Covered */}
+                                {ex.topics?.length > 0 && (
+                                  <Box p={4} bg="white" borderRadius="lg" border="1px solid" borderColor="paper.300">
+                                    <Text fontSize="xs" fontWeight="700" color="slate.600" mb={2} textTransform="uppercase" letterSpacing="wide">
+                                      TOPICS / CONCEPTS COVERED
+                                    </Text>
+                                    <HStack spacing={2} wrap="wrap" >
+                                      {ex.topics.map((tp, tpi) => (
+                                        <Badge key={tpi} colorScheme="purple" bg="paper.300" color="ink.600" fontSize="xs" px={2.5} py={1} borderRadius="md" variant="subtle">
+                                          - {tp}
+                                        </Badge>
+                                      ))}
+                                    </HStack>
+                                  </Box>
+                                )}
+
+                                {/* Expected Outcomes */}
+                                {ex.outcomes && (
+                                  <Box p={4} bg="green.50" borderRadius="lg" border="1px solid" borderColor="green.200">
+                                    <Text fontSize="xs" fontWeight="700" color="green.800" mb={1.5} textTransform="uppercase" letterSpacing="wide">
+                                      EXPECTED OUTCOMES
+                                    </Text>
+                                    <Text fontSize="sm" color="ink.800" lineHeight="relaxed">
+                                      {typeof ex.outcomes === "string" ? ex.outcomes : JSON.stringify(ex.outcomes)}
+                                    </Text>
+                                  </Box>
+                                )}
+
+                                {/* Exercise Plan Organigram (Flow Diagram) */}
+                                <ExerciseOrganigram codePlan={ex.codePlan} exerciseTitle={ex.title} />
+
+                                {/* Repo Context Reference if matched repo exists */}
+                                {ex.repo && (
+                                  <Box p={3} bg="blue.50" borderRadius="lg" border="1px solid" borderColor="blue.200">
+                                    <Text fontSize="xs" fontWeight="bold" color="blue.800" mb={1}>
+                                      🔗 BASED ON REPOSITORY:
+                                    </Text>
+                                    <HStack justify="space-between">
+                                      <Text fontSize="xs" color="blue.700" fontWeight="600">{ex.repo.name}</Text>
+                                      {ex.repo.url && (
+                                        <Link href={ex.repo.url} isExternal fontSize="xs" color="blue.600" fontWeight="bold">
+                                          [View Source Code]
+                                        </Link>
+                                      )}
+                                    </HStack>
+                                  </Box>
+                                )}
+
+                                {/* Hints & Debug Hints */}
+                                {ex.hints?.length > 0 && (
+                                  <Box p={4} bg="paper.100" borderRadius="lg" border="1px solid" borderColor="paper.300">
+                                    <Text fontSize="xs" fontWeight="700" color="slate.600" mb={2} textTransform="uppercase">
+                                       PRACTICAL HINTS ({ex.hints.length})
+                                    </Text>
+                                    <VStack align="stretch" spacing={1.5}>
+                                      {ex.hints.map((hint, hi) => (
+                                        <Text key={hi} fontSize="xs" color="ink.700">• {hint}</Text>
+                                      ))}
+                                    </VStack>
+                                  </Box>
+                                )}
+
+                                {ex.debugMode && ex.debugHint && (
+                                  <Box p={3} bg="orange.50" borderRadius="lg" border="1px solid" borderColor="orange.300">
+                                    <Text fontSize="xs" fontWeight="bold" color="orange.800" mb={1}>
+                                       DEBUGGING CHALLENGE MODE
+                                    </Text>
+                                    <Text fontSize="xs" color="orange.700">{ex.debugHint}</Text>
+                                  </Box>
+                                )}
+
+                                {/* Starter Code & Solution Code Accordion */}
+                                {(ex.starterCode || ex.solutionCode) && (
+                                  <Accordion allowToggle mt={2}>
+                                    <AccordionItem border="1px solid" borderColor="paper.300" borderRadius="lg">
+                                      <AccordionButton bg="paper.100" py={2.5}>
+                                        <Box flex="1" textAlign="left" fontSize="xs" fontWeight="bold" color="slate.700">
+                                           View Python Code Implementation Scaffold
+                                        </Box>
+                                        <AccordionIcon />
+                                      </AccordionButton>
+                                      <AccordionPanel pb={4} pt={3}>
+                                        {ex.starterCode && (
+                                          <Box mb={3}>
+                                            <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1.5}>
+                                              STARTER / SKELETON CODE:
+                                            </Text>
+                                            <Box
+                                              p={3}
+                                              bg="gray.900"
+                                              color="green.300"
+                                              borderRadius="md"
+                                              fontFamily="mono"
+                                              fontSize="xs"
+                                              overflowX="auto"
+                                              maxH="300px"
+                                              whiteSpace="pre-wrap"
+                                            >
+                                              {ex.starterCode}
+                                            </Box>
+                                          </Box>
+                                        )}
+
+                                        {ex.solutionCode && (
+                                          <Box>
+                                            <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1.5}>
+                                              SOLUTION CODE:
+                                            </Text>
+                                            <Box
+                                              p={3}
+                                              bg="gray.900"
+                                              color="teal.200"
+                                              borderRadius="md"
+                                              fontFamily="mono"
+                                              fontSize="xs"
+                                              overflowX="auto"
+                                              maxH="300px"
+                                              whiteSpace="pre-wrap"
+                                            >
+                                              {ex.solutionCode}
+                                            </Box>
+                                          </Box>
+                                        )}
+                                      </AccordionPanel>
+                                    </AccordionItem>
+                                  </Accordion>
+                                )}
+                              </VStack>
+                            </AccordionPanel>
+                          </AccordionItem>
+                        );
+                      })}
+                    </Accordion>
+                  )}
+                </VStack>
+              );
+            })()}
+
             {selectedSection === "experiments" && s.experiments && (() => {
               const expData = s.experiments;
               const exps = expData.experiments || [];
@@ -869,7 +1627,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                             colorScheme="purple"
                             onClick={() => downloadArtifact(download)}
                           >
-                            📓 {download.label || `Download Notebook ${idx + 1}`}
+                             {download.label || `Download Notebook ${idx + 1}`}
                           </Button>
                         ))}
                       </HStack>

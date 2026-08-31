@@ -50,6 +50,16 @@ const colors = {
     500: "#7D8455",
     600: "#636B43",
   },
+  green: {
+    50:"#E6F4E1",
+    100:"#D9EAC8",
+    200:"#CDE0B0",
+    300:"#B9D39C",
+     400:"#C3D9AB",
+    500: "#B9D39C",
+    600: "#3B5E45",
+    700: "#2A3D2E",
+  },
 };
 // Horizon's signature diffuse, colored-ish shadow rather than a flat black one
 const shadows = {
