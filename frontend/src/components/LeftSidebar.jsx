@@ -70,7 +70,22 @@ export default function LeftSidebar({
   const textPrimary = useColorModeValue("ink.900", "gray.100");
   const textSecondary = useColorModeValue("ink.600", "gray.400");
   const textSubtle = useColorModeValue("slate.500", "gray.400");
+// Consistent card treatment — reuses the theme's own shadow/radius tokens
+// instead of ad hoc "sm"/"md"/"xs" values scattered per-box.
+const SECTION_CARD = {
+  bg: "white",
+  borderRadius: "card",     // theme.radii.card → 20px, same everywhere
+  border: "1px solid",
+  borderColor: "paper.300",
+  boxShadow: "soft",        // theme.shadows.soft — same weight as the ledger rows
+};
 
+const SECTION_CARD_SUBTLE = {
+  bg: "paper.50",
+  borderRadius: "control",  // 12px, for nested/inner boxes so hierarchy still reads
+  border: "1px solid",
+  borderColor: "paper.300",
+};
   useEffect(() => {
     if (isOpen) {
       getUserMe().then((data) => {
@@ -290,7 +305,7 @@ export default function LeftSidebar({
                 {/* Account & Session */}
                 <TabPanel p={0}>
                   <VStack align="stretch" spacing={4}>
-                    <Box p={4} bg={bgCard} borderRadius="control" border="1px solid" borderColor={borderColor}>
+                    <Box p={4} {...SECTION_CARD} borderColor={borderColor}>
                       <Text fontSize="xs" fontWeight="bold" color={textSubtle} mb={1} letterSpacing="wider">
                         USER PROFILE
                       </Text>
@@ -324,7 +339,7 @@ export default function LeftSidebar({
                 {/* Export & Data Management */}
                 <TabPanel p={0}>
                   <VStack align="stretch" spacing={4}>
-                    <Box p={4} bg={bgCard} borderRadius="control" border="1px solid" borderColor={borderColor}>
+                    <Box p={4} {...SECTION_CARD} borderColor={borderColor}>
                       <Text fontSize="xs" fontWeight="bold" color={textSubtle} mb={2} letterSpacing="wider">
                         EXPORT RESEARCH LEDGER
                       </Text>
@@ -382,7 +397,7 @@ export default function LeftSidebar({
                 {/* Appearance & Interface */}
                 <TabPanel p={0}>
                   <VStack align="stretch" spacing={4}>
-                    <Box p={4} bg={bgCard} borderRadius="control" border="1px solid" borderColor={borderColor}>
+                    <Box p={4} {...SECTION_CARD} borderColor={borderColor}>
                       <Text fontSize="xs" fontWeight="bold" color={textSubtle} mb={2} letterSpacing="wider">
                         COLOR MODE
                       </Text>
@@ -404,7 +419,7 @@ export default function LeftSidebar({
                       </RadioGroup>
                     </Box>
 
-                    <Box p={4} bg={bgCard} borderRadius="control" border="1px solid" borderColor={borderColor}>
+                    <Box p={4} {...SECTION_CARD} borderColor={borderColor}>
                       <Text fontSize="xs" fontWeight="bold" color={textSubtle} mb={2} letterSpacing="wider">
                         CHAT LAYOUT DENSITY
                       </Text>
@@ -430,6 +445,3 @@ export default function LeftSidebar({
     </Box>
   );
 }
-
-
-

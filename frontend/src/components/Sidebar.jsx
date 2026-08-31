@@ -23,12 +23,35 @@ import {
   Button,
   IconButton,
   Tooltip,
+  SimpleGrid,
   useColorModeValue,
   Flex
 } from "@chakra-ui/react";
 import { Icon } from "@chakra-ui/react"; 
-import { FiBookOpen, FiGitBranch, FiAlertCircle, FiCpu, FiUsers, FiLayers, FiCircle, FiChevronRight, FiCode, FiDownload, FiArrowDown, FiCheckCircle, FiPlayCircle, FiFileText } from "react-icons/fi";
+import { FiBookOpen, FiGitBranch, FiAlertCircle, FiCpu, FiUsers, FiLayers, FiCircle, FiChevronRight, FiCode, FiDownload, FiCheckCircle, FiPlayCircle, FiFileText, FiExternalLink, FiClock, FiAlertTriangle } from "react-icons/fi";
 import { FaLightbulb, FaFlask, FaLaptopCode } from "react-icons/fa";
+
+// Consistent card treatment for section content — reuses the theme's own
+// shadow/radius tokens (theme.js: shadows.soft / shadows.cardHover, radii.card)
+// instead of ad hoc "sm"/"md"/"xs" values per box, so every panel in the
+// right sidebar's drawer reads as one cohesive system.
+const SECTION_CARD = {
+  bg: "white",
+  borderRadius: "card",
+  border: "1px solid",
+  borderColor: "paper.300",
+  boxShadow: "soft",
+};
+
+// Nested/inner content within a SECTION_CARD (tables, sub-groups, hint
+// panels) — smaller radius, no shadow, so hierarchy still reads clearly
+// without stacking competing shadows.
+const SECTION_CARD_SUBTLE = {
+  bg: "paper.50",
+  borderRadius: "control",
+  border: "1px solid",
+  borderColor: "paper.300",
+};
 
 const LEDGER_ICONS = {
   idea: FaLightbulb,
@@ -302,7 +325,7 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
 
   if (!codePlan || codePlan.length === 0) {
     return (
-      <Box p={4} bg="paper.100" borderRadius="md">
+      <Box p={4} {...SECTION_CARD_SUBTLE}>
         <Text fontSize="xs" color="slate.500">No step plan available for this organigram.</Text>
       </Box>
     );
@@ -311,12 +334,12 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
   const activeStep = codePlan[activeStepIndex] || codePlan[0];
 
   return (
-    <Box p={4} bg="paper.100" borderRadius="xl" border="1.5px solid" borderColor="paper.300" boxShadow="sm">
+    <Box p={4} {...SECTION_CARD_SUBTLE} borderRadius="card">
       <HStack justify="space-between" align="center" mb={3}>
         <HStack spacing={2}>
           <Icon as={FiGitBranch} color="gold.700" boxSize={4} />
           <Text fontSize="xs" fontWeight="700" color="gold.800" letterSpacing="wide" textTransform="uppercase">
-            EXERCISE PLAN ORGANIGRAM (FLOW DIAGRAM)
+            Exercise plan
           </Text>
         </HStack>
         <HStack spacing={1}>
@@ -330,13 +353,13 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
             fontSize="10px"
             onClick={() => setViewMode(viewMode === "organigram" ? "compact" : "organigram")}
           >
-            {viewMode === "organigram" ? "Compact View" : "Diagram View"}
+            {viewMode === "organigram" ? "Compact view" : "Diagram view"}
           </Button>
         </HStack>
       </HStack>
 
       <Text fontSize="xs" color="slate.600" mb={4}>
-        Interactive step-by-step visual progression of tasks, inputs, and output deliverables. Click any node in the organigram to inspect details.
+        Step-by-step progression of tasks, inputs, and output deliverables. Click a step to inspect details.
       </Text>
 
       {viewMode === "organigram" ? (
@@ -348,15 +371,15 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
             const produces = stepItem.produces || [];
 
             return (
-              <Box key={idx} position="relative" pb={isLast ? 0 : 4}>
+              <Box key={idx} position="relative" pb={isLast ? 0 : 3}>
                 {!isLast && (
                   <Box
                     position="absolute"
-                    left="24px"
+                    left="23px"
                     top="48px"
                     bottom="0"
                     w="2px"
-                    bg={isSelected ? "gold.500" : "paper.300"}
+                    bg={isSelected ? "gold.400" : "paper.300"}
                     zIndex={1}
                     transition="all 0.2s"
                   />
@@ -364,23 +387,22 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
 
                 <HStack align="start" spacing={3} position="relative" zIndex={2}>
                   <Box
-                    w="48px"
-                    h="48px"
+                    w="46px"
+                    h="46px"
                     borderRadius="full"
                     bg={isSelected ? "gold.500" : "white"}
                     color={isSelected ? "white" : "gold.700"}
-                    border="2px solid"
-                    borderColor={isSelected ? "gold.600" : "paper.400"}
+                    border="1px solid"
+                    borderColor={isSelected ? "gold.500" : "paper.300"}
                     display="flex"
                     alignItems="center"
                     justifyContent="center"
                     fontWeight="bold"
                     fontSize="sm"
-                    boxShadow={isSelected ? "0 0 0 3px rgba(212,175,55,0.3)" : "sm"}
                     cursor="pointer"
                     onClick={() => setActiveStepIndex(idx)}
                     transition="all 0.2s"
-                    _hover={{ transform: "scale(1.08)" }}
+                    _hover={{ boxShadow: "soft" }}
                     flexShrink={0}
                   >
                     {stepItem.step || idx + 1}
@@ -390,22 +412,21 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
                     flex="1"
                     p={3.5}
                     bg={isSelected ? bgNodeActive : bgNode}
-                    borderRadius="lg"
-                    border="1.5px solid"
+                    borderRadius="control"
+                    border="1px solid"
                     borderColor={isSelected ? "gold.400" : borderNode}
-                    boxShadow={isSelected ? "md" : "xs"}
                     cursor="pointer"
                     onClick={() => setActiveStepIndex(idx)}
-                    _hover={{ borderColor: "gold.400", boxShadow: "sm" }}
+                    _hover={{ borderColor: "gold.400" }}
                     transition="all 0.2s"
                   >
                     <HStack justify="space-between" mb={1.5} align="center">
                       <Text fontSize="xs" fontWeight="700" color={isSelected ? "gold.800" : "slate.500"}>
-                        STAGE {stepItem.step || idx + 1}
+                        Stage {stepItem.step || idx + 1}
                       </Text>
                       {isSelected && (
                         <Badge colorScheme="green" fontSize="9px" px={2} borderRadius="full">
-                          ACTIVE INSPECTION
+                          Selected
                         </Badge>
                       )}
                     </HStack>
@@ -416,16 +437,16 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
 
                     <HStack spacing={2} wrap="wrap" pt={1}>
                       {uses.length > 0 && (
-                        <HStack spacing={1} bg="green.50" px={2} py={0.5} borderRadius="md" border="1px solid" borderColor="green.100">
-                          <Text fontSize="10px" color="green.700" fontWeight="bold"> Uses :</Text>
+                        <HStack spacing={1} bg="green.50" px={2} py={0.5} borderRadius="control" border="1px solid" borderColor="green.100">
+                          <Text fontSize="10px" color="green.700" fontWeight="bold">Uses:</Text>
                           {uses.map((u, ui) => (
                             <Badge key={ui} fontSize="10px" colorScheme="green" variant="subtle">{u}</Badge>
                           ))}
                         </HStack>
                       )}
                       {produces.length > 0 && (
-                        <HStack spacing={1} bg="green.50" px={2} py={0.5} borderRadius="md" border="1px solid" borderColor="green.200">
-                          <Text fontSize="10px" color="green.700" fontWeight="bold"> Produces:</Text>
+                        <HStack spacing={1} bg="green.50" px={2} py={0.5} borderRadius="control" border="1px solid" borderColor="green.200">
+                          <Text fontSize="10px" color="green.700" fontWeight="bold">Produces:</Text>
                           {produces.map((p, pi) => (
                             <Badge key={pi} fontSize="10px" bg="green.100" color="green.700" variant="subtle">{p}</Badge>
                           ))}
@@ -434,12 +455,6 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
                     </HStack>
                   </Box>
                 </HStack>
-
-                {!isLast && (
-                  <Flex justify="center" w="48px" my={1}>
-                    <Icon as={FiArrowDown} boxSize={3.5} color={isSelected ? "gold.600" : "paper.400"} />
-                  </Flex>
-                )}
               </Box>
             );
           })}
@@ -447,7 +462,7 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
       ) : (
         <VStack align="stretch" spacing={2}>
           {codePlan.map((stepItem, idx) => (
-            <HStack key={idx} p={2.5} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300" justify="space-between">
+            <HStack key={idx} p={2.5} bg="white" borderRadius="control" border="1px solid" borderColor="paper.300" justify="space-between">
               <HStack spacing={2}>
                 <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" minW="22px" textAlign="center">
                   S{stepItem.step || idx + 1}
@@ -463,23 +478,23 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
       )}
 
       {activeStep && (
-        <Box mt={4} pt={3} borderTop="1.5px dashed" borderColor="paper.300">
+        <Box mt={4} pt={3} borderTop="1px solid" borderColor="paper.300">
           <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1.5} textTransform="uppercase">
-             Stage {activeStep.step || activeStepIndex + 1} Step Detail:
+            Stage {activeStep.step || activeStepIndex + 1} detail
           </Text>
-          <Box p={3} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+          <Box p={3} bg="white" borderRadius="control" border="1px solid" borderColor="paper.300">
             <Text fontSize="xs" color="ink.900" fontWeight="600" mb={2}>
               {activeStep.goal}
             </Text>
             <VStack align="stretch" spacing={1.5} fontSize="xs">
               {activeStep.uses?.length > 0 && (
                 <Text color="slate.600">
-                  <b>Required Inputs:</b> {activeStep.uses.join(", ")}
+                  <b>Required inputs:</b> {activeStep.uses.join(", ")}
                 </Text>
               )}
               {activeStep.produces?.length > 0 && (
                 <Text color="green.700">
-                  <b>Generated Deliverables / Variables:</b> {activeStep.produces.join(", ")}
+                  <b>Generated deliverables:</b> {activeStep.produces.join(", ")}
                 </Text>
               )}
             </VStack>
@@ -498,9 +513,9 @@ function LedgerRow({ id, label, detail, done, onClick }) {
   return (
     <HStack align="start" spacing={3} py={3} px={3} mb={2} borderRadius="14px"
       bg={done ? bgRow : "transparent"}
-      boxShadow={done ? "0px 2px 8px rgba(30,25,17,0.06)" : "none"}
+      boxShadow={done ? "soft" : "none"}
       cursor={done ? "pointer" : "default"}
-      _hover={done ? { boxShadow: "0px 4px 14px rgba(30,25,17,0.10)" } : {}}
+      _hover={done ? { boxShadow: "cardHover" } : {}}
       onClick={done ? onClick : undefined}
       transition="all 0.15s">
       <Box minW="28px" pt="1px" display="flex" justifyContent="center">
@@ -529,6 +544,10 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
   const [drawerSize, setDrawerSize] = useState("md"); // md, lg, xl, full
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
+
+  // Column count for grid-based sections so "Full Screen" actually uses
+  // the available width instead of a single narrow column with empty space.
+  const gridColumns = drawerSize === "full" ? 3 : drawerSize === "lg" ? 2 : 1;
 
   const startResizing = (e) => {
     e.preventDefault();
@@ -691,7 +710,11 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
         onClose={() => setSelectedSection(null)}
       >
         <DrawerOverlay />
-        <DrawerContent bg="paper.50">
+        <DrawerContent
+          bg="paper.50"
+          maxW={drawerSize === "full" ? "1440px" : undefined}
+          mx={drawerSize === "full" ? "auto" : undefined}
+        >
           <DrawerCloseButton />
           <DrawerHeader borderBottomWidth="1px" borderColor="paper.300" fontFamily="mono" fontSize="md">
             <HStack justify="space-between" pr={8}>
@@ -715,9 +738,8 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                 <Text fontSize="md" color="ink.800" fontWeight="600" mb={1}>
                   Full breakdown of analyzed literature papers with clickable source URLs, sections detected, and extracted methodologies:
                 </Text>
+                <SimpleGrid columns={gridColumns} spacing={4} alignItems="start">
                 {papers.map((paper, idx) => {
-                  // DEBUG: log each paper object to browser console
-                  console.log(`[Sidebar paper ${idx}]`, JSON.stringify({ title: paper.title, url: paper.url, pdf_url: paper.pdf_url, source: paper.source }));
                   const rawSrc = String(paper.source || "").toLowerCase();
                   let paperSource = "ACADEMIC PUBLICATION";
                   if (rawSrc.includes("arxiv") || paper.url?.includes("arxiv")) {
@@ -736,14 +758,10 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     <Box
                       key={idx}
                       p={5}
-                      bg="white"
-                      borderRadius="lg"
-                      border="1.5px solid"
-                      borderColor="paper.300"
-                      boxShadow="md"
+                      {...SECTION_CARD}
                     >
                       <HStack justify="space-between" mb={3} align="center">
-                        <Badge colorScheme="purple" px={3} py={1} borderRadius="md" color="white" bg="gold.700"  fontSize="xs" fontWeight="bold">
+                        <Badge px={3} py={1} borderRadius="md" color="white" bg="gold.700" fontSize="xs" fontWeight="bold">
                           {paperSource}
                         </Badge>
                         <HStack spacing={3}>
@@ -757,7 +775,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                               fontWeight="bold"
                               _hover={{ textDecoration: "underline", color: "blue.800" }}
                             >
-                              🔗 [Open Article Link]
+                              <HStack spacing={1}><Icon as={FiExternalLink} boxSize={3} /><Text as="span">Article</Text></HStack>
                             </Link>
                           )}
                           {paper.pdf_url && (
@@ -770,7 +788,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                               fontWeight="bold"
                               _hover={{ textDecoration: "underline", color: "teal.800" }}
                             >
-                              📄 [Download PDF]
+                              <HStack spacing={1}><Icon as={FiFileText} boxSize={3} /><Text as="span">PDF</Text></HStack>
                             </Link>
                           )}
                         </HStack>
@@ -787,8 +805,8 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                       )}
                       
                       {paper.url ? (
-                        <Box bg="paper.100" p={2.5} borderRadius="md" mb={3} border="1px solid" borderColor="paper.300">
-                          <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1}>DIRECT PUBLICATION URL:</Text>
+                        <Box {...SECTION_CARD_SUBTLE} p={2.5} mb={3}>
+                          <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1}>Publication URL</Text>
                           <Link 
                             href={paper.url} 
                             target="_blank" 
@@ -803,9 +821,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                           </Link>
                         </Box>
                       ) : (
-                        <Box bg="orange.50" p={2} borderRadius="md" mb={3} border="1px solid" borderColor="orange.200">
-                          <Text fontSize="xs" color="orange.800">
-                            📄 User-uploaded local document (No public web URL).
+                        <Box bg="paper.50" p={2} borderRadius="control" mb={3} border="1px solid" borderColor="paper.300">
+                          <Text fontSize="xs" color="ink.700">
+                            User-uploaded local document (no public web URL).
                           </Text>
                         </Box>
                       )}
@@ -824,9 +842,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                       {paper.analysis && Object.keys(paper.analysis).length > 0 && (
                         <Accordion allowToggle size="md" mt={3}>
                           <AccordionItem border="none">
-                            <AccordionButton px={3} py={2} bg="paper.100" borderRadius="md" _hover={{ bg: "paper.200" }}>
+                            <AccordionButton px={3} py={2} bg="paper.100" borderRadius="control" _hover={{ bg: "paper.200" }}>
                               <Box flex="1" textAlign="left" fontSize="sm" fontWeight="bold" color="slate.700">
-                                View Section Methodologies & Results
+                                View section methodologies & results
                               </Box>
                               <AccordionIcon />
                             </AccordionButton>
@@ -846,7 +864,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                         <VStack align="stretch" spacing={1} pl={1}>
                                           {val.map((item, i) => (
                                             <HStack key={i} align="start" spacing={2}>
-                                              <Text color="slate.400" fontSize="xs" mt="1px" flexShrink={0}>•</Text>
+                                              <Text color="slate.400" fontSize="xs" mt="1px">•</Text>
                                               <Text fontSize="xs" color="ink.700" lineHeight="1.6">{String(item)}</Text>
                                             </HStack>
                                           ))}
@@ -877,7 +895,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                     return (
                                       <VStack align="stretch" spacing={3}>
                                         {Object.entries(byDataset).map(([dataset, rows]) => (
-                                          <Box key={dataset}>
+                                          <Box key={dataset} {...SECTION_CARD_SUBTLE} p={2.5}>
                                             <Badge colorScheme="blue" fontSize="xs" mb={2}>{dataset}</Badge>
                                             <Box overflowX="auto">
                                               <Box as="table" width="100%" fontSize="xs">
@@ -890,7 +908,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                                 </Box>
                                                 <Box as="tbody">
                                                   {rows.map((r, ri) => (
-                                                    <Box as="tr" key={ri} borderBottom="1px solid" borderColor="paper.200" _hover={{ bg: "paper.50" }}>
+                                                    <Box as="tr" key={ri} borderBottom="1px solid" borderColor="paper.200" _hover={{ bg: "white" }}>
                                                       <Box as="td" py={1} px={2} color="ink.800" fontWeight="600">{r.model || "N/A"}</Box>
                                                       <Box as="td" py={1} px={2} color="ink.600">{formatMetric(r.metric) || "N/A"}</Box>
                                                       <Box as="td" py={1} px={2} color="teal.700" fontWeight="700" textAlign="right">
@@ -908,7 +926,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                   };
 
                                   return (
-                                    <Box key={secKey} bg="paper.50" p={4} border="1px solid" borderColor="paper.300" borderRadius="md">
+                                    <Box key={secKey} {...SECTION_CARD_SUBTLE} p={4}>
                                       <Text fontWeight="bold" fontSize="sm" color="teal.800" mb={3} textTransform="uppercase" letterSpacing="wide">
                                         {secKey.replace(/_/g, " ")}
                                       </Text>
@@ -967,23 +985,17 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     </Box>
                   );
                 })}
+                </SimpleGrid>
               </VStack>
             )}
 
             {selectedSection === "similar_projects" && (
-              <VStack align="stretch" spacing={4}>
-                <Text fontSize="sm" color="ink.600" mb={2}>
-                  Similar repositories & projects discovered across GitHub, Hugging Face, Kaggle, and GitLab:
-                </Text>
+              <SimpleGrid columns={gridColumns} spacing={4} alignItems="start">
                 {similarProjects.map((proj, idx) => (
                   <Box
                     key={idx}
                     p={4}
-                    bg="white"
-                    borderRadius="md"
-                    border="1px solid"
-                    borderColor="paper.300"
-                    boxShadow="sm"
+                    {...SECTION_CARD}
                   >
                     <HStack justify="space-between" mb={2}>
                       <Badge colorScheme="green">{proj.source || "Code"}</Badge>
@@ -994,7 +1006,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     </Text>
                     {proj.url && (
                       <Link href={proj.url} isExternal fontSize="xs" color="blue.500" display="block" mb={2}>
-                        🔗 {proj.url}
+                        <HStack spacing={1}><Icon as={FiExternalLink} boxSize={3} /><Text as="span">{proj.url}</Text></HStack>
                       </Link>
                     )}
                     {proj.description && (
@@ -1004,14 +1016,13 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     )}
                   </Box>
                 ))}
-              </VStack>
+              </SimpleGrid>
             )}
 
             {selectedSection === "gaps" && (
-              <VStack align="stretch" spacing={3}>
-                <Text fontSize="sm" color="ink.600">Synthesized Research Gaps:</Text>
+              <SimpleGrid columns={gridColumns} spacing={4} alignItems="start">
                 {gaps.map((gap, idx) => (
-                  <Box key={idx} p={3} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                  <Box key={idx} p={4} {...SECTION_CARD}>
                     <Text fontWeight="bold" fontSize="xs" color="gold.800" mb={1}>
                       Gap #{idx + 1}: {gap.gap_description}
                     </Text>
@@ -1027,11 +1038,11 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     )}
                   </Box>
                 ))}
-              </VStack>
+              </SimpleGrid>
             )}
 
             {selectedSection === "idea" && (
-              <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+              <Box p={4} {...SECTION_CARD}>
                 <Text fontSize="xs" color="slate.500" mb={1}>CURRENT PROJECT IDEA</Text>
                 <Text fontSize="sm" fontWeight="bold">{s.idea || "Not set yet"}</Text>
               </Box>
@@ -1044,21 +1055,21 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
               const deliverables = tp.deliverables || [];
               const risks = tp.risks || [];
               return (
-                <VStack align="stretch" spacing={4}>
+                <SimpleGrid columns={drawerSize === "full" ? 2 : 1} spacing={4} alignItems="start">
                   {tp.novelty_assessment && (
-                    <Box p={4} bg="green.50" borderRadius="md" border="1px solid" borderColor="green.200">
+                    <Box p={4} {...SECTION_CARD_SUBTLE} bg="green.50" borderColor="green.200">
                       <Text fontSize="xs" color="green.700" fontWeight="bold" mb={1}>NOVELTY ASSESSMENT</Text>
                       <Text fontSize="sm" color="ink.800">{tp.novelty_assessment}</Text>
                     </Box>
                   )}
                   {tp.differentiation_strategy && (
-                    <Box p={4} bg="green.50" borderRadius="md" border="1px solid" borderColor="green.200">
+                    <Box p={4} {...SECTION_CARD_SUBTLE} bg="green.50" borderColor="green.200">
                       <Text fontSize="xs" color="green.700" fontWeight="bold" mb={1}>DIFFERENTIATION STRATEGY</Text>
                       <Text fontSize="sm" color="ink.800">{tp.differentiation_strategy}</Text>
                     </Box>
                   )}
                   {Object.keys(stack).length > 0 && (
-                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                    <Box p={4} {...SECTION_CARD}>
                       <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>RECOMMENDED STACK</Text>
                       {stack.core_technologies && (
                         <HStack spacing={1.5}  mb={2} wrap="wrap">
@@ -1081,13 +1092,13 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     </Box>
                   )}
                   {tp.architecture_overview && (
-                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                    <Box p={4} {...SECTION_CARD}>
                       <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>ARCHITECTURE OVERVIEW</Text>
                       <Text fontSize="sm" color="ink.800" whiteSpace="pre-wrap">{tp.architecture_overview}</Text>
                     </Box>
                   )}
                   {milestones.length > 0 && (
-                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                    <Box p={4} {...SECTION_CARD}>
                       <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={3}>MILESTONES ({milestones.length})</Text>
                       <VStack align="stretch" spacing={3}>
                         {milestones.map((m, idx) => {
@@ -1102,7 +1113,12 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                               <Box>
                                 <Text fontSize="sm" fontWeight="600" color="ink.900">{title}</Text>
                                 {desc && <Text fontSize="xs" color="ink.600" mt={0.5}>{desc}</Text>}
-                                {duration && <Text fontSize="xs" color="slate.500" mt={0.5}>⏱ {duration}</Text>}
+                                {duration && (
+                                  <HStack spacing={1} mt={0.5}>
+                                    <Icon as={FiClock} boxSize={3} color="slate.500" />
+                                    <Text fontSize="xs" color="slate.500">{duration}</Text>
+                                  </HStack>
+                                )}
                               </Box>
                             </HStack>
                           );
@@ -1111,7 +1127,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     </Box>
                   )}
                   {deliverables.length > 0 && (
-                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                    <Box p={4} {...SECTION_CARD}>
                       <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>DELIVERABLES</Text>
                       <VStack align="stretch" spacing={1}>
                         {deliverables.map((d, idx) => (
@@ -1121,16 +1137,19 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     </Box>
                   )}
                   {risks.length > 0 && (
-                    <Box p={4} bg="orange.50" borderRadius="md" border="1px solid" borderColor="orange.200">
-                      <Text fontSize="xs" color="orange.700" fontWeight="bold" mb={2}>RISKS</Text>
+                    <Box p={4} {...SECTION_CARD_SUBTLE} bg="orange.50" borderColor="orange.200">
+                      <HStack spacing={1.5} mb={2}>
+                        <Icon as={FiAlertTriangle} boxSize={3.5} color="orange.700" />
+                        <Text fontSize="xs" color="orange.700" fontWeight="bold">RISKS</Text>
+                      </HStack>
                       <VStack align="stretch" spacing={1}>
                         {risks.map((r, idx) => (
-                          <Text key={idx} fontSize="sm" color="ink.800">⚠ {typeof r === "string" ? r : (r.description || r.risk || JSON.stringify(r))}</Text>
+                          <Text key={idx} fontSize="sm" color="ink.800">• {typeof r === "string" ? r : (r.description || r.risk || JSON.stringify(r))}</Text>
                         ))}
                       </VStack>
                     </Box>
                   )}
-                </VStack>
+                </SimpleGrid>
               );
             })()}
 
@@ -1142,50 +1161,56 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
               const frontier = plan.frontier_topics || [];
               return (
                 <VStack align="stretch" spacing={4}>
-                  <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                  <Box p={4} {...SECTION_CARD}>
                     <Text fontSize="lg" fontWeight="700" color="ink.900" mb={1}>{plan.course_title || "Untitled Course"}</Text>
                     <HStack spacing={2} wrap="wrap">
                       {plan.target_audience && <Badge colorScheme="green" fontSize="xs">{plan.target_audience}</Badge>}
-                      {plan.suggested_duration && <Badge colorScheme="green" fontSize="xs">⏱ {plan.suggested_duration}</Badge>}
+                      {plan.suggested_duration && (
+                        <Badge colorScheme="green" fontSize="xs">
+                          <HStack spacing={1}><Icon as={FiClock} boxSize={2.5} /><Text as="span">{plan.suggested_duration}</Text></HStack>
+                        </Badge>
+                      )}
                     </HStack>
                   </Box>
-                  {objectives.length > 0 && (
-                    <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
-                      <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>LEARNING OBJECTIVES</Text>
-                      <VStack align="stretch" spacing={1.5}>
-                        {objectives.map((obj, idx) => (
-                          <HStack key={idx} align="start" spacing={2}>
-                            <Text color="green.500" fontSize="sm" mt="1px">✓</Text>
-                            <Text fontSize="sm" color="ink.800">{obj}</Text>
-                          </HStack>
-                        ))}
-                      </VStack>
-                    </Box>
-                  )}
-                  {prereqs.length > 0 && (
-                    <Box p={4} bg="paper.100" borderRadius="md" border="1px solid" borderColor="paper.300">
-                      <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>PREREQUISITES</Text>
-                      <VStack align="stretch" spacing={1}>
-                        {prereqs.map((pr, idx) => (
-                          <Text key={idx} fontSize="sm" color="ink.700">• {pr}</Text>
-                        ))}
-                      </VStack>
-                    </Box>
-                  )}
+                  <SimpleGrid columns={drawerSize === "full" ? 2 : 1} spacing={4} alignItems="start">
+                    {objectives.length > 0 && (
+                      <Box p={4} {...SECTION_CARD}>
+                        <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>LEARNING OBJECTIVES</Text>
+                        <VStack align="stretch" spacing={1.5}>
+                          {objectives.map((obj, idx) => (
+                            <HStack key={idx} align="start" spacing={2}>
+                              <Icon as={FiCheckCircle} color="green.500" boxSize={3.5} mt="2px" />
+                              <Text fontSize="sm" color="ink.800">{obj}</Text>
+                            </HStack>
+                          ))}
+                        </VStack>
+                      </Box>
+                    )}
+                    {prereqs.length > 0 && (
+                      <Box p={4} {...SECTION_CARD_SUBTLE}>
+                        <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>PREREQUISITES</Text>
+                        <VStack align="stretch" spacing={1}>
+                          {prereqs.map((pr, idx) => (
+                            <Text key={idx} fontSize="sm" color="ink.700">• {pr}</Text>
+                          ))}
+                        </VStack>
+                      </Box>
+                    )}
+                  </SimpleGrid>
                   {modules.length > 0 && (
                     <Box>
                       <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={3}>MODULES ({modules.length})</Text>
                       <Accordion allowMultiple>
                         {modules.map((m, idx) => (
-                          <AccordionItem key={idx} border="1px solid" borderColor="paper.300" borderRadius="md" mb={2} overflow="hidden">
-                            <AccordionButton px={4} py={3} _hover={{ bg: "paper.100" }}>
+                          <AccordionItem key={idx} {...SECTION_CARD} mb={2} overflow="hidden">
+                            <AccordionButton px={4} py={3} borderRadius="card" _hover={{ bg: "paper.50" }}>
                               <HStack flex="1" spacing={2}>
                                 <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" minW="24px" textAlign="center">{idx + 1}</Badge>
                                 <Text fontSize="sm" fontWeight="600" color="ink.900" textAlign="left">{m.title || "Untitled Module"}</Text>
                               </HStack>
                               <AccordionIcon />
                             </AccordionButton>
-                            <AccordionPanel px={4} pb={4} bg="white">
+                            <AccordionPanel px={4} pb={4}>
                               {m.description && <Text fontSize="sm" color="ink.700" mb={2}>{m.description}</Text>}
                               {m.problem_addressed && (
                                 <Box mb={2}><Text fontSize="xs" color="slate.600"><b>Problem:</b> {m.problem_addressed}</Text></Box>
@@ -1208,13 +1233,13 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     </Box>
                   )}
                   {frontier.length > 0 && (
-                    <Box p={4} bg="purple.50" borderRadius="md" border="1px solid" borderColor="purple.200">
+                    <Box p={4} {...SECTION_CARD_SUBTLE} bg="purple.50" borderColor="purple.200">
                       <Text fontSize="xs" color="purple.700" fontWeight="bold" mb={2}>FRONTIER TOPICS ({frontier.length})</Text>
                       <VStack align="stretch" spacing={2}>
                         {frontier.map((ft, idx) => (
                           <Box key={idx}>
                             <Text fontSize="sm" fontWeight="600" color="ink.900">
-                              - {typeof ft === "string" ? ft : (ft.topic || ft.title || "Untitled")}
+                              {typeof ft === "string" ? ft : (ft.topic || ft.title || "Untitled")}
                             </Text>
                             {typeof ft === "object" && (ft.description || ft.relevance) && (
                               <Text fontSize="xs" color="ink.600" mt={0.5}>{ft.description || ft.relevance}</Text>
@@ -1234,7 +1259,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
               const downloads = s.course_downloads || [];
               return (
                 <VStack align="stretch" spacing={4}>
-                  <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
+                  <Box p={4} {...SECTION_CARD}>
                     <Text fontSize="lg" fontWeight="700" color="ink.900" mb={1}>{course.course_title || "Generated Course"}</Text>
                     <Text fontSize="xs" color="slate.500" mb={downloads.length > 0 ? 3 : 0}>
                       {modules.length} module(s), {modules.reduce((acc, m) => acc + (m.lessons?.length || 0), 0)} lesson(s)
@@ -1248,67 +1273,21 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                               key={idx}
                               size="xs"
                               colorScheme="teal"
+                              leftIcon={<Icon as={FiDownload} />}
                               onClick={() => downloadArtifact(download)}
                             >
-                               {download.label || `Download Presentation ${idx + 1}`}
+                              {download.label || `Download Presentation ${idx + 1}`}
                             </Button>
                           ))}
                         </HStack>
                       </Box>
                     )}
                   </Box>
-                  <Accordion allowMultiple>
-                    {modules.map((mod, mi) => (
-                      <AccordionItem key={mi} border="1px solid" borderColor="paper.300" borderRadius="md" mb={3} overflow="hidden">
-                        <AccordionButton px={4} py={3} bg="paper.50" _hover={{ bg: "paper.100" }}>
-                          <HStack flex="1" spacing={2}>
-                            <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" minW="28px" textAlign="center">M{mi + 1}</Badge>
-                            <Text fontSize="sm" fontWeight="700" color="ink.900" textAlign="left">{mod.module_title || "Untitled Module"}</Text>
-                          </HStack>
-                          <AccordionIcon />
-                        </AccordionButton>
-                        <AccordionPanel px={0} pb={0} bg="white">
-                          {(mod.lessons || []).map((lesson, li) => (
-                            <Accordion key={li} allowToggle>
-                              <AccordionItem border="none" borderTop="1px solid" borderColor="paper.200">
-                                <AccordionButton px={4} py={2.5} _hover={{ bg: "paper.50" }}>
-                                  <HStack flex="1" spacing={2}>
-                                    <Text fontSize="xs" color="slate.500" fontFamily="mono">L{li + 1}</Text>
-                                    <Text fontSize="sm" fontWeight="600" color="ink.800" textAlign="left">{lesson.lesson_title || "Untitled Lesson"}</Text>
-                                  </HStack>
-                                  <AccordionIcon />
-                                </AccordionButton>
-                                <AccordionPanel px={4} pb={4}>
-                                  <VStack align="stretch" spacing={3}>
-                                    {(lesson.sections || []).map((sec, si) => (
-                                      <Box key={si} p={3} bg="paper.50" borderRadius="md" border="1px solid" borderColor="paper.200">
-                                        <Text fontSize="sm" fontWeight="600" color="teal.800" mb={1.5}>{sec.topic || "Untitled Section"}</Text>
-                                        {sec.explanation && (
-                                          <Text fontSize="xs" color="ink.700" mb={2} whiteSpace="pre-wrap" lineHeight="1.6">{sec.explanation}</Text>
-                                        )}
-                                        {sec.example_or_evidence && (
-                                          <Box bg="green.50" p={2} borderRadius="sm" mb={2} border="1px solid" borderColor="green.100">
-                                            <Text fontSize="xs" color="green.800"><b>Example / Evidence:</b> {sec.example_or_evidence}</Text>
-                                          </Box>
-                                        )}
-                                        {sec.key_terms && sec.key_terms.length > 0 && (
-                                          <HStack spacing={1} wrap="wrap">
-                                            {(Array.isArray(sec.key_terms) ? sec.key_terms : [sec.key_terms]).map((term, ti) => (
-                                              <Badge bg="green.50" key={ti} fontSize="xs" colorScheme="gray" variant="subtle">{term}</Badge>
-                                            ))}
-                                          </HStack>
-                                        )}
-                                      </Box>
-                                    ))}
-                                  </VStack>
-                                </AccordionPanel>
-                              </AccordionItem>
-                            </Accordion>
-                          ))}
-                        </AccordionPanel>
-                      </AccordionItem>
-                    ))}
-                  </Accordion>
+                  <SimpleGrid columns={2} spacing={6} alignItems="start">
+                  {modules.map((mod, mi) => (
+                    <AccordionInModule key={mi} mod={mod} mi={mi} />
+                  ))}
+                  </SimpleGrid>
                 </VStack>
               );
             })()}
@@ -1320,18 +1299,18 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
               return (
                 <VStack align="stretch" spacing={5}>
                   {/* Header Overview Card */}
-                  <Box p={5} bg="white" borderRadius="xl" border="1.5px solid" borderColor="paper.300" boxShadow="sm">
+                  <Box p={5} {...SECTION_CARD}>
                     <HStack justify="space-between" align="start" mb={2}>
                       <Box>
                         <Text fontSize="lg" fontWeight="700" color="ink.900" lineHeight="tight">
-                          Practical Exercises & Labs
+                          Practical Exercises & Labs 
                         </Text>
                         <Text fontSize="xs" color="slate.600" mt={1}>
-                          Hands-on coding exercises, notebook scaffolds, and interactive organigram plans built from literature and similar project repos.
+                          Hands-on coding exercises, notebook scaffolds, and step plans built from literature and similar project repos.
                         </Text>
                       </Box>
                       <Badge bg="green.600" color="white" fontSize="xs" px={3} py={1} borderRadius="full">
-                        {practicalExercisesList.length} Exercise{practicalExercisesList.length !== 1 ? "s" : ""} Available
+                        {practicalExercisesList.length} Exercise{practicalExercisesList.length !== 1 ? "s" : ""}
                       </Badge>
                     </HStack>
 
@@ -1339,7 +1318,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     {labDownloads.length > 0 && (
                       <Box mt={3} pt={3} borderTop="1px solid" borderColor="paper.200">
                         <Text fontSize="xs" color="green.700" fontWeight="bold" mb={2} textTransform="uppercase">
-                         AVAILABLE JUPYTER NOTEBOOKS:
+                          Available notebooks
                         </Text>
                         <HStack spacing={2} wrap="wrap">
                           {labDownloads.map((dl, idx) => (
@@ -1360,30 +1339,27 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
 
                   {/* Exercises List Accordion / Card View */}
                   {practicalExercisesList.length === 0 ? (
-                    <Box p={6} bg="white" borderRadius="lg" border="1px solid" borderColor="paper.300" textAlign="center">
-                      <Icon as={FaLaptopCode} boxSize={8} color="gold.500" mb={2} />
+                    <Box p={6} {...SECTION_CARD} textAlign="center">
+                      <Icon as={FaLaptopCode} boxSize={7} color="gold.500" mb={2} />
                       <Text fontSize="sm" fontWeight="bold" color="ink.800" mb={1}>
                         No Practical Exercises Generated Yet
                       </Text>
                       <Text fontSize="xs" color="slate.500" maxW="400px" mx="auto" mb={4}>
-                        Ask the assistant to "generate practical exercises", "build lab exercises", or "create notebooks" to generate hands-on exercises tailored to your project idea!
+                        Ask the assistant to "generate practical exercises", "build lab exercises", or "create notebooks" to generate hands-on exercises tailored to your project idea.
                       </Text>
                     </Box>
                   ) : (
-                    <Accordion allowMultiple defaultIndex={[0]}>
-                      {practicalExercisesList.map((ex, idx) => {
+                    <SimpleGrid columns={drawerSize === "full" ? 2 : 1} spacing={4} alignItems="start">
+                    {practicalExercisesList.map((ex, idx) => {
                         return (
-                          <AccordionItem
+                          <Box
                             key={ex.id || idx}
-                            border="1.5px solid"
-                            borderColor="paper.300"
-                            borderRadius="xl"
-                            mb={4}
+                            {...SECTION_CARD}
                             overflow="hidden"
-                            bg="white"
-                            boxShadow="sm"
                           >
-                            <AccordionButton px={5} py={4} bg="paper.50" _hover={{ bg: "paper.100" }}>
+                            <Accordion allowToggle defaultIndex={drawerSize !== "full" && idx === 0 ? [0] : undefined}>
+                            <AccordionItem border="none">
+                            <AccordionButton px={5} py={4} borderRadius="card" _hover={{ bg: "paper.50" }}>
                               <HStack flex="1" spacing={3} align="center">
                                 <Badge bg="gold.500" color="white" fontSize="xs" borderRadius="full" px={2.5} py={0.5}>
                                   EX {idx + 1}
@@ -1421,7 +1397,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                             <AccordionPanel px={5} py={5}>
                               <VStack align="stretch" spacing={5}>
                                 {/* Top Action Bar: Download Notebook Button */}
-                                <HStack justify="space-between" align="center" bg="green.200" p={3} borderRadius="lg" border="1px solid" borderColor="green.600">
+                                <HStack justify="space-between" align="center" {...SECTION_CARD_SUBTLE} bg="green.50" borderColor="green.200" p={3}>
                                   <HStack spacing={2}>
                                     <Icon as={FiCode} color="green.700" boxSize={5} />
                                     <Box>
@@ -1439,8 +1415,6 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                     colorScheme="green"
                                     leftIcon={<Icon as={FiDownload} />}
                                     onClick={() => handleDownloadNotebook(ex.notebookDownload, ex)}
-                                    boxShadow="xs"
-                                    _hover={{ transform: "translateY(-1px)" }}
                                   >
                                     Download Notebook
                                   </Button>
@@ -1448,11 +1422,11 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
 
                                 {/* Objectives */}
                                 {ex.objective && (
-                                  <Box p={4} bg="paper.50" borderRadius="lg" border="1px solid" borderColor="paper.300">
+                                  <Box p={4} {...SECTION_CARD_SUBTLE}>
                                     <HStack spacing={2} mb={1.5}>
-                                      <Text color="green.500" fontWeight="bold" fontSize="sm">✓</Text>
+                                      <Icon as={FiCheckCircle} color="green.500" boxSize={3.5} />
                                       <Text fontSize="xs" fontWeight="700" color="slate.600" textTransform="uppercase" letterSpacing="wide">
-                                        OBJECTIVES
+                                        Objectives
                                       </Text>
                                     </HStack>
                                     <Text fontSize="sm" color="ink.800" lineHeight="relaxed">
@@ -1463,9 +1437,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
 
                                 {/* Description and Context */}
                                 {ex.instructions && (
-                                  <Box p={4} bg="white" borderRadius="lg" border="1px solid" borderColor="paper.300">
+                                  <Box p={4} {...SECTION_CARD}>
                                     <Text fontSize="xs" fontWeight="700" color="slate.600" mb={1.5} textTransform="uppercase" letterSpacing="wide">
-                                      DESCRIPTION & CONTEXT
+                                      Description & context
                                     </Text>
                                     <Box fontSize="sm" color="ink.800" lineHeight="relaxed" sx={{
                                       "& p": { mb: 2 },
@@ -1483,14 +1457,14 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
 
                                 {/* Topics / Concepts Covered */}
                                 {ex.topics?.length > 0 && (
-                                  <Box p={4} bg="white" borderRadius="lg" border="1px solid" borderColor="paper.300">
+                                  <Box p={4} {...SECTION_CARD}>
                                     <Text fontSize="xs" fontWeight="700" color="slate.600" mb={2} textTransform="uppercase" letterSpacing="wide">
-                                      TOPICS / CONCEPTS COVERED
+                                      Topics / concepts covered
                                     </Text>
                                     <HStack spacing={2} wrap="wrap" >
                                       {ex.topics.map((tp, tpi) => (
                                         <Badge key={tpi} bg="green.100" color="green.700" fontSize="xs" px={2.5} py={1} borderRadius="md">
-                                          - {tp}
+                                          {tp}
                                         </Badge>
                                       ))}
                                     </HStack>
@@ -1499,9 +1473,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
 
                                 {/* Expected Outcomes */}
                                 {ex.outcomes && (
-                                  <Box p={4} bg="green.50" borderRadius="lg" border="1px solid" borderColor="green.200">
+                                  <Box p={4} {...SECTION_CARD_SUBTLE} bg="green.50" borderColor="green.200">
                                     <Text fontSize="xs" fontWeight="700" color="green.800" mb={1.5} textTransform="uppercase" letterSpacing="wide">
-                                      EXPECTED OUTCOMES
+                                      Expected outcomes
                                     </Text>
                                     <Text fontSize="sm" color="ink.800" lineHeight="relaxed">
                                       {typeof ex.outcomes === "string" ? ex.outcomes : JSON.stringify(ex.outcomes)}
@@ -1514,15 +1488,15 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
 
                                 {/* Repo Context Reference if matched repo exists */}
                                 {ex.repo && (
-                                  <Box p={3} bg="blue.50" borderRadius="lg" border="1px solid" borderColor="blue.200">
+                                  <Box p={3} {...SECTION_CARD_SUBTLE} bg="blue.50" borderColor="blue.200">
                                     <Text fontSize="xs" fontWeight="bold" color="blue.800" mb={1}>
-                                      🔗 BASED ON REPOSITORY:
+                                      Based on repository
                                     </Text>
                                     <HStack justify="space-between">
                                       <Text fontSize="xs" color="blue.700" fontWeight="600">{ex.repo.name}</Text>
                                       {ex.repo.url && (
                                         <Link href={ex.repo.url} isExternal fontSize="xs" color="blue.600" fontWeight="bold">
-                                          [View Source Code]
+                                          View source
                                         </Link>
                                       )}
                                     </HStack>
@@ -1531,9 +1505,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
 
                                 {/* Hints & Debug Hints */}
                                 {ex.hints?.length > 0 && (
-                                  <Box p={4} bg="paper.100" borderRadius="lg" border="1px solid" borderColor="paper.300">
+                                  <Box p={4} {...SECTION_CARD_SUBTLE}>
                                     <Text fontSize="xs" fontWeight="700" color="slate.600" mb={2} textTransform="uppercase">
-                                       PRACTICAL HINTS ({ex.hints.length})
+                                      Practical hints ({ex.hints.length})
                                     </Text>
                                     <VStack align="stretch" spacing={1.5}>
                                       {ex.hints.map((hint, hi) => (
@@ -1544,9 +1518,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                 )}
 
                                 {ex.debugMode && ex.debugHint && (
-                                  <Box p={3} bg="orange.50" borderRadius="lg" border="1px solid" borderColor="orange.300">
+                                  <Box p={3} {...SECTION_CARD_SUBTLE} bg="orange.50" borderColor="orange.300">
                                     <Text fontSize="xs" fontWeight="bold" color="orange.800" mb={1}>
-                                       DEBUGGING CHALLENGE MODE
+                                      Debugging challenge mode
                                     </Text>
                                     <Text fontSize="xs" color="orange.700">{ex.debugHint}</Text>
                                   </Box>
@@ -1555,10 +1529,10 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                 {/* Starter Code & Solution Code Accordion */}
                                 {(ex.starterCode || ex.solutionCode) && (
                                   <Accordion allowToggle mt={2}>
-                                    <AccordionItem border="1px solid" borderColor="paper.300" borderRadius="lg">
-                                      <AccordionButton bg="paper.100" py={2.5}>
+                                    <AccordionItem border="1px solid" borderColor="paper.300" borderRadius="control">
+                                      <AccordionButton bg="paper.50" py={2.5} borderRadius="control">
                                         <Box flex="1" textAlign="left" fontSize="xs" fontWeight="bold" color="slate.700">
-                                           View Python Code Implementation Scaffold
+                                          View code implementation scaffold
                                         </Box>
                                         <AccordionIcon />
                                       </AccordionButton>
@@ -1566,13 +1540,13 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                         {ex.starterCode && (
                                           <Box mb={3}>
                                             <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1.5}>
-                                              STARTER / SKELETON CODE:
+                                              Starter / skeleton code
                                             </Text>
                                             <Box
                                               p={3}
                                               bg="gray.900"
                                               color="green.300"
-                                              borderRadius="md"
+                                              borderRadius="control"
                                               fontFamily="mono"
                                               fontSize="xs"
                                               overflowX="auto"
@@ -1587,13 +1561,13 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                         {ex.solutionCode && (
                                           <Box>
                                             <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1.5}>
-                                              SOLUTION CODE:
+                                              Solution code
                                             </Text>
                                             <Box
                                               p={3}
                                               bg="gray.900"
                                               color="teal.200"
-                                              borderRadius="md"
+                                              borderRadius="control"
                                               fontFamily="mono"
                                               fontSize="xs"
                                               overflowX="auto"
@@ -1610,10 +1584,12 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                 )}
                               </VStack>
                             </AccordionPanel>
-                          </AccordionItem>
+                            </AccordionItem>
+                            </Accordion>
+                          </Box>
                         );
                       })}
-                    </Accordion>
+                    </SimpleGrid>
                   )}
                 </VStack>
               );
@@ -1626,17 +1602,18 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
               return (
                 <VStack align="stretch" spacing={4}>
                   {labDownloads.length > 0 && (
-                    <Box p={3} bg="purple.50" borderRadius="md" border="1px solid" borderColor="purple.200">
-                      <Text fontSize="xs" color="purple.800" fontWeight="bold" mb={2}>LAB NOTEBOOK DOWNLOADS:</Text>
+                    <Box p={3} {...SECTION_CARD_SUBTLE} bg="purple.50" borderColor="purple.200">
+                      <Text fontSize="xs" color="purple.800" fontWeight="bold" mb={2}>Lab notebook downloads</Text>
                       <HStack spacing={2} wrap="wrap">
                         {labDownloads.map((download, idx) => (
                           <Button
                             key={idx}
                             size="xs"
                             colorScheme="purple"
+                            leftIcon={<Icon as={FiDownload} />}
                             onClick={() => downloadArtifact(download)}
                           >
-                             {download.label || `Download Notebook ${idx + 1}`}
+                            {download.label || `Download Notebook ${idx + 1}`}
                           </Button>
                         ))}
                       </HStack>
@@ -1645,8 +1622,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                   <Text fontSize="md" fontWeight="600" color="ink.800" mb={1}>
                     {exps.length} Suggested Experiment{exps.length !== 1 ? "s" : ""}
                   </Text>
+                  <SimpleGrid columns={gridColumns} spacing={4} alignItems="start">
                   {exps.map((exp, idx) => (
-                    <Box key={idx} p={4} bg="white" borderRadius="md" border="1.5px solid" borderColor="paper.300" boxShadow="sm">
+                    <Box key={idx} p={4} {...SECTION_CARD}>
                       <HStack justify="space-between" mb={2} align="center">
                         <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" px={2.5}>
                           Experiment {idx + 1}
@@ -1655,7 +1633,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                       </HStack>
                       <Text fontWeight="700" fontSize="sm" color="ink.900" mb={2}>{exp.title || "Untitled Experiment"}</Text>
                       {exp.hypothesis && (
-                        <Box bg="blue.50" p={2.5} borderRadius="md" mb={2} border="1px solid" borderColor="blue.100">
+                        <Box {...SECTION_CARD_SUBTLE} bg="blue.50" borderColor="blue.100" p={2.5} mb={2}>
                           <Text fontSize="xs" color="blue.800"><b>Hypothesis:</b> {exp.hypothesis}</Text>
                         </Box>
                       )}
@@ -1663,7 +1641,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                         <Text fontSize="xs" color="ink.600" mb={2}><b>Gap Addressed:</b> {exp.gap_addressed}</Text>
                       )}
                       {exp.dataset && (
-                        <Box bg="paper.50" p={2.5} borderRadius="md" mb={2} border="1px solid" borderColor="paper.200">
+                        <Box {...SECTION_CARD_SUBTLE} p={2.5} mb={2}>
                           <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1}>DATASET</Text>
                           {typeof exp.dataset === "object" ? (
                             <VStack align="stretch" spacing={1}>
@@ -1703,7 +1681,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                         </Box>
                       )}
                       {exp.protocol && (
-                        <Box mt={2} p={2.5} bg="paper.100" borderRadius="md" border="1px solid" borderColor="paper.300">
+                        <Box mt={2} {...SECTION_CARD_SUBTLE} p={2.5}>
                           <Text fontSize="xs" color="slate.600" fontWeight="bold" mb={1}>PROTOCOL</Text>
                           {Array.isArray(exp.protocol) ? (
                             <VStack align="stretch" spacing={1}>
@@ -1728,18 +1706,78 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                         </Box>
                       )}
                       {exp.expected_outcome && (
-                        <Box mt={2} p={2} bg="green.50" borderRadius="sm" border="1px solid" borderColor="green.100">
+                        <Box mt={2} {...SECTION_CARD_SUBTLE} bg="green.50" borderColor="green.100" p={2}>
                           <Text fontSize="xs" color="green.800"><b>Expected Outcome:</b> {exp.expected_outcome}</Text>
                         </Box>
                       )}
                     </Box>
                   ))}
+                  </SimpleGrid>
                 </VStack>
               );
             })()}
           </DrawerBody>
         </DrawerContent>
       </Drawer>
+    </Box>
+  );
+}
+
+// Extracted so the course module/lesson accordion can sit as an item inside
+// the SimpleGrid used for Full Screen's multi-column layout.
+function AccordionInModule({ mod, mi }) {
+  return (
+    <Box {...SECTION_CARD} overflow="hidden">
+      <Accordion allowMultiple defaultIndex={mi === 0 ? [0] : undefined}>
+        <AccordionItem border="none">
+          <AccordionButton px={4} py={3} bg="paper.50" _hover={{ bg: "paper.100" }} borderRadius="card">
+            <HStack flex="1" spacing={2}>
+              <Badge bg="gold.100" color="gold.800" fontSize="xs" borderRadius="full" minW="28px" textAlign="center">M{mi + 1}</Badge>
+              <Text fontSize="sm" fontWeight="700" color="ink.900" textAlign="left">{mod.module_title || "Untitled Module"}</Text>
+            </HStack>
+            <AccordionIcon />
+          </AccordionButton>
+          <AccordionPanel px={0} pb={0}>
+            {(mod.lessons || []).map((lesson, li) => (
+              <Accordion key={li} allowToggle>
+                <AccordionItem border="none" borderTop="1px solid" borderColor="paper.200">
+                  <AccordionButton px={4} py={2.5} _hover={{ bg: "paper.50" }}>
+                    <HStack flex="1" spacing={2}>
+                      <Text fontSize="xs" color="slate.500" fontFamily="mono">L{li + 1}</Text>
+                      <Text fontSize="sm" fontWeight="600" color="ink.800" textAlign="left">{lesson.lesson_title || "Untitled Lesson"}</Text>
+                    </HStack>
+                    <AccordionIcon />
+                  </AccordionButton>
+                  <AccordionPanel px={4} pb={4}>
+                    <VStack align="stretch" spacing={3}>
+                      {(lesson.sections || []).map((sec, si) => (
+                        <Box key={si} {...SECTION_CARD_SUBTLE} p={3}>
+                          <Text fontSize="sm" fontWeight="600" color="teal.800" mb={1.5}>{sec.topic || "Untitled Section"}</Text>
+                          {sec.explanation && (
+                            <Text fontSize="xs" color="ink.700" mb={2} whiteSpace="pre-wrap" lineHeight="1.6">{sec.explanation}</Text>
+                          )}
+                          {sec.example_or_evidence && (
+                            <Box bg="green.50" p={2} borderRadius="sm" mb={2} border="1px solid" borderColor="green.100">
+                              <Text fontSize="xs" color="green.800"><b>Example / Evidence:</b> {sec.example_or_evidence}</Text>
+                            </Box>
+                          )}
+                          {sec.key_terms && sec.key_terms.length > 0 && (
+                            <HStack spacing={1} wrap="wrap">
+                              {(Array.isArray(sec.key_terms) ? sec.key_terms : [sec.key_terms]).map((term, ti) => (
+                                <Badge bg="green.50" key={ti} fontSize="xs" colorScheme="gray" variant="subtle">{term}</Badge>
+                              ))}
+                            </HStack>
+                          )}
+                        </Box>
+                      ))}
+                    </VStack>
+                  </AccordionPanel>
+                </AccordionItem>
+              </Accordion>
+            ))}
+          </AccordionPanel>
+        </AccordionItem>
+      </Accordion>
     </Box>
   );
 }
