@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { downloadArtifact } from "../api.js";
+import ReactMarkdown from "react-markdown";
 import {
   Box,
   Text,
@@ -325,7 +326,7 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
           <Button
             size="xs"
             variant="ghost"
-            colorScheme="teal"
+            colorScheme="green"
             fontSize="10px"
             onClick={() => setViewMode(viewMode === "organigram" ? "compact" : "organigram")}
           >
@@ -415,18 +416,18 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
 
                     <HStack spacing={2} wrap="wrap" pt={1}>
                       {uses.length > 0 && (
-                        <HStack spacing={1} bg="blue.50" px={2} py={0.5} borderRadius="md" border="1px solid" borderColor="blue.100">
-                          <Text fontSize="10px" color="blue.700" fontWeight="bold"> Uses :</Text>
+                        <HStack spacing={1} bg="green.50" px={2} py={0.5} borderRadius="md" border="1px solid" borderColor="green.100">
+                          <Text fontSize="10px" color="green.700" fontWeight="bold"> Uses :</Text>
                           {uses.map((u, ui) => (
-                            <Badge key={ui} fontSize="10px" colorScheme="blue" variant="subtle">{u}</Badge>
+                            <Badge key={ui} fontSize="10px" colorScheme="green" variant="subtle">{u}</Badge>
                           ))}
                         </HStack>
                       )}
                       {produces.length > 0 && (
-                        <HStack spacing={1} bg="teal.50" px={2} py={0.5} borderRadius="md" border="1px solid" borderColor="teal.100">
-                          <Text fontSize="10px" color="teal.700" fontWeight="bold"> Produces:</Text>
+                        <HStack spacing={1} bg="green.50" px={2} py={0.5} borderRadius="md" border="1px solid" borderColor="green.200">
+                          <Text fontSize="10px" color="green.700" fontWeight="bold"> Produces:</Text>
                           {produces.map((p, pi) => (
-                            <Badge key={pi} fontSize="10px" colorScheme="teal" variant="subtle">{p}</Badge>
+                            <Badge key={pi} fontSize="10px" bg="green.100" color="green.700" variant="subtle">{p}</Badge>
                           ))}
                         </HStack>
                       )}
@@ -454,7 +455,7 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
                 <Text fontSize="xs" fontWeight="600" color="ink.800">{stepItem.goal}</Text>
               </HStack>
               {stepItem.produces?.length > 0 && (
-                <Badge colorScheme="teal" fontSize="10px">Produces: {stepItem.produces.join(", ")}</Badge>
+                <Badge bg="green.100" color="green.700" fontSize="10px">Produces: {stepItem.produces.join(", ")}</Badge>
               )}
             </HStack>
           ))}
@@ -477,7 +478,7 @@ function ExerciseOrganigram({ codePlan, exerciseTitle }) {
                 </Text>
               )}
               {activeStep.produces?.length > 0 && (
-                <Text color="teal.700">
+                <Text color="green.700">
                   <b>Generated Deliverables / Variables:</b> {activeStep.produces.join(", ")}
                 </Text>
               )}
@@ -985,7 +986,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     boxShadow="sm"
                   >
                     <HStack justify="space-between" mb={2}>
-                      <Badge colorScheme="blue">{proj.source || "Code"}</Badge>
+                      <Badge colorScheme="green">{proj.source || "Code"}</Badge>
                       <Badge colorScheme="green">{proj.similarity_score}% Match</Badge>
                     </HStack>
                     <Text fontWeight="bold" fontSize="sm" color="ink.900" mb={1}>
@@ -1051,8 +1052,8 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     </Box>
                   )}
                   {tp.differentiation_strategy && (
-                    <Box p={4} bg="blue.50" borderRadius="md" border="1px solid" borderColor="blue.200">
-                      <Text fontSize="xs" color="blue.700" fontWeight="bold" mb={1}>DIFFERENTIATION STRATEGY</Text>
+                    <Box p={4} bg="green.50" borderRadius="md" border="1px solid" borderColor="green.200">
+                      <Text fontSize="xs" color="green.700" fontWeight="bold" mb={1}>DIFFERENTIATION STRATEGY</Text>
                       <Text fontSize="sm" color="ink.800">{tp.differentiation_strategy}</Text>
                     </Box>
                   )}
@@ -1060,9 +1061,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
                       <Text fontSize="xs" color="slate.500" fontWeight="bold" mb={2}>RECOMMENDED STACK</Text>
                       {stack.core_technologies && (
-                        <HStack spacing={1.5} mb={2} wrap="wrap">
+                        <HStack spacing={1.5}  mb={2} wrap="wrap">
                           {(Array.isArray(stack.core_technologies) ? stack.core_technologies : [stack.core_technologies]).map((t) => (
-                            <Badge key={t} colorScheme="purple" fontSize="xs" px={2} py={0.5} borderRadius="sm">{t}</Badge>
+                            <Badge key={t} bg="ink.50" colorScheme="cherry.300" fontSize="xs" px={2} py={0.5} borderRadius="sm">{t}</Badge>
                           ))}
                         </HStack>
                       )}
@@ -1144,7 +1145,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                   <Box p={4} bg="white" borderRadius="md" border="1px solid" borderColor="paper.300">
                     <Text fontSize="lg" fontWeight="700" color="ink.900" mb={1}>{plan.course_title || "Untitled Course"}</Text>
                     <HStack spacing={2} wrap="wrap">
-                      {plan.target_audience && <Badge colorScheme="blue" fontSize="xs">{plan.target_audience}</Badge>}
+                      {plan.target_audience && <Badge colorScheme="green" fontSize="xs">{plan.target_audience}</Badge>}
                       {plan.suggested_duration && <Badge colorScheme="green" fontSize="xs">⏱ {plan.suggested_duration}</Badge>}
                     </HStack>
                   </Box>
@@ -1196,7 +1197,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                 <HStack spacing={1} wrap="wrap" mt={1}>
                                   <Text fontSize="xs" color="slate.500" fontWeight="bold">Papers:</Text>
                                   {(Array.isArray(m.based_on_papers) ? m.based_on_papers : [m.based_on_papers]).map((paper, pi) => (
-                                    <Badge key={pi} fontSize="xs" colorScheme="purple" variant="subtle">{paper}</Badge>
+                                    <Badge key={pi} fontSize="xs" colorScheme="green" variant="subtle">{paper}</Badge>
                                   ))}
                                 </HStack>
                               )}
@@ -1213,7 +1214,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                         {frontier.map((ft, idx) => (
                           <Box key={idx}>
                             <Text fontSize="sm" fontWeight="600" color="ink.900">
-                              🔬 {typeof ft === "string" ? ft : (ft.topic || ft.title || "Untitled")}
+                              - {typeof ft === "string" ? ft : (ft.topic || ft.title || "Untitled")}
                             </Text>
                             {typeof ft === "object" && (ft.description || ft.relevance) && (
                               <Text fontSize="xs" color="ink.600" mt={0.5}>{ft.description || ft.relevance}</Text>
@@ -1249,7 +1250,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                               colorScheme="teal"
                               onClick={() => downloadArtifact(download)}
                             >
-                              📄 {download.label || `Download Presentation ${idx + 1}`}
+                               {download.label || `Download Presentation ${idx + 1}`}
                             </Button>
                           ))}
                         </HStack>
@@ -1286,14 +1287,14 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                           <Text fontSize="xs" color="ink.700" mb={2} whiteSpace="pre-wrap" lineHeight="1.6">{sec.explanation}</Text>
                                         )}
                                         {sec.example_or_evidence && (
-                                          <Box bg="blue.50" p={2} borderRadius="sm" mb={2} border="1px solid" borderColor="blue.100">
-                                            <Text fontSize="xs" color="blue.800"><b>Example / Evidence:</b> {sec.example_or_evidence}</Text>
+                                          <Box bg="green.50" p={2} borderRadius="sm" mb={2} border="1px solid" borderColor="green.100">
+                                            <Text fontSize="xs" color="green.800"><b>Example / Evidence:</b> {sec.example_or_evidence}</Text>
                                           </Box>
                                         )}
                                         {sec.key_terms && sec.key_terms.length > 0 && (
                                           <HStack spacing={1} wrap="wrap">
                                             {(Array.isArray(sec.key_terms) ? sec.key_terms : [sec.key_terms]).map((term, ti) => (
-                                              <Badge key={ti} fontSize="xs" colorScheme="gray" variant="subtle">{term}</Badge>
+                                              <Badge bg="green.50" key={ti} fontSize="xs" colorScheme="gray" variant="subtle">{term}</Badge>
                                             ))}
                                           </HStack>
                                         )}
@@ -1329,7 +1330,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                           Hands-on coding exercises, notebook scaffolds, and interactive organigram plans built from literature and similar project repos.
                         </Text>
                       </Box>
-                      <Badge colorScheme="purple" fontSize="xs" px={3} py={1} borderRadius="full">
+                      <Badge bg="green.600" color="white" fontSize="xs" px={3} py={1} borderRadius="full">
                         {practicalExercisesList.length} Exercise{practicalExercisesList.length !== 1 ? "s" : ""} Available
                       </Badge>
                     </HStack>
@@ -1337,7 +1338,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                     {/* Global Notebook Downloads Button Header if available */}
                     {labDownloads.length > 0 && (
                       <Box mt={3} pt={3} borderTop="1px solid" borderColor="paper.200">
-                        <Text fontSize="xs" color="teal.700" fontWeight="bold" mb={2} textTransform="uppercase">
+                        <Text fontSize="xs" color="green.700" fontWeight="bold" mb={2} textTransform="uppercase">
                          AVAILABLE JUPYTER NOTEBOOKS:
                         </Text>
                         <HStack spacing={2} wrap="wrap">
@@ -1345,7 +1346,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                             <Button
                               key={idx}
                               size="xs"
-                              colorScheme="teal"
+                              colorScheme="green"
                               leftIcon={<Icon as={FiDownload} />}
                               onClick={() => downloadArtifact(dl)}
                             >
@@ -1394,7 +1395,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                   <HStack spacing={2} mt={1} wrap="wrap">
                                     {ex.difficulty && (
                                       <Badge
-                                        colorScheme={ex.difficulty === "beginner" ? "green" : ex.difficulty === "advanced" ? "red" : "purple"}
+                                        colorScheme={ex.difficulty === "beginner" ? "green" : ex.difficulty === "advanced" ? "red" : "green"}
                                         fontSize="10px"
                                         borderRadius="sm"
                                       >
@@ -1402,7 +1403,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                       </Badge>
                                     )}
                                     {ex.format && (
-                                      <Badge colorScheme="blue" fontSize="10px" borderRadius="sm">
+                                      <Badge colorScheme="green" fontSize="10px" borderRadius="sm">
                                         {ex.format.toUpperCase()}
                                       </Badge>
                                     )}
@@ -1422,12 +1423,12 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                 {/* Top Action Bar: Download Notebook Button */}
                                 <HStack justify="space-between" align="center" bg="green.200" p={3} borderRadius="lg" border="1px solid" borderColor="green.600">
                                   <HStack spacing={2}>
-                                    <Icon as={FiCode} color="teal.700" boxSize={5} />
+                                    <Icon as={FiCode} color="green.700" boxSize={5} />
                                     <Box>
-                                      <Text fontSize="xs" fontWeight="bold" color="green.600">
+                                      <Text fontSize="xs" fontWeight="bold" color="green.700">
                                         Practical Exercise Resource
                                       </Text>
-                                      <Text fontSize="10px" color="green.700">
+                                      <Text fontSize="10px" color="green.600">
                                         {ex.format === "notebook" ? "Runnable Jupyter Notebook (.ipynb)" : "Interactive Coding Challenge"}
                                       </Text>
                                     </Box>
@@ -1435,7 +1436,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
 
                                   <Button
                                     size="sm"
-                                    colorScheme="teal"
+                                    colorScheme="green"
                                     leftIcon={<Icon as={FiDownload} />}
                                     onClick={() => handleDownloadNotebook(ex.notebookDownload, ex)}
                                     boxShadow="xs"
@@ -1466,9 +1467,17 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                     <Text fontSize="xs" fontWeight="700" color="slate.600" mb={1.5} textTransform="uppercase" letterSpacing="wide">
                                       DESCRIPTION & CONTEXT
                                     </Text>
-                                    <Text fontSize="sm" color="ink.800" whiteSpace="pre-wrap" lineHeight="relaxed">
-                                      {ex.instructions}
-                                    </Text>
+                                    <Box fontSize="sm" color="ink.800" lineHeight="relaxed" sx={{
+                                      "& p": { mb: 2 },
+                                      "& strong": { fontWeight: "700" },
+                                      "& em": { fontStyle: "italic" },
+                                      "& ul": { pl: 4, mb: 2 },
+                                      "& ol": { pl: 4, mb: 2 },
+                                      "& li": { mb: 1 },
+                                      "& code": { bg: "paper.200", px: 1, borderRadius: "sm", fontSize: "xs", fontFamily: "mono" },
+                                    }}>
+                                      <ReactMarkdown>{ex.instructions}</ReactMarkdown>
+                                    </Box>
                                   </Box>
                                 )}
 
@@ -1480,7 +1489,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                                     </Text>
                                     <HStack spacing={2} wrap="wrap" >
                                       {ex.topics.map((tp, tpi) => (
-                                        <Badge key={tpi} colorScheme="purple" bg="paper.300" color="ink.600" fontSize="xs" px={2.5} py={1} borderRadius="md" variant="subtle">
+                                        <Badge key={tpi} bg="green.100" color="green.700" fontSize="xs" px={2.5} py={1} borderRadius="md">
                                           - {tp}
                                         </Badge>
                                       ))}

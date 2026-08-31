@@ -25,6 +25,8 @@ const colors = {
     500: "#E5E5B3",
   },
   ink: {
+    50:  "#F5F5F5",
+    400: "#AFA17D",  // secondary text
     500: "#8A7F5C",
     600: "#5C5233",
     700: "#3B331C",
@@ -35,6 +37,11 @@ const colors = {
     50:"#E77F73",
     900:"#922519",
   },
+  cherry:{ 
+    300:"#B82843",
+400:"#A4243B",
+  },
+  
   gold: {
     50:  "#FBF0DD",
     400: "#DDA15E",  // your tan — lighter accent, hover states
