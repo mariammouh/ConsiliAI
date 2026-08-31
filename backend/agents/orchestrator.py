@@ -876,17 +876,21 @@ Recent conversation:
 
 {_INTENT_SCHEMA_INSTRUCTIONS}
 """
-    gemini_llm, _ = _ensure_llm_clients()
-    raw = gemini_llm.invoke(prompt).content
+    from agents.llm_router import get_active_llm, set_fallback_note
+    classifier_llm, _ = get_active_llm(task_type="lightweight")
+    try:
+        raw = classifier_llm.invoke(prompt).content
+    except Exception as e:
+        print(f"[orchestrator] Classifier LLM invocation failed ({e}). Falling back to Gemini.")
+        set_fallback_note(" Local Ollama memory limit reached or error occurred. Fell back to Cloud provider.")
+        from agents.tools import _get_gemini_llm
+        raw = _get_gemini_llm().invoke(prompt).content
+
     if isinstance(raw, list):
         raw = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in raw)
     parsed = _safe_json_parse(raw)
 
     if not parsed or "intent" not in parsed:
-        # Fail open toward the tool loop rather than getting stuck — an
-        # unparseable classification shouldn't block the user's turn, and
-        # the tool-bound agent's own judgment is the fallback here, not a
-        # silent no-op.
         return {"intent": "action_request", "idea": None, "direct_reply": None}
     return parsed
 
@@ -953,21 +957,37 @@ Guidelines:
 - Prefer calling summarize_progress over re-running a tool if you're unsure whether something has already been generated for the current idea.
 - Only call explore_adjacent_fields after check_topic_relevance has reported no direct match AND the user has confirmed they want that."""
 
-_llm_with_tools = None
+_llm_with_tools_cache = {}
 
 
 def _get_llm_with_tools():
-    """Bind tools to each underlying chat model FIRST, then wrap the
-    fallback around the two already tool-bound runnables. `.bind_tools()`
-    is only implemented on actual chat-model classes — calling it on a
-    `RunnableWithFallbacks` (i.e. binding after wrapping) does not work."""
-    global _llm_with_tools
-    if _llm_with_tools is None:
+    """Bind tools to each underlying chat model FIRST, then wrap fallbacks.
+    Respects the active LLM provider (cloud vs local/ollama)."""
+    from agents.llm_router import get_active_provider, is_ollama_available, get_ollama_llm, set_fallback_note
+    provider = get_active_provider()
+
+    if provider == "local":
         gemini_llm, groq_llm = _ensure_llm_clients()
         groq_with_tools = groq_llm.bind_tools(TOOLS)
         gemini_with_tools = gemini_llm.bind_tools(TOOLS)
-        _llm_with_tools = groq_with_tools.with_fallbacks([gemini_with_tools])
-    return _llm_with_tools
+        if is_ollama_available():
+            try:
+                ollama_llm = get_ollama_llm()
+                ollama_with_tools = ollama_llm.bind_tools(TOOLS)
+                return ollama_with_tools.with_fallbacks([groq_with_tools, gemini_with_tools])
+            except Exception as e:
+                print(f"[orchestrator] Could not bind tools to ChatOllama ({e}). Falling back to cloud.")
+
+        note = " Local Ollama is offline or unreachable. Used Cloud provider for tool orchestration."
+        set_fallback_note(note)
+        return groq_with_tools.with_fallbacks([gemini_with_tools])
+
+    if "cloud" not in _llm_with_tools_cache:
+        gemini_llm, groq_llm = _ensure_llm_clients()
+        groq_with_tools = groq_llm.bind_tools(TOOLS)
+        gemini_with_tools = gemini_llm.bind_tools(TOOLS)
+        _llm_with_tools_cache["cloud"] = groq_with_tools.with_fallbacks([gemini_with_tools])
+    return _llm_with_tools_cache["cloud"]
 
 
 def agent_node(state: OrchestratorState) -> dict:
@@ -976,8 +996,18 @@ def agent_node(state: OrchestratorState) -> dict:
     system_msg = SystemMessage(content=SYSTEM_PROMPT + idea_note)
 
     non_system_messages = [m for m in state["messages"] if not isinstance(m, SystemMessage)]
-    response = llm_with_tools.invoke([system_msg] + non_system_messages)
+    try:
+        response = llm_with_tools.invoke([system_msg] + non_system_messages)
+    except Exception as e:
+        print(f"[orchestrator] agent_node LLM invocation failed ({e}). Falling back to Cloud Groq.")
+        from agents.tools import _ensure_llm_clients
+        from agents.llm_router import set_fallback_note
+        set_fallback_note(" Local Ollama invocation error (memory/runner panic). Fell back to Cloud provider.")
+        gemini_llm, groq_llm = _ensure_llm_clients()
+        cloud_with_tools = groq_llm.bind_tools(TOOLS).with_fallbacks([gemini_llm.bind_tools(TOOLS)])
+        response = cloud_with_tools.invoke([system_msg] + non_system_messages)
     return {"messages": [response]}
+
 
 
 # =============================================================================
@@ -1026,11 +1056,14 @@ def _build_graph():
     return _graph
 
 
-def run_orchestrator_turn(message: str, thread_id: str = "default") -> str:
+def run_orchestrator_turn(message: str, thread_id: str = "default", llm_provider: str = "cloud") -> str:
     """Single entry point for main.py's /chat endpoint. Runs one user turn
     through the graph (classify -> maybe agent/tools loop), persists state
     under `thread_id` via the checkpointer, and returns the assistant's
     final text reply."""
+    from agents.llm_router import set_active_provider, get_fallback_note
+    set_active_provider(llm_provider)
+
     graph = _build_graph()
     config = {"configurable": {"thread_id": thread_id}}
     result = graph.invoke({"messages": [{"role": "user", "content": message}]}, config=config)
@@ -1039,7 +1072,13 @@ def run_orchestrator_turn(message: str, thread_id: str = "default") -> str:
     content = final_message.content
     if isinstance(content, list):
         content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
+
+    fallback_note = get_fallback_note()
+    if fallback_note and fallback_note not in content:
+        content = f"{content}\n\n{fallback_note}"
+
     return content
+
 
 
 def get_state_snapshot(thread_id: str = "default") -> dict:

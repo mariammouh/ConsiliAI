@@ -192,6 +192,43 @@ async def delete_conversation(
     return {"message": "Deleted"}
 
 
+from pydantic import BaseModel, Field, field_validator
+
+
+class SettingsPayload(BaseModel):
+    llm_provider: str = Field(..., description="LLM provider choice: 'cloud' or 'local'")
+
+    @field_validator("llm_provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        if v not in ("cloud", "local"):
+            raise ValueError("llm_provider must be 'cloud' or 'local'")
+        return v
+
+
+@app.get("/settings")
+async def get_settings(user: User = Depends(current_active_user)):
+    return {
+        "llm_provider": getattr(user, "llm_provider", "cloud")
+    }
+
+
+@app.patch("/settings")
+async def update_settings(
+    payload: SettingsPayload,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    user.llm_provider = payload.llm_provider
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return {
+        "llm_provider": user.llm_provider,
+        "message": f"LLM provider updated to {user.llm_provider}"
+    }
+
+
 @app.post("/chat/{conversation_id}")
 async def chat_endpoint(
     conversation_id: str,
@@ -214,10 +251,13 @@ async def chat_endpoint(
         conv.title = truncated
         await session.commit()
 
+    user_provider = getattr(user, "llm_provider", "cloud")
     reply = run_orchestrator_turn(
         message=message,
         thread_id=thread_id,
+        llm_provider=user_provider,
     )
+
 
     state = get_state_snapshot(thread_id)
 

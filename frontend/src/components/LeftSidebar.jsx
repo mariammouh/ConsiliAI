@@ -27,6 +27,7 @@ import {
   useDisclosure,
   useColorMode,
   useColorModeValue,
+  useToast,
 } from "@chakra-ui/react";
 import { 
   FiChevronLeft, 
@@ -39,9 +40,11 @@ import {
   FiSettings, 
   FiX, 
   FiSun, 
-  FiMoon 
+  FiMoon,
+  FiCpu
 } from "react-icons/fi";
-import { getUserMe } from "../api.js";
+import { getUserMe, getSettings, updateSettings } from "../api.js";
+
 
 export default function LeftSidebar({ 
   conversations, 
@@ -59,9 +62,12 @@ export default function LeftSidebar({
 }) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { colorMode, setColorMode } = useColorMode();
+  const toast = useToast();
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [isResizing, setIsResizing] = useState(false);
   const [userData, setUserData] = useState(null);
+  const [llmProvider, setLlmProvider] = useState("cloud");
+  const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
 
   const bgSidebar = useColorModeValue("paper.50", "gray.900");
   const borderColor = useColorModeValue("paper.300", "gray.700");
@@ -70,29 +76,60 @@ export default function LeftSidebar({
   const textPrimary = useColorModeValue("ink.900", "gray.100");
   const textSecondary = useColorModeValue("ink.600", "gray.400");
   const textSubtle = useColorModeValue("slate.500", "gray.400");
-// Consistent card treatment — reuses the theme's own shadow/radius tokens
-// instead of ad hoc "sm"/"md"/"xs" values scattered per-box.
-const SECTION_CARD = {
-  bg: "white",
-  borderRadius: "card",     // theme.radii.card → 20px, same everywhere
-  border: "1px solid",
-  borderColor: "paper.300",
-  boxShadow: "soft",        // theme.shadows.soft — same weight as the ledger rows
-};
 
-const SECTION_CARD_SUBTLE = {
-  bg: "paper.50",
-  borderRadius: "control",  // 12px, for nested/inner boxes so hierarchy still reads
-  border: "1px solid",
-  borderColor: "paper.300",
-};
+  const SECTION_CARD = {
+    bg: "white",
+    borderRadius: "card",
+    border: "1px solid",
+    borderColor: "paper.300",
+    boxShadow: "soft",
+  };
+
+  const SECTION_CARD_SUBTLE = {
+    bg: "paper.50",
+    borderRadius: "control",
+    border: "1px solid",
+    borderColor: "paper.300",
+  };
+
   useEffect(() => {
     if (isOpen) {
       getUserMe().then((data) => {
         if (data) setUserData(data);
       });
+      getSettings()
+        .then((s) => {
+          if (s?.llm_provider) setLlmProvider(s.llm_provider);
+        })
+        .catch(() => {});
     }
   }, [isOpen]);
+
+  const handleProviderChange = async (val) => {
+    setLlmProvider(val);
+    setIsUpdatingProvider(true);
+    try {
+      await updateSettings({ llm_provider: val });
+      toast({
+        title: "Model preference saved",
+        description: `Active LLM provider set to ${val === "cloud" ? "Cloud (Groq + Gemini)" : "Local (Ollama)"}`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to update preference",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsUpdatingProvider(false);
+    }
+  };
+
 
   const handleDensityChange = (newDensity) => {
     if (onDensityChange) {
@@ -299,6 +336,7 @@ const SECTION_CARD_SUBTLE = {
                 <Tab><FiUser style={{ marginRight: 6 }} /> Account & Session</Tab>
                 <Tab><FiDownload style={{ marginRight: 6 }} /> Export & Data</Tab>
                 <Tab><FiSliders style={{ marginRight: 6 }} /> Appearance</Tab>
+                <Tab><FiCpu style={{ marginRight: 6 }} /> Model & Provider</Tab>
               </TabList>
 
               <TabPanels>
@@ -370,9 +408,6 @@ const SECTION_CARD_SUBTLE = {
 
                     {activeConversationId && (
                       <Box p={4} bg={useColorModeValue("brandy.50", "brandy.900")} borderRadius="control" border="1px solid" borderColor={useColorModeValue("red.200", "red.700")}>
-                       {/*  <Text fontSize="xs" fontWeight="bold" color={useColorModeValue("red.700", "red.200")} mb={1} letterSpacing="wider">
-                          DANGER ZONE
-                        </Text> */}
                         <Text fontSize="xs" color={useColorModeValue("paper.50", "paper.300")} mb={3}>
                           Permanently remove the active conversation and reset local state.
                         </Text>
@@ -432,7 +467,61 @@ const SECTION_CARD_SUBTLE = {
                     </Box>
                   </VStack>
                 </TabPanel>
+
+                {/* Model & Provider Selection */}
+                <TabPanel p={0}>
+                  <VStack align="stretch" spacing={4}>
+                    <Box p={4} {...SECTION_CARD} borderColor={borderColor}>
+                      <Text fontSize="xs" fontWeight="bold" color={textSubtle} mb={2} letterSpacing="wider">
+                        LLM INFERENCE PROVIDER
+                      </Text>
+                      <Text fontSize="xs" color={textSecondary} mb={4}>
+                        Select which model backend powers generation, tool execution, and code synthesis across ConsiliAI.
+                      </Text>
+                      <RadioGroup value={llmProvider} onChange={handleProviderChange} isDisabled={isUpdatingProvider}>
+                        <VStack align="stretch" spacing={3}>
+                          <Box
+                            p={3}
+                            borderRadius="control"
+                            border="1px solid"
+                            borderColor={llmProvider === "cloud" ? "gold.500" : borderColor}
+                            bg={llmProvider === "cloud" ? useColorModeValue("orange.50", "whiteAlpha.100") : "transparent"}
+                          >
+                            <Radio value="cloud" colorScheme="orange">
+                              <HStack spacing={2} align="center">
+                                <Text fontWeight="semibold" fontSize="sm" color={textPrimary}>Cloud (Groq + Gemini)</Text>
+                                <Badge colorScheme="green" borderRadius="full" px={2} fontSize="10px">Default</Badge>
+                              </HStack>
+                            </Radio>
+                            <Text fontSize="xs" color={textSubtle} ml={6} mt={1}>
+                              Primary reasoning via Groq (Qwen 2.5 27B), lightweight tasks via Gemini 1.5 Flash. Fast, robust, recommended.
+                            </Text>
+                          </Box>
+
+                          <Box
+                            p={3}
+                            borderRadius="control"
+                            border="1px solid"
+                            borderColor={llmProvider === "local" ? "gold.500" : borderColor}
+                            bg={llmProvider === "local" ? useColorModeValue("orange.50", "whiteAlpha.100") : "transparent"}
+                          >
+                            <Radio value="local" colorScheme="orange">
+                              <HStack spacing={2} align="center">
+                                <Text fontWeight="semibold" fontSize="sm" color={textPrimary}>Local (Ollama)</Text>
+                                {llmProvider === "local" && <Badge colorScheme="orange" borderRadius="full" px={2} fontSize="10px">Active</Badge>}
+                              </HStack>
+                            </Radio>
+                            <Text fontSize="xs" color={textSubtle} ml={6} mt={1}>
+                              Routes generation to your local Ollama server (llama3.1:8b for reasoning, qwen2.5-coder:7b for Lab Agent). Gracefully falls back to Cloud if Ollama is unreachable.
+                            </Text>
+                          </Box>
+                        </VStack>
+                      </RadioGroup>
+                    </Box>
+                  </VStack>
+                </TabPanel>
               </TabPanels>
+
             </Tabs>
           </ModalBody>
           <ModalFooter borderTop="1px solid" borderColor={borderColor}>

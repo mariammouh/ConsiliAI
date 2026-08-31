@@ -41,12 +41,9 @@ from course_pptx_exporter import (
     build_quiz_slide,
     build_references_slide,
     build_closing_slide,
-    export_course_to_pptx_per_lesson as _reference_export_course_to_pptx_per_lesson,
-)
-#from langchain_community.chat_models import ChatOllama  # or langchain_ollama
-
-#_ollama_llm = ChatOllama(model="llama3.1:8b", temperature=0.2)
+    export_course_to_pptx_per_lesson as _reference_export_course_to_pptx_per_lesson)
 # LLM instance for this tool (can be reused)
+
 def _get_gemini_llm():
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
@@ -95,13 +92,16 @@ def _ensure_llm_clients():
 
 
 def _invoke_gemini(prompt: str):
-    gemini_llm = _ensure_llm_clients()[0]
-    return gemini_llm.invoke(prompt)
+    from agents.llm_router import get_active_llm
+    llm, _ = get_active_llm(task_type="lightweight")
+    return llm.invoke(prompt)
 
 
 def _invoke_groq(prompt: str):
-    groq_llm = _ensure_llm_clients()[1]
-    return groq_llm.invoke(prompt)
+    from agents.llm_router import get_active_llm
+    llm, _ = get_active_llm(task_type="reasoning")
+    return llm.invoke(prompt)
+
 def retrieve_from_knowledge_base(question: str, user_id: str) -> str:
     """
     Retrieve relevant information from the user's uploaded PDFs
@@ -1289,10 +1289,10 @@ class TokenBudget:
         self.used += estimated_tokens
 
 _groq_budget = TokenBudget()
-def _groq_invoke_safe(prompt: str, retries: int = 1, wait_seconds: float = 8.0) -> str:
+
+def _groq_invoke_safe_cloud_direct(prompt: str, retries: int = 1, wait_seconds: float = 8.0) -> str:
     """
-    Try Groq first (best reasoning). On rate-limit exhaustion, fall back to
-    Gemini so the pipeline doesn't crash — not because Gemini is preferred.
+    Direct Cloud (Groq -> Gemini fallback) invocation logic.
     """
     for attempt in range(retries):
         try:
@@ -1320,11 +1320,20 @@ def _groq_invoke_safe(prompt: str, retries: int = 1, wait_seconds: float = 8.0) 
     except Exception as e:
         print(f"Gemini also failed: {e}")
         raise
-"""         try:
-            response = _ollama_llm.invoke(prompt)
-            return response.content
-        except Exception as e3:
-            raise RuntimeError(f"All three providers failed: {e3}") """
+
+
+def _groq_invoke_safe(prompt: str, retries: int = 1, wait_seconds: float = 8.0) -> str:
+    """
+    Central invoke entry point. Checks active LLM provider.
+    If 'local', routes to Ollama (with automatic cloud fallback if Ollama offline).
+    If 'cloud', routes to Groq (with Gemini fallback).
+    """
+    from agents.llm_router import get_active_provider, invoke_ollama_safe
+    if get_active_provider() == "local":
+        res, _ = invoke_ollama_safe(prompt)
+        return res
+    return _groq_invoke_safe_cloud_direct(prompt, retries=retries, wait_seconds=wait_seconds)
+
         
 
 def merge_section_analyses(partial_results: List[Dict], fields: List[str]) -> Dict:
@@ -3138,7 +3147,12 @@ def _get_coder_llm(model_name: str):
 
 
 def _coder_invoke_safe(prompt: str, model_name: str = DEFAULT_CODE_MODEL, retries: int = 2) -> str:
+    from agents.llm_router import get_active_provider, invoke_ollama_safe
+    if get_active_provider() == "local":
+        res, _ = invoke_ollama_safe(prompt, model_name=model_name)
+        return res
     return _groq_invoke_safe(prompt)
+
 
 
 def _extract_code_block(text: str) -> str:
