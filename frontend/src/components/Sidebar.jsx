@@ -282,7 +282,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                       boxShadow="md"
                     >
                       <HStack justify="space-between" mb={3} align="center">
-                        <Badge colorScheme="purple" px={3} py={1} borderRadius="md" fontSize="xs" fontWeight="bold">
+                        <Badge colorScheme="purple" px={3} py={1} borderRadius="md" color="white" bg="gold.700"  fontSize="xs" fontWeight="bold">
                           {paperSource}
                         </Badge>
                         <HStack spacing={3}>
@@ -353,7 +353,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                         <HStack spacing={1.5} mb={3} wrap="wrap">
                           <Text fontSize="xs" color="ink.600" fontWeight="bold">Extracted Sections:</Text>
                           {paper.sections_detected.map((sec) => (
-                            <Badge key={sec} fontSize="xs" px={2} py={0.5} colorScheme="teal" borderRadius="sm">
+                            <Badge key={sec} fontSize="xs" px={2} py={0.5} bg="paper.300"  colorScheme="teal" borderRadius="sm">
                               {sec}
                             </Badge>
                           ))}
