@@ -2,10 +2,13 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi import HTTPException
 from fastapi.params import Depends
 from fastapi.responses import JSONResponse, FileResponse
+from starlette.background import BackgroundTask
 import os, shutil
+import asyncio
 import requests
 from dotenv import load_dotenv
 from ingestion.pdf_processor import process_pdf, UPLOAD_DIR
+from ingestion.chroma_client import delete_conversation_documents, delete_user_documents
 from agents.tools import _hash_text,generate_experiment_set, retrieve_from_knowledge_base,broaden_idea,get_papers_with_analysis
 from agents.tools import search_papers, filter_relevant_papers,filter_papers_hybrid, summarize_papers_with_groq
 from agents.tools import search_papers_formatted,fetch_full_text,extract_text_from_pdf_bytes
@@ -13,12 +16,26 @@ from auth.db import create_db_and_tables, User, Conversation, get_async_session
 from auth.schemas import UserRead, UserCreate, UserUpdate
 from auth.users import fastapi_users, current_active_user, auth_backend
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete, text
 import tempfile
-import os
-from fastapi import Form
-from agents.orchestrator import run_orchestrator_turn, get_state_snapshot
+from agents.orchestrator import (
+    run_orchestrator_turn,
+    get_state_snapshot,
+    record_uploaded_document,
+    register_cancel_event,
+    cancel_thread_execution,
+    clear_cancel_event,
+    ExecutionCancelledError,
+    build_enriched_evaluation_record,
+    record_benchmark_evaluation,
+)
+from export_project import build_project_zip_archive
+
 load_dotenv()
+
+# Active message generation tasks keyed by conversation_id
+active_chat_tasks: dict[str, asyncio.Task] = {}
+
 
 
 def _chat_state_response(state: dict) -> dict:
@@ -75,6 +92,7 @@ def _chat_state_response(state: dict) -> dict:
         "lab_exercises": state.get("lab_exercises"),
         "practical_exercises": state.get("lab_exercises") or state.get("practical_exercises"),
         "experiments": state.get("experiments"),
+        "evaluations": state.get("evaluations") or [],
     }
 
 
@@ -187,9 +205,113 @@ async def delete_conversation(
     conv = result.scalars().first()
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # 1. Cancel any active execution on this conversation
+    cancel_thread_execution(conversation_id)
+    task = active_chat_tasks.get(conversation_id)
+    if task and not task.done():
+        task.cancel()
+
+    # 2. Delete LangGraph checkpoints in Postgres for this thread_id
+    try:
+        await session.execute(
+            text("DELETE FROM checkpoint_writes WHERE thread_id = :tid"),
+            {"tid": conversation_id}
+        )
+        await session.execute(
+            text("DELETE FROM checkpoint_blobs WHERE thread_id = :tid"),
+            {"tid": conversation_id}
+        )
+        await session.execute(
+            text("DELETE FROM checkpoints WHERE thread_id = :tid"),
+            {"tid": conversation_id}
+        )
+    except Exception as e:
+        print(f"[delete_conversation] Warning deleting checkpoints for {conversation_id}: {e}")
+
+    # 3. Delete ChromaDB document chunks associated with this conversation
+    try:
+        delete_conversation_documents(conversation_id)
+    except Exception as e:
+        print(f"[delete_conversation] Warning deleting Chroma chunks for {conversation_id}: {e}")
+
+    # 4. Delete the conversation row
     await session.delete(conv)
     await session.commit()
     return {"message": "Deleted"}
+
+
+@app.delete("/user/data")
+async def delete_all_user_data(
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """
+    Permanently delete ALL user-generated data for the current user:
+    - All chats and conversation history
+    - Generated plans, courses, labs, experiments in state/checkpoints
+    - LangGraph checkpoint tables in Postgres
+    - User document chunks in ChromaDB
+    - User uploaded source files
+    """
+    result = await session.execute(
+        select(Conversation).where(Conversation.user_id == user.id)
+    )
+    convs = result.scalars().all()
+    conv_ids = [c.id for c in convs]
+
+    # 1. Stop any currently active tasks for this user's conversations
+    for cid in conv_ids:
+        cancel_thread_execution(cid)
+        task = active_chat_tasks.get(cid)
+        if task and not task.done():
+            task.cancel()
+
+    # 2. Delete LangGraph checkpoints in Postgres for all user conversations and user_id
+    threads_to_wipe = list(conv_ids) + [str(user.id)]
+    if threads_to_wipe:
+        try:
+            await session.execute(
+                text("DELETE FROM checkpoint_writes WHERE thread_id = ANY(:tids)"),
+                {"tids": threads_to_wipe}
+            )
+            await session.execute(
+                text("DELETE FROM checkpoint_blobs WHERE thread_id = ANY(:tids)"),
+                {"tids": threads_to_wipe}
+            )
+            await session.execute(
+                text("DELETE FROM checkpoints WHERE thread_id = ANY(:tids)"),
+                {"tids": threads_to_wipe}
+            )
+        except Exception as e:
+            print(f"[delete_all_user_data] Warning deleting Postgres checkpoints: {e}")
+
+    # 3. Delete ChromaDB chunks for this user and their conversations
+    deleted_sources = set()
+    try:
+        deleted_sources = delete_user_documents(str(user.id), conv_ids)
+    except Exception as e:
+        print(f"[delete_all_user_data] Warning deleting Chroma chunks: {e}")
+
+    # 4. Remove physical uploaded files belonging to the deleted documents
+    for src in deleted_sources:
+        target_path = os.path.join(UPLOAD_DIR, src)
+        if os.path.isfile(target_path):
+            try:
+                os.remove(target_path)
+            except Exception as e:
+                print(f"[delete_all_user_data] Could not remove file {target_path}: {e}")
+
+    # 5. Delete all SQL conversation records
+    for c in convs:
+        await session.delete(c)
+    await session.commit()
+
+    return {
+        "message": "All user data permanently deleted",
+        "deleted_conversations_count": len(convs),
+        "deleted_document_sources": list(deleted_sources),
+    }
 
 
 from pydantic import BaseModel, Field, field_validator
@@ -229,6 +351,33 @@ async def update_settings(
     }
 
 
+@app.post("/chat/{conversation_id}/stop")
+async def stop_chat_endpoint(
+    conversation_id: str,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """
+    Terminates the active message generation task for the given conversation.
+    """
+    result = await session.execute(
+        select(Conversation).where(Conversation.id == conversation_id, Conversation.user_id == user.id)
+    )
+    conv = result.scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # 1. Signal cancellation event in orchestrator / worker threads
+    cancel_thread_execution(conversation_id)
+
+    # 2. Cancel running asyncio task
+    task = active_chat_tasks.get(conversation_id)
+    if task and not task.done():
+        task.cancel()
+
+    return {"status": "stopped", "message": "Execution stopped"}
+
+
 @app.post("/chat/{conversation_id}")
 async def chat_endpoint(
     conversation_id: str,
@@ -252,12 +401,34 @@ async def chat_endpoint(
         await session.commit()
 
     user_provider = getattr(user, "llm_provider", "cloud")
-    reply = run_orchestrator_turn(
-        message=message,
-        thread_id=thread_id,
-        llm_provider=user_provider,
-    )
 
+    # Register cancellation tracking
+    register_cancel_event(conversation_id)
+    current_task = asyncio.current_task()
+    active_chat_tasks[conversation_id] = current_task
+
+    try:
+        reply = await asyncio.to_thread(
+            run_orchestrator_turn,
+            message=message,
+            thread_id=thread_id,
+            llm_provider=user_provider,
+        )
+    except (asyncio.CancelledError, ExecutionCancelledError) as e:
+        print(f"[chat_endpoint] Execution cancelled for {conversation_id}")
+        state = get_state_snapshot(thread_id)
+        return JSONResponse(
+            status_code=499,
+            content={
+                "detail": "Message execution stopped by user",
+                "stopped": True,
+                "state": _chat_state_response(state),
+                "title": conv.title,
+            }
+        )
+    finally:
+        active_chat_tasks.pop(conversation_id, None)
+        clear_cancel_event(conversation_id)
 
     state = get_state_snapshot(thread_id)
 
@@ -268,6 +439,44 @@ async def chat_endpoint(
         "lab_downloads": _lab_downloads(state),
         "title": conv.title
     }
+
+
+@app.get("/projects/{conversation_id}/download")
+async def download_project_archive(
+    conversation_id: str,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """
+    Generates and returns an organized ZIP archive containing all existing deliverables
+    for a project (conversation).
+    """
+    result = await session.execute(
+        select(Conversation).where(Conversation.id == conversation_id, Conversation.user_id == user.id)
+    )
+    conv = result.scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Project/Conversation not found")
+
+    state = get_state_snapshot(conversation_id)
+    zip_path, filename = build_project_zip_archive(conv, state, str(user.id))
+
+    return FileResponse(
+        zip_path,
+        filename=filename,
+        media_type="application/zip",
+        background=BackgroundTask(os.remove, zip_path)
+    )
+
+
+@app.get("/projects/download")
+async def download_project_archive_query(
+    conversation_id: str,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    return await download_project_archive(conversation_id, user, session)
+
 
 
 @app.get("/chat/{conversation_id}/history")
@@ -391,7 +600,27 @@ async def upload_pdf(
         user_id=str(user.id),
         conversation_id=str(conversation_id) if conversation_id else None
     )
-    return {"message": f"✅ {file.filename} uploaded and indexed.", "chunks": num_chunks}
+
+    updated_state = None
+    target_thread = str(conversation_id) if conversation_id else str(user.id)
+    try:
+        snap = record_uploaded_document(
+            thread_id=target_thread,
+            filename=file.filename,
+            file_path=file_path,
+            user_id=str(user.id)
+        )
+        updated_state = _chat_state_response(snap)
+    except Exception as e:
+        print(f"[upload_pdf] Warning recording uploaded document in state: {e}")
+
+    return {
+        "message": f"✅ {file.filename} uploaded and indexed.",
+        "chunks": num_chunks,
+        "state": updated_state,
+        "idea": updated_state.get("idea") if updated_state else None,
+    }
+
 
 @app.post("/ask")
 async def ask_question(
@@ -854,9 +1083,10 @@ from agents.tools import generate_benchmark_evaluation
 @app.post("/evaluate_benchmark")
 async def evaluate_benchmark_endpoint(
     experiment: str = Form(...),              # JSON string, one experiment dict
-    papers_with_analysis: str = Form(...),     # JSON string, list of {title, analysis}
+    papers_with_analysis: str = Form("[]"),    # JSON string, list of {title, analysis}
     submission_text: str = Form(None),
     submission_file: UploadFile = File(None),
+    conversation_id: str = Form(None),
 ):
     try:
         experiment_dict = _json.loads(experiment)
@@ -864,9 +1094,17 @@ async def evaluate_benchmark_endpoint(
         return {"error": "`experiment` must be a valid JSON string of one experiment object."}
 
     try:
-        papers_dict = _json.loads(papers_with_analysis)
+        papers_dict = _json.loads(papers_with_analysis) if papers_with_analysis else []
     except Exception:
-        return {"error": "`papers_with_analysis` must be a valid JSON string (list of {title, analysis})."}
+        papers_dict = []
+
+    # If papers not explicitly provided, try to load from conversation state
+    if not papers_dict and conversation_id:
+        try:
+            current_snap = get_state_snapshot(conversation_id)
+            papers_dict = current_snap.get("papers_with_analysis") or []
+        except Exception:
+            papers_dict = []
 
     if submission_file is not None:
         pdf_bytes = await submission_file.read()
@@ -875,13 +1113,44 @@ async def evaluate_benchmark_endpoint(
         text = submission_text
     else:
         return {"error": "Provide either submission_text or submission_file."}
-    print(f"[evaluate_benchmark] received submission text length: {len(text)} characters")
-    result = generate_benchmark_evaluation(
+
+    print(f"[evaluate_benchmark] received submission text length: {len(text)} characters for {experiment_dict.get('title')}")
+    raw_result = generate_benchmark_evaluation(
         experiment=experiment_dict,
         papers_with_analysis=papers_dict,
         submission_text=text,
     )
-    return result
+
+    existing_evals = []
+    if conversation_id:
+        try:
+            snap = get_state_snapshot(conversation_id)
+            existing_evals = list(snap.get("evaluations") or [])
+        except Exception:
+            existing_evals = []
+
+    enriched_eval = build_enriched_evaluation_record(
+        experiment=experiment_dict,
+        benchmark_result=raw_result,
+        submission_text=text,
+        existing_evaluations=existing_evals,
+    )
+
+    if conversation_id:
+        try:
+            updated_snap = record_benchmark_evaluation(conversation_id, enriched_eval)
+            return {
+                "evaluation": enriched_eval,
+                "evaluations": updated_snap.get("evaluations", []),
+                "state": _chat_state_response(updated_snap),
+            }
+        except Exception as e:
+            print(f"[evaluate_benchmark] Warning: could not update checkpointer state: {e}")
+
+    return {
+        "evaluation": enriched_eval,
+        "evaluations": [enriched_eval],
+    }
 
 from fastapi.middleware.cors import CORSMiddleware
 

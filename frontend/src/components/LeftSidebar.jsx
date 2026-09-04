@@ -24,6 +24,8 @@ import {
   RadioGroup,
   Radio,
   Stack,
+  Input,
+  Select,
   useDisclosure,
   useColorMode,
   useColorModeValue,
@@ -41,9 +43,10 @@ import {
   FiX, 
   FiSun, 
   FiMoon,
-  FiCpu
+  FiCpu,
+  FiAlertTriangle
 } from "react-icons/fi";
-import { getUserMe, getSettings, updateSettings } from "../api.js";
+import { getUserMe, getSettings, updateSettings, downloadProjectZip, deleteAllUserData } from "../api.js";
 
 
 export default function LeftSidebar({ 
@@ -53,6 +56,7 @@ export default function LeftSidebar({
   onNewChat, 
   onDeleteChat,
   onLogout,
+  onDeleteAllData,
   state = {},
   messages = [],
   isCollapsed = false,
@@ -68,6 +72,27 @@ export default function LeftSidebar({
   const [userData, setUserData] = useState(null);
   const [llmProvider, setLlmProvider] = useState("cloud");
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
+
+  // Chat deletion confirmation modal state
+  const [chatToDelete, setChatToDelete] = useState(null);
+
+  // Delete all user data confirmation modal state
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
+  const [deleteAllConfirmText, setDeleteAllConfirmText] = useState("");
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  // Project download state
+  const [selectedExportProject, setSelectedExportProject] = useState("");
+  const [isDownloadingProject, setIsDownloadingProject] = useState(false);
+
+  useEffect(() => {
+    if (activeConversationId) {
+      setSelectedExportProject(activeConversationId);
+    } else if (conversations?.length > 0) {
+      setSelectedExportProject(conversations[0].id);
+    }
+  }, [activeConversationId, conversations]);
+
 
   const bgSidebar = useColorModeValue("paper.50", "gray.900");
   const borderColor = useColorModeValue("paper.300", "gray.700");
@@ -189,6 +214,72 @@ export default function LeftSidebar({
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadProject = async () => {
+    const targetId = selectedExportProject || activeConversationId || conversations?.[0]?.id;
+    if (!targetId) {
+      toast({
+        title: "No project selected",
+        description: "Please select or create a conversation first.",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    setIsDownloadingProject(true);
+    try {
+      await downloadProjectZip(targetId);
+      toast({
+        title: "Project downloaded",
+        description: "Your organized project archive (.zip) has been downloaded.",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (err) {
+      toast({
+        title: "Download failed",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDownloadingProject(false);
+    }
+  };
+
+  const handleConfirmDeleteAllData = async () => {
+    if (deleteAllConfirmText !== "DELETE") return;
+    setIsDeletingAll(true);
+    try {
+      await deleteAllUserData();
+      toast({
+        title: "All user data deleted",
+        description: "All conversations, plans, courses, labs, and uploaded files have been permanently removed.",
+        status: "info",
+        duration: 4000,
+        isClosable: true,
+      });
+      setIsDeleteAllModalOpen(false);
+      onClose(); // close settings modal
+      if (onDeleteAllData) {
+        onDeleteAllData();
+      }
+    } catch (err) {
+      toast({
+        title: "Deletion failed",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
+
   const startResizing = (e) => {
     e.preventDefault();
     setIsResizing(true);
@@ -302,7 +393,7 @@ export default function LeftSidebar({
               variant="ghost" 
               color="red.400"
               aria-label="Delete chat"
-              onClick={(e) => { e.stopPropagation(); onDeleteChat(c.id); }}
+              onClick={(e) => { e.stopPropagation(); setChatToDelete(c); }}
             />
           </HStack>
         ))}
@@ -377,6 +468,7 @@ export default function LeftSidebar({
                 {/* Export & Data Management */}
                 <TabPanel p={0}>
                   <VStack align="stretch" spacing={4}>
+                    {/* Export Ledger */}
                     <Box p={4} {...SECTION_CARD} borderColor={borderColor}>
                       <Text fontSize="xs" fontWeight="bold" color={textSubtle} mb={2} letterSpacing="wider">
                         EXPORT RESEARCH LEDGER
@@ -406,26 +498,71 @@ export default function LeftSidebar({
                       </HStack>
                     </Box>
 
-                    {activeConversationId && (
-                      <Box p={4} bg={useColorModeValue("brandy.50", "brandy.900")} borderRadius="control" border="1px solid" borderColor={useColorModeValue("red.200", "red.700")}>
-                        <Text fontSize="xs" color={useColorModeValue("paper.50", "paper.300")} mb={3}>
-                          Permanently remove the active conversation and reset local state.
-                        </Text>
+                    {/* Global Project Download */}
+                    <Box p={4} {...SECTION_CARD} borderColor={borderColor}>
+                      <Text fontSize="xs" fontWeight="bold" color={textSubtle} mb={2} letterSpacing="wider">
+                        DOWNLOAD FULL PROJECT ARCHIVE (ZIP)
+                      </Text>
+                      <Text fontSize="xs" color={textSecondary} mb={3}>
+                        Download all content generated for a project in a single organized ZIP archive (courses, labs, exercises, plans, experiments, notebooks, documents, code, and transcripts).
+                      </Text>
+                      <VStack align="stretch" spacing={3}>
+                        {(conversations || []).length > 1 && (
+                          <Box>
+                            <Text fontSize="xs" color={textSubtle} mb={1}>Select Project / Conversation:</Text>
+                            <Select 
+                              size="sm" 
+                              borderRadius="md" 
+                              value={selectedExportProject || activeConversationId || (conversations[0]?.id)}
+                              onChange={(e) => setSelectedExportProject(e.target.value)}
+                            >
+                              {conversations.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.title}
+                                </option>
+                              ))}
+                            </Select>
+                          </Box>
+                        )}
                         <Button 
                           size="sm" 
-                          bg={useColorModeValue("brandy.900", "brandy.900")}
-                          _hover={{ bg: "brandy.50"}}
-                          colorScheme="red" 
-                          leftIcon={<FiTrash2 />}
-                          onClick={() => {
-                            onDeleteChat(activeConversationId);
-                            onClose();
-                          }}
+                          variant="solid" 
+                          bg="gold.500" 
+                          color="white" 
+                          _hover={{ bg: "gold.600" }}
+                          leftIcon={<FiDownload />} 
+                          isLoading={isDownloadingProject}
+                          loadingText="Preparing ZIP..."
+                          onClick={handleDownloadProject}
                         >
-                          Delete Current Chat
+                          Download Project (ZIP)
                         </Button>
-                      </Box>
-                    )}
+                      </VStack>
+                    </Box>
+
+                    {/* Delete All User Data (Replaces Delete Current Chat) */}
+                    <Box p={4} bg={useColorModeValue("red.50", "rgba(220, 38, 38, 0.1)")} borderRadius="control" border="1px solid" borderColor={useColorModeValue("red.200", "red.700")}>
+                      <HStack spacing={2} mb={2} color="red.500">
+                        <FiAlertTriangle />
+                        <Text fontSize="xs" fontWeight="bold" letterSpacing="wider">
+                           DELETE ALL USER DATA
+                        </Text>
+                      </HStack>
+                      <Text fontSize="xs" color={textSecondary} mb={3}>
+                        Permanently remove all data belonging to your account across the platform: all chats, plans, courses, lab exercises, notebooks, experiments, and uploaded documents.
+                      </Text>
+                      <Button 
+                        size="sm" 
+                        colorScheme="red" 
+                        leftIcon={<FiTrash2 />}
+                        onClick={() => {
+                          setDeleteAllConfirmText("");
+                          setIsDeleteAllModalOpen(true);
+                        }}
+                      >
+                        Delete All User Data
+                      </Button>
+                    </Box>
                   </VStack>
                 </TabPanel>
 
@@ -528,6 +665,130 @@ export default function LeftSidebar({
            {/*  <Button variant="ghost" size="sm" onClick={onClose}>
               Close
             </Button> */}
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Sidebar Chat Deletion Confirmation Modal */}
+      <Modal isOpen={Boolean(chatToDelete)} onClose={() => setChatToDelete(null)} isCentered size="md">
+        <ModalOverlay />
+        <ModalContent bg={bgSidebar} borderRadius="card" boxShadow="card">
+          <ModalHeader color={textPrimary} borderBottom="1px solid" borderColor={borderColor}>
+            <HStack spacing={2}>
+              <FiTrash2 color="red" />
+              <Text>Delete Conversation</Text>
+            </HStack>
+          </ModalHeader>
+          <ModalCloseButton color={textSubtle} />
+          <ModalBody py={4}>
+            <VStack align="stretch" spacing={3}>
+              <Text fontSize="sm" color={textPrimary}>
+                Are you sure you want to delete this conversation?
+              </Text>
+              <Box p={3} bg={bgCard} borderRadius="md" border="1px solid" borderColor={borderColor}>
+                <Text fontWeight="bold" fontSize="sm" color={textPrimary} noOfLines={2}>
+                  {chatToDelete?.title}
+                </Text>
+              </Box>
+              <Text fontSize="xs" color={useColorModeValue("red.600", "red.400")}>
+                This conversation and its message history will be permanently deleted. This action cannot be undone.
+              </Text>
+            </VStack>
+          </ModalBody>
+          <ModalFooter borderTop="1px solid" borderColor={borderColor} gap={2}>
+            <Button variant="ghost" size="sm" onClick={() => setChatToDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              colorScheme="red"
+              size="sm"
+              leftIcon={<FiTrash2 />}
+              onClick={() => {
+                if (chatToDelete?.id) {
+                  const id = chatToDelete.id;
+                  setChatToDelete(null);
+                  onDeleteChat(id);
+                }
+              }}
+            >
+              Delete
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Delete All User Data Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteAllModalOpen}
+        onClose={() => !isDeletingAll && setIsDeleteAllModalOpen(false)}
+        isCentered
+        size="lg"
+      >
+        <ModalOverlay />
+        <ModalContent bg={bgSidebar} borderRadius="card" boxShadow="card">
+          <ModalHeader color="red.500" borderBottom="1px solid" borderColor={borderColor}>
+            <HStack spacing={2}>
+              <FiAlertTriangle />
+              <Text>Delete All User Data</Text>
+            </HStack>
+          </ModalHeader>
+          <ModalCloseButton isDisabled={isDeletingAll} color={textSubtle} />
+          <ModalBody py={4}>
+            <VStack align="stretch" spacing={4}>
+              <Box
+                p={4}
+                bg={useColorModeValue("red.50", "rgba(220, 38, 38, 0.15)")}
+                borderRadius="md"
+                border="1px solid"
+                borderColor={useColorModeValue("red.300", "red.800")}
+              >
+                <Text fontSize="sm" fontWeight="bold" color="red.600" _dark={{ color: "red.200" }} mb={2}>
+                  Permanent & Destructive Action
+                </Text>
+                <Text fontSize="xs" color={useColorModeValue("red.800", "red.200")} mb={2}>
+                  This action will permanently delete <strong>all data</strong> belonging to your account, not just the current conversation. This includes:
+                </Text>
+                <VStack align="stretch" spacing={1} pl={2} fontSize="xs" color={useColorModeValue("red.800", "red.300")}>
+                  <Text>• All chats and conversation histories</Text>
+                  <Text>• All generated courses, lesson materials, and presentations</Text>
+                  <Text>• All lab exercises, starter code, solutions, and Jupyter notebooks</Text>
+                  <Text>• All technical plans, teaching plans, and novelty analyses</Text>
+                  <Text>• All identified research gaps and experiment designs</Text>
+                  <Text>• All uploaded documents, PDFs, and vector embeddings</Text>
+                </VStack>
+              </Box>
+
+              <Box>
+                <Text fontSize="xs" fontWeight="semibold" mb={2} color={textPrimary}>
+                  To confirm permanent deletion, type <Text as="span" fontWeight="bold" color="red.500">DELETE</Text> below:
+                </Text>
+                <Input
+                  placeholder="Type DELETE to confirm"
+                  value={deleteAllConfirmText}
+                  onChange={(e) => setDeleteAllConfirmText(e.target.value)}
+                  focusBorderColor="red.500"
+                  size="sm"
+                  borderRadius="md"
+                  isDisabled={isDeletingAll}
+                />
+              </Box>
+            </VStack>
+          </ModalBody>
+          <ModalFooter borderTop="1px solid" borderColor={borderColor} gap={2}>
+            <Button variant="ghost" size="sm" onClick={() => setIsDeleteAllModalOpen(false)} isDisabled={isDeletingAll}>
+              Cancel
+            </Button>
+            <Button
+              colorScheme="red"
+              size="sm"
+              leftIcon={<FiTrash2 />}
+              isDisabled={deleteAllConfirmText !== "DELETE" || isDeletingAll}
+              isLoading={isDeletingAll}
+              loadingText="Deleting Everything..."
+              onClick={handleConfirmDeleteAllData}
+            >
+              Permanently Delete All Data
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

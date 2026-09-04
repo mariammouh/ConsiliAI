@@ -69,6 +69,7 @@ Design notes (carried over from v1):
 
 import os
 import tempfile
+import threading
 from typing import Annotated, Dict, List, Optional, TypedDict
 
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
@@ -78,6 +79,65 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import InjectedState, ToolNode, tools_condition
 from langgraph.types import Command
+
+
+# =============================================================================
+# CANCELLATION TRACKING
+# =============================================================================
+
+class ExecutionCancelledError(Exception):
+    """Raised when message generation is stopped/cancelled by the user."""
+    pass
+
+
+_cancel_events: Dict[str, threading.Event] = {}
+_cancel_lock = threading.Lock()
+_local = threading.local()
+
+
+def set_current_thread_id(thread_id: str):
+    _local.thread_id = str(thread_id)
+
+
+def get_current_thread_id() -> Optional[str]:
+    return getattr(_local, "thread_id", None)
+
+
+def register_cancel_event(thread_id: str) -> threading.Event:
+    with _cancel_lock:
+        ev = threading.Event()
+        _cancel_events[str(thread_id)] = ev
+        return ev
+
+
+def cancel_thread_execution(thread_id: str) -> bool:
+    with _cancel_lock:
+        ev = _cancel_events.get(str(thread_id))
+        if ev:
+            ev.set()
+            return True
+        return False
+
+
+def is_thread_cancelled(thread_id: Optional[str] = None) -> bool:
+    tid = str(thread_id) if thread_id is not None else get_current_thread_id()
+    if not tid:
+        return False
+    with _cancel_lock:
+        ev = _cancel_events.get(str(tid))
+        return bool(ev and ev.is_set())
+
+
+def check_cancellation(thread_id: Optional[str] = None):
+    if is_thread_cancelled(thread_id):
+        tid = thread_id or get_current_thread_id()
+        raise ExecutionCancelledError(f"Execution cancelled by user for thread {tid}")
+
+
+def clear_cancel_event(thread_id: str):
+    with _cancel_lock:
+        _cancel_events.pop(str(thread_id), None)
+
 
 from agents.tools import (
     _ensure_llm_clients,
@@ -117,6 +177,7 @@ from agents.tools import (
 class OrchestratorState(TypedDict):
     messages: Annotated[list, add_messages]
     idea: Optional[str]
+    uploaded_documents: Optional[List[str]]
     papers_with_analysis: Optional[List[Dict]]
     gaps: Optional[List[Dict]]
     similar_projects_raw: Optional[List[Dict]]
@@ -128,6 +189,7 @@ class OrchestratorState(TypedDict):
     course_export_path: Optional[str]
     lab_exercises: Optional[List[Dict]]
     experiments: Optional[Dict]
+    evaluations: Optional[List[Dict]]
     _route: Optional[str]   # internal: set by classify_node, consumed by the routing edge only
 
 
@@ -506,12 +568,15 @@ def create_course(
     content to be generated. Automatically builds the teaching plan first if
     not already available. The chat application always exports one .pptx file
     per lesson; export_per_lesson is retained for tool compatibility."""
+    check_cancellation()
     papers, gaps, teaching_plan, course = _ensure_course(state, idea)
+    check_cancellation()
     if course.get("_error"):
         return Command(update={"messages": [ToolMessage(course["_error"], tool_call_id=tool_call_id)]})
 
     output_dir = os.path.join(tempfile.gettempdir(), "consiliai_courses")
     paths = export_course_to_pptx_per_lesson(course, output_dir)
+    check_cancellation()
     export_note = f"Exported {len(paths)} lesson PowerPoint file(s)."
     export_path_value = ", ".join(paths)
 
@@ -555,7 +620,9 @@ def create_lab_exercises(
     notebooks. Automatically builds the course first if not already
     available. Set generate_code to false for a fast preview (exercise
     framing only, no code/notebooks)."""
+    check_cancellation()
     papers, gaps, teaching_plan, course = _ensure_course(state, idea)
+    check_cancellation()
     if course.get("_error"):
         return Command(update={"messages": [ToolMessage(course["_error"], tool_call_id=tool_call_id)]})
 
@@ -567,6 +634,7 @@ def create_lab_exercises(
     for tp_module, course_module in zip(teaching_plan.get("modules", []), course.get("modules", [])):
         lessons_output = []
         for lesson in course_module.get("lessons", []):
+            check_cancellation()
             try:
                 lab = generate_lab_exercise(
                     lesson=lesson,
@@ -666,6 +734,144 @@ def create_experiments(
     })
 
 
+def build_enriched_evaluation_record(
+    experiment: dict,
+    benchmark_result: dict,
+    submission_text: str = "",
+    existing_evaluations: list | None = None,
+) -> dict:
+    import time
+    from datetime import datetime
+
+    existing = existing_evaluations or []
+    exp_title = experiment.get("title", "Untitled Experiment")
+    prior_runs = [
+        e for e in existing
+        if e.get("experiment_title", "").strip().lower() == exp_title.strip().lower()
+    ]
+    run_number = len(prior_runs) + 1
+    run_id = f"Run #{run_number}"
+
+    comparison_table = benchmark_result.get("comparison_table", [])
+    hypothesis_check = benchmark_result.get("hypothesis_check", {})
+    proposed_gap = benchmark_result.get("proposed_gap")
+    student_results_found = benchmark_result.get("student_results_found", True)
+
+    # Compute metrics
+    comparable_rows = [
+        r for r in comparison_table
+        if r.get("delta_direction") in ("higher", "lower", "match")
+    ]
+    deltas = [r["delta"] for r in comparable_rows if r.get("delta") is not None]
+    mean_delta = round(sum(deltas) / len(deltas), 4) if deltas else 0.0
+
+    success_count = sum(
+        1 for r in comparable_rows if r.get("delta_direction") in ("higher", "match")
+    )
+    if comparable_rows:
+        pass_rate = round((success_count / len(comparable_rows)) * 100, 1)
+    else:
+        pass_rate = 100.0 if student_results_found and comparison_table else 0.0
+
+    # Composite Overall Score (0-100)
+    hyp_match = hypothesis_check.get("matches_expectation", "unclear")
+    hyp_bonus = 10 if hyp_match == "yes" else 4 if hyp_match == "partial" else -12 if hyp_match == "no" else 0
+
+    if not student_results_found or not comparison_table:
+        overall_score = 0.0
+    else:
+        base_score = 75.0
+        delta_contrib = max(-15.0, min(15.0, mean_delta * 100))
+        rate_contrib = (pass_rate - 50) * 0.2
+        overall_score = round(max(0.0, min(100.0, base_score + delta_contrib + rate_contrib + hyp_bonus)), 1)
+
+    # Qualitative Strengths
+    strengths = []
+    higher_rows = [r for r in comparison_table if r.get("delta_direction") == "higher"]
+    for r in higher_rows[:3]:
+        metric_name = r.get("metric", "Metric").replace("_", " ").title()
+        model_name = r.get("model", "Model")
+        diff_str = f"+{abs(r['delta'])*100:.1f}%" if r.get("delta") is not None else "higher"
+        strengths.append(f"Outperformed literature on {metric_name} ({model_name}) by {diff_str} ({r.get('student_reported')} vs {r.get('literature_reported')}).")
+
+    match_rows = [r for r in comparison_table if r.get("delta_direction") == "match"]
+    for r in match_rows[:2]:
+        metric_name = r.get("metric", "Metric").replace("_", " ").title()
+        model_name = r.get("model", "Model")
+        strengths.append(f"Successfully replicated published benchmark for {metric_name} ({model_name}) at {r.get('student_reported')}.")
+
+    novel_rows = [r for r in comparison_table if r.get("delta_direction") == "no_literature_match"]
+    if novel_rows:
+        novel_names = ", ".join(r.get("metric", "").replace("_", " ").title() for r in novel_rows[:2])
+        strengths.append(f"Established novel experimental measurements not reported in literature: {novel_names}.")
+
+    if hyp_match == "yes":
+        strengths.append(f"Empirical evaluation validates the original hypothesis: {hypothesis_check.get('explanation', '')}")
+    elif hyp_match == "partial":
+        strengths.append(f"Partially supported hypothesis: {hypothesis_check.get('explanation', '')}")
+
+    if not strengths and student_results_found:
+        strengths.append("Successfully executed experiment protocol and extracted benchmark metrics.")
+
+    # Qualitative Weaknesses
+    weaknesses = []
+    lower_rows = [r for r in comparison_table if r.get("delta_direction") == "lower"]
+    for r in lower_rows[:3]:
+        metric_name = r.get("metric", "Metric").replace("_", " ").title()
+        model_name = r.get("model", "Model")
+        diff_str = f"-{abs(r['delta'])*100:.1f}%" if r.get("delta") is not None else "lower"
+        weaknesses.append(f"Performance on {metric_name} ({model_name}) lagged behind published baseline by {diff_str} ({r.get('student_reported')} vs {r.get('literature_reported')}).")
+
+    if hyp_match == "no":
+        weaknesses.append(f"Results diverged from the expected hypothesis: {hypothesis_check.get('explanation', '')}")
+
+    latency_or_cost = [
+        r for r in comparison_table
+        if any(k in r.get("metric", "").lower() for k in ("latency", "time", "cost"))
+    ]
+    if latency_or_cost and any(r.get("delta_direction") == "higher" for r in latency_or_cost):
+        weaknesses.append("Observed higher computational time / resource overhead compared to baseline.")
+
+    if not weaknesses:
+        if not student_results_found:
+            weaknesses.append("No extractable numerical results were identified from the submission text.")
+        else:
+            weaknesses.append("No critical regressions detected against published baseline thresholds.")
+
+    # Areas for Improvement
+    areas_for_improvement = []
+    if lower_rows:
+        lagging_names = ", ".join(set(r.get("metric", "").replace("_", " ").title() for r in lower_rows))
+        areas_for_improvement.append(f"Hyperparameter tuning: Refine training schedule and regularization to narrow the gap on {lagging_names}.")
+    areas_for_improvement.append("Cross-validation: Test model stability across additional random seeds or dataset partitions.")
+    if latency_or_cost:
+        areas_for_improvement.append("Inference profiling: Profile execution bottlenecks and evaluate quantization or pruning to reduce runtime overhead.")
+    if proposed_gap:
+        areas_for_improvement.append(f"Research gap exploration: Investigate the observed discrepancy as a candidate gap: '{proposed_gap.get('gap_description')}'.")
+
+    return {
+        "id": f"eval_{int(time.time() * 1000)}",
+        "run_id": run_id,
+        "run_number": run_number,
+        "experiment_title": exp_title,
+        "experiment": experiment,
+        "submission_text": submission_text,
+        "comparison_table": comparison_table,
+        "hypothesis_check": hypothesis_check,
+        "student_results_found": student_results_found,
+        "proposed_gap": proposed_gap,
+        "summary": benchmark_result.get("summary", ""),
+        "overall_score": overall_score,
+        "pass_rate": pass_rate,
+        "mean_delta": mean_delta,
+        "metrics_evaluated": len(comparison_table),
+        "strengths": strengths,
+        "weaknesses": weaknesses,
+        "areas_for_improvement": areas_for_improvement,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+
 @tool
 def evaluate_student_submission(
     experiment_title: str,
@@ -700,13 +906,32 @@ def evaluate_student_submission(
         submission_text=submission_text,
     )
 
+    existing_evals = list(state.get("evaluations") or [])
+    enriched_eval = build_enriched_evaluation_record(
+        experiment=match,
+        benchmark_result=result,
+        submission_text=submission_text,
+        existing_evaluations=existing_evals,
+    )
+    existing_evals.append(enriched_eval)
+
     summary = f"Evaluation for '{match.get('title','')}': {result.get('summary', '')}\n"
+    summary += f"Overall Benchmark Score: {enriched_eval['overall_score']}/100 | Success Rate: {enriched_eval['pass_rate']}%\n"
     hyp = result.get("hypothesis_check", {})
     summary += f"Hypothesis match: {hyp.get('matches_expectation', 'unclear')} — {hyp.get('explanation', '')}\n"
     if result.get("proposed_gap"):
         summary += f"New candidate gap proposed: {result['proposed_gap'].get('gap_description', '')}"
 
-    return Command(update={"messages": [ToolMessage(summary, tool_call_id=tool_call_id)]})
+    update_dict = {
+        "messages": [ToolMessage(summary, tool_call_id=tool_call_id)],
+        "evaluations": existing_evals,
+    }
+    if result.get("proposed_gap"):
+        existing_gaps = list(state.get("gaps") or [])
+        existing_gaps.append(result["proposed_gap"])
+        update_dict["gaps"] = existing_gaps
+
+    return Command(update=update_dict)
 
 
 @tool
@@ -793,11 +1018,48 @@ def summarize_progress(state: Annotated[dict, InjectedState]) -> str:
     return "\n".join(parts)
 
 
+def _extract_idea_from_text(text: str) -> Optional[str]:
+    """Extracts a concise 1-2 sentence project idea/topic from document or context text."""
+    if not text or len(text.strip()) < 20:
+        return None
+    prompt = f"""You are analyzing a research or technical project document.
+Extract a concise summary of the core project idea or research topic presented in this text (1-2 sentences).
+Focus directly on what the project is about (its goal, primary methodology, and domain). Do NOT include conversational filler, meta-explanations, or references to "the document".
+Be direct and concise.
+
+Text snippet:
+{text[:4000]}
+
+Project idea:"""
+    try:
+        from agents.llm_router import get_active_llm
+        llm, _ = get_active_llm(task_type="lightweight")
+        res = llm.invoke(prompt)
+        content = res.content
+        if isinstance(content, list):
+            content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
+        content = str(content).strip()
+        if content.startswith('"') and content.endswith('"'):
+            content = content[1:-1].strip()
+        meta_phrases = [
+            "user is asking", "no project", "not yet defined",
+            "initiating the project", "cannot extract", "has not been defined",
+            "no details provided"
+        ]
+        if any(p in content.lower() for p in meta_phrases) or len(content) < 10:
+            return None
+        return content
+    except Exception as e:
+        print(f"[orchestrator] _extract_idea_from_text error: {e}")
+        return None
+
+
 @tool
 def search_personal_documents(
     question: str,
     config: RunnableConfig,
     tool_call_id: Annotated[str, InjectedToolCallId],
+    state: Annotated[dict, InjectedState],
 ) -> Command:
     """Search through the user's uploaded personal documents to answer a question. 
     Use this when the user asks a question about their own documents or uploaded files."""
@@ -806,7 +1068,16 @@ def search_personal_documents(
         return Command(update={"messages": [ToolMessage("Error: Could not identify user.", tool_call_id=tool_call_id)]})
     
     answer = retrieve_from_knowledge_base(question, user_id=user_id)
-    return Command(update={"messages": [ToolMessage(answer, tool_call_id=tool_call_id)]})
+    update_dict = {"messages": [ToolMessage(answer, tool_call_id=tool_call_id)]}
+
+    # If idea is not set yet in state, extract and set the project idea from the retrieved context
+    if not state.get("idea") and answer and answer != "No relevant documents found.":
+        extracted = _extract_idea_from_text(answer)
+        if extracted:
+            update_dict["idea"] = extracted
+
+    return Command(update=update_dict)
+
 
 
 TOOLS = [
@@ -841,10 +1112,16 @@ _INTENT_SCHEMA_INSTRUCTIONS = """Return ONLY valid JSON, no markdown fences, in 
 }
 
 Definitions:
-- "idea_introduction": the user is introducing, describing, or mentioning a project/learning idea/topic WITHOUT explicitly asking for a specific deliverable (no request for a plan, course, gap list, experiments, comparison, relevance check, etc). This includes the very first mention of an idea, and casual elaboration on an idea already mentioned.
+- "idea_introduction": the user is introducing, proposing, or describing a new project/learning idea or topic in their own words (e.g. "I want to build a system that detects X", "My idea is Y") WITHOUT explicitly asking for a specific deliverable.
+  IMPORTANT: A user asking the assistant to describe, explain, or summarize a project (e.g. "Describe my project", "Explain my project", "What is this project about?") is NOT introducing an idea; if uploaded documents or a known idea exist, this is an "info_question" requesting analysis from the project/documents.
 - "general_chat": greetings, thanks, small talk, or questions unrelated to any research/education pipeline.
 - "action_request": the user explicitly asks for a specific deliverable to be generated or an explicit pipeline step to run (e.g. "generate a technical plan", "find research gaps", "build me a course", "create lab exercises", "design experiments", "check if this idea is niche", "evaluate this submission").
-- "info_question": the user asks a factual/informational question that likely requires checking the literature, paper analysis, or their uploaded personal documents to answer well (e.g. "has X metric been used before for this?", "what approaches are common for this?", "what did my uploaded document say about Y?"), WITHOUT explicitly asking for a plan/course/gap-list/experiment-set as a deliverable.
+- "info_question": the user asks a factual or informational question that requires checking the literature, paper analysis, project context, or their uploaded personal documents to answer (e.g. "describe my project", "what is this project about?", "explain my project", "what did my uploaded document say about Y?", "has X metric been used before for this?"), WITHOUT explicitly asking for a plan/course/gap-list/experiment-set as a deliverable.
+
+Rules for "idea":
+- "idea" MUST be a concise restatement of the actual project topic or domain (e.g. "Federated learning for edge devices").
+- If the user is asking a question or request (e.g. "Describe my project", "Help me"), or if no concrete project topic has been stated, set "idea" to null.
+- NEVER write meta-commentary, status explanations, or descriptions of the user's prompt as the idea (e.g. NEVER write "The user is asking...", "No project defined yet", etc). Return null if no project idea has been stated in the conversation.
 
 For "idea_introduction", "direct_reply" MUST: (1) briefly restate your understanding of the idea in one sentence, (2) list the concrete things you can do next — literature search & gap analysis, a technical implementation plan, a teaching plan / full course, lab exercises, experiment design, or comparing existing approaches — (3) ask what they'd like to do. Do NOT perform any of these things yet, only offer them.
 
@@ -867,9 +1144,22 @@ def _classify_intent(state: dict) -> dict:
 
     known_idea = state.get("idea") or "none set yet"
 
+    # Find uploaded documents for this conversation
+    uploaded_docs = list(state.get("uploaded_documents") or [])
+    thread_id = get_current_thread_id()
+    if not uploaded_docs and thread_id:
+        try:
+            from ingestion.chroma_client import get_conversation_document_sources
+            uploaded_docs = get_conversation_document_sources(thread_id)
+        except Exception:
+            pass
+
+    doc_context = f"Uploaded documents in this conversation: {', '.join(uploaded_docs)}" if uploaded_docs else "Uploaded documents: none"
+
     prompt = f"""You are the intent-routing layer for a research-to-education assistant.
 
 Known idea so far (if any): {known_idea}
+{doc_context}
 
 Recent conversation:
 {convo_text}
@@ -896,11 +1186,20 @@ Recent conversation:
 
 
 def classify_node(state: OrchestratorState) -> dict:
+    check_cancellation()
     result = _classify_intent(state)
     update: dict = {}
 
-    if result.get("idea"):
-        update["idea"] = result["idea"]
+    extracted_idea = result.get("idea")
+    if extracted_idea and isinstance(extracted_idea, str):
+        cleaned = extracted_idea.strip()
+        meta_phrases = [
+            "user is asking", "no project", "not yet defined",
+            "initiating the project", "has not defined", "has not yet been",
+            "not provided", "none specified", "no details", "cannot extract"
+        ]
+        if not any(phrase in cleaned.lower() for phrase in meta_phrases) and len(cleaned) >= 10:
+            update["idea"] = cleaned
 
     if result.get("intent") in ("idea_introduction", "general_chat") and result.get("direct_reply"):
         update["messages"] = [AIMessage(content=result["direct_reply"])]
@@ -909,6 +1208,7 @@ def classify_node(state: OrchestratorState) -> dict:
         update["_route"] = "tools"
 
     return update
+
 
 
 def _route_after_classify(state: OrchestratorState) -> str:
@@ -946,6 +1246,9 @@ Response style — IMPORTANT:
 - Structure longer responses with clear sections so they are easy to scan.
 
 Guidelines:
+- For questions asking to describe, explain, or analyze the user's project or uploaded document (e.g. "describe my project", "what is this project about?", "explain my project"):
+  1. Call search_personal_documents FIRST to retrieve the project idea, methodology, and details from the user's uploaded document.
+  2. Provide a substantive, well-structured, and detailed description of the project including its goals, approach, and potential impact.
 - For requests asking about "contributions", "novelty", "gaps", or "what does my project offer" regarding an uploaded document or paper:
   1. Call search_personal_documents FIRST to extract the user's project idea, proposed methodology, and objectives from their uploaded document.
   2. Call find_research_gaps (or create_technical_plan) using the extracted project idea to search published literature (arXiv, Semantic Scholar, OpenAlex) and detect actual research gaps comparing published papers against the user's project.
@@ -991,14 +1294,19 @@ def _get_llm_with_tools():
 
 
 def agent_node(state: OrchestratorState) -> dict:
+    check_cancellation()
     llm_with_tools = _get_llm_with_tools()
     idea_note = f"\n\nCurrent known idea for this conversation: {state['idea']}" if state.get("idea") else ""
     system_msg = SystemMessage(content=SYSTEM_PROMPT + idea_note)
 
     non_system_messages = [m for m in state["messages"] if not isinstance(m, SystemMessage)]
+    check_cancellation()
     try:
         response = llm_with_tools.invoke([system_msg] + non_system_messages)
+    except ExecutionCancelledError:
+        raise
     except Exception as e:
+        check_cancellation()
         print(f"[orchestrator] agent_node LLM invocation failed ({e}). Falling back to Cloud Groq.")
         from agents.tools import _ensure_llm_clients
         from agents.llm_router import set_fallback_note
@@ -1006,6 +1314,7 @@ def agent_node(state: OrchestratorState) -> dict:
         gemini_llm, groq_llm = _ensure_llm_clients()
         cloud_with_tools = groq_llm.bind_tools(TOOLS).with_fallbacks([gemini_llm.bind_tools(TOOLS)])
         response = cloud_with_tools.invoke([system_msg] + non_system_messages)
+    check_cancellation()
     return {"messages": [response]}
 
 
@@ -1063,11 +1372,14 @@ def run_orchestrator_turn(message: str, thread_id: str = "default", llm_provider
     final text reply."""
     from agents.llm_router import set_active_provider, get_fallback_note
     set_active_provider(llm_provider)
+    set_current_thread_id(thread_id)
+    check_cancellation(thread_id)
 
     graph = _build_graph()
     config = {"configurable": {"thread_id": thread_id}}
     result = graph.invoke({"messages": [{"role": "user", "content": message}]}, config=config)
 
+    check_cancellation(thread_id)
     final_message = result["messages"][-1]
     content = final_message.content
     if isinstance(content, list):
@@ -1088,3 +1400,71 @@ def get_state_snapshot(thread_id: str = "default") -> dict:
     config = {"configurable": {"thread_id": thread_id}}
     snapshot = graph.get_state(config)
     return dict(snapshot.values) if snapshot else {}
+
+
+def record_uploaded_document(
+    thread_id: str,
+    filename: str,
+    file_path: Optional[str] = None,
+    user_id: Optional[str] = None
+) -> dict:
+    """Updates LangGraph checkpointer state for thread_id when a document is uploaded:
+    1. Registers filename in uploaded_documents list.
+    2. Adds an assistant upload confirmation message to message history.
+    3. If idea is not set, extracts the project idea from document text and sets idea.
+    Returns the updated state snapshot dict."""
+    set_current_thread_id(thread_id)
+    graph = _build_graph()
+    config = {"configurable": {"thread_id": str(thread_id)}}
+    snap = graph.get_state(config)
+    current_values = dict(snap.values) if snap else {}
+
+    current_docs = list(current_values.get("uploaded_documents") or [])
+    if filename not in current_docs:
+        current_docs.append(filename)
+
+    update_payload: dict = {
+        "uploaded_documents": current_docs,
+        "messages": [AIMessage(content=f'File "{filename}" uploaded successfully. You can now ask questions about it.')],
+    }
+
+    # Extract idea from file text if not already set in state
+    if not current_values.get("idea") and file_path and os.path.isfile(file_path):
+        try:
+            import fitz
+            doc = fitz.open(file_path)
+            extracted_text = ""
+            for page in doc[:5]:
+                extracted_text += page.get_text() + " "
+            doc.close()
+            extracted_idea = _extract_idea_from_text(extracted_text)
+            if extracted_idea:
+                update_payload["idea"] = extracted_idea
+        except Exception as e:
+            print(f"[orchestrator] Could not extract idea during upload of {filename}: {e}")
+
+    graph.update_state(config, update_payload)
+    return get_state_snapshot(thread_id)
+
+
+def record_benchmark_evaluation(thread_id: str, eval_record: dict) -> dict:
+    """Updates LangGraph checkpointer state for thread_id when a benchmark evaluation is performed."""
+    set_current_thread_id(thread_id)
+    graph = _build_graph()
+    config = {"configurable": {"thread_id": str(thread_id)}}
+    snap = graph.get_state(config)
+    current_values = dict(snap.values) if snap else {}
+
+    current_evals = list(current_values.get("evaluations") or [])
+    current_evals.append(eval_record)
+
+    update_payload: dict = {
+        "evaluations": current_evals,
+    }
+    if eval_record.get("proposed_gap"):
+        current_gaps = list(current_values.get("gaps") or [])
+        current_gaps.append(eval_record["proposed_gap"])
+        update_payload["gaps"] = current_gaps
+
+    graph.update_state(config, update_payload)
+    return get_state_snapshot(thread_id)

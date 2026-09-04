@@ -28,8 +28,9 @@ import {
   Flex
 } from "@chakra-ui/react";
 import { Icon } from "@chakra-ui/react"; 
-import { FiBookOpen, FiGitBranch, FiAlertCircle, FiCpu, FiUsers, FiLayers, FiCircle, FiChevronRight, FiCode, FiDownload, FiCheckCircle, FiPlayCircle, FiFileText, FiExternalLink, FiClock, FiAlertTriangle } from "react-icons/fi";
+import { FiBookOpen, FiGitBranch, FiAlertCircle, FiCpu, FiUsers, FiLayers, FiCircle, FiChevronRight, FiCode, FiDownload, FiCheckCircle, FiPlayCircle, FiFileText, FiExternalLink, FiClock, FiAlertTriangle, FiBarChart2 } from "react-icons/fi";
 import { FaLightbulb, FaFlask, FaLaptopCode } from "react-icons/fa";
+import EvaluationDashboard from "./EvaluationDashboard.jsx";
 
 // Consistent card treatment for section content — reuses the theme's own
 // shadow/radius tokens (theme.js: shadows.soft / shadows.cardHover, radii.card)
@@ -63,7 +64,38 @@ const LEDGER_ICONS = {
   course: FiLayers,
   practical_exercises: FaLaptopCode,
   experiments: FaFlask,
+  evaluation: FiBarChart2,
 };
+
+function extractEvaluations(state) {
+  const s = state || {};
+  let list = [];
+  if (Array.isArray(s.evaluations)) {
+    list = [...s.evaluations];
+  } else if (s.evaluations && typeof s.evaluations === "object") {
+    list = Array.isArray(s.evaluations.evaluations) ? [...s.evaluations.evaluations] : [s.evaluations];
+  } else if (Array.isArray(s.benchmark_evaluations)) {
+    list = [...s.benchmark_evaluations];
+  } else if (s.evaluation && typeof s.evaluation === "object") {
+    list = Array.isArray(s.evaluation) ? [...s.evaluation] : [s.evaluation];
+  }
+
+  const exps = s.experiments?.experiments || [];
+  exps.forEach((exp) => {
+    if (exp && exp.evaluation && typeof exp.evaluation === "object") {
+      const exists = list.some((e) => e.id === exp.evaluation.id || e.experiment_title === exp.title);
+      if (!exists) {
+        list.push({
+          ...exp.evaluation,
+          experiment_title: exp.title,
+          experiment: exp,
+        });
+      }
+    }
+  });
+
+  return list;
+}
 
 function slugify(text) {
   return String(text || "")
@@ -539,7 +571,7 @@ function LedgerRow({ id, label, detail, done, onClick }) {
     </HStack>
   );
 }
-export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }) {
+export default function Sidebar({ state, isCollapsed = false, onToggleCollapse, onStateChange }) {
   const [selectedSection, setSelectedSection] = useState(null);
   const [drawerSize, setDrawerSize] = useState("md"); // md, lg, xl, full
   const [sidebarWidth, setSidebarWidth] = useState(300);
@@ -579,6 +611,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
   const gapsCount = gaps.length;
   const experiments = s.experiments?.experiments || [];
   const experimentsCount = experiments.length;
+
+  const evaluations = extractEvaluations(s);
+  const evaluationsCount = evaluations.length;
 
   const practicalExercises = extractPracticalExercises(s);
   const practicalExercisesCount = practicalExercises.length;
@@ -637,6 +672,12 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
       label: "Experiments",
       detail: experimentsCount ? `${experimentsCount} experiment(s)` : "Not generated",
       done: experimentsCount > 0,
+    },
+    {
+      id: "evaluation",
+      label: "Evaluation",
+      detail: evaluationsCount ? `${evaluationsCount} run(s) evaluated` : "Not evaluated yet",
+      done: evaluationsCount > 0,
     },
   ];
 
@@ -1601,9 +1642,9 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
               const labDownloads = s.lab_downloads || [];
               return (
                 <VStack align="stretch" spacing={4}>
-                  {labDownloads.length > 0 && (
+                  {/* {labDownloads.length > 0 && (
                     <Box p={3} {...SECTION_CARD_SUBTLE} bg="purple.50" borderColor="purple.200">
-                      <Text fontSize="xs" color="purple.800" fontWeight="bold" mb={2}>Lab notebook downloads</Text>
+                      <Text fontSize="xs" color="purple.800" fontWeight="bold" mb={2}>Lab notebogok downloads</Text>
                       <HStack spacing={2} wrap="wrap">
                         {labDownloads.map((download, idx) => (
                           <Button
@@ -1618,7 +1659,7 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                         ))}
                       </HStack>
                     </Box>
-                  )}
+                  )} */}
                   <Text fontSize="md" fontWeight="600" color="ink.800" mb={1}>
                     {exps.length} Suggested Experiment{exps.length !== 1 ? "s" : ""}
                   </Text>
@@ -1716,6 +1757,24 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse }
                 </VStack>
               );
             })()}
+
+            {selectedSection === "evaluation" && (
+              <EvaluationDashboard
+                evaluations={evaluations}
+                experiments={experiments}
+                papers={papers}
+                conversationId={s.conversation_id || null}
+                drawerSize={drawerSize}
+                onEvaluationCreated={(newEval, allEvals) => {
+                  if (onStateChange) {
+                    onStateChange((prev) => ({
+                      ...prev,
+                      evaluations: allEvals || [...(prev.evaluations || []), newEval],
+                    }));
+                  }
+                }}
+              />
+            )}
           </DrawerBody>
         </DrawerContent>
       </Drawer>

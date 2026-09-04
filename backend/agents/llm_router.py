@@ -168,6 +168,7 @@ def invoke_ollama_safe(prompt: str, model_name: str = DEFAULT_OLLAMA_MODEL) -> T
         try:
             ollama_llm = get_ollama_llm(model_name=resolved_model)
             response = ollama_llm.invoke(prompt)
+            print(f"[llm_router] Ollama invocation successful for model {resolved_model}.")
             content = response.content
             if isinstance(content, list):
                 content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)

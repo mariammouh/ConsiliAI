@@ -94,12 +94,14 @@ def _ensure_llm_clients():
 def _invoke_gemini(prompt: str):
     from agents.llm_router import get_active_llm
     llm, _ = get_active_llm(task_type="lightweight")
+    print("You are using Gemini LLM for lightweight tasks.")
     return llm.invoke(prompt)
 
 
 def _invoke_groq(prompt: str):
     from agents.llm_router import get_active_llm
     llm, _ = get_active_llm(task_type="reasoning")
+    print("You are using Groq LLM for reasoning tasks.")
     return llm.invoke(prompt)
 
 def retrieve_from_knowledge_base(question: str, user_id: str) -> str:
@@ -169,19 +171,38 @@ def get_cached_papers_combined(query: str, similarity_threshold: float = 0.95) -
                 meta = results['metadatas'][0][i]
                 collected_papers.extend(json.loads(meta.get('papers', '[]')))
 
-    # Déduplication (par URL ou titre)
+    # Deduplication cross-source 
     seen_urls = set()
+    seen_titles = set()
     unique = []
+
+    def normalize_url(url):
+        url = str(url or '').strip().lower()
+        if not url:
+            return ''
+        url = re.sub(r'^https?://', '', url)
+        url = re.sub(r'^www\.', '', url)
+        return url.rstrip('/')
+
+    def normalize_title(title):
+        return re.sub(r'\s+', ' ', str(title or '').lower().strip())
+
     for p in collected_papers:
-        url = p.get('url') or ''
-        if url and url not in seen_urls:
+        url = normalize_url(p.get('url'))
+        title = normalize_title(p.get('title'))
+
+        # Duplicate if the URL OR title was already seen
+        if (url and url in seen_urls) or (title and title in seen_titles):
+            continue
+
+        if url:
             seen_urls.add(url)
-            unique.append(p)
-        elif not url:
-            title = p.get('title', '')
-            if title not in seen_urls:
-                seen_urls.add(title)
-                unique.append(p)
+
+        if title:
+            seen_titles.add(title)
+
+        unique.append(p)
+
     return unique if unique else None
 
 def search_papers(query: str, max_results: int = 15) -> List[Dict]:
@@ -4372,8 +4393,8 @@ def extract_literature_results(paper: dict) -> list:
         if not source_text:
             exp_setup = analysis.get("experimental_setup", {}) or {}
             summary = exp_setup.get("summary", "")
-            print("*******************************************************************")
-            print(exp_setup.get("summary", ""))
+            #print("*******************************************************************")
+            #print(exp_setup.get("summary", ""))
             source_text = "\n".join(summary) if isinstance(summary, list) else str(summary)
 
     if not source_text.strip():
@@ -4381,7 +4402,7 @@ def extract_literature_results(paper: dict) -> list:
 
     prompt = f"Text:\n{source_text[:12000]}\n\n{_EXTRACTION_SCHEMA}"
     parsed = _safe_json_parse(_groq_invoke_safe(prompt))
-    print("EXTRACTED FROM FALLBACK:", parsed)
+    #print("EXTRACTED FROM FALLBACK:", parsed)
     for r in parsed.get("results", []) if isinstance(parsed, dict) else []:
         if not isinstance(r, dict):
             continue

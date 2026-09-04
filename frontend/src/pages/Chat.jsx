@@ -12,8 +12,18 @@ import {
   useColorModeValue,
 } from "@chakra-ui/react";
 import { useNavigate } from "react-router-dom";
-import { FiChevronLeft, FiChevronRight, FiPaperclip } from "react-icons/fi";
-import { sendChatMessage, getChatHistory, downloadArtifact, logout, uploadDocument, getConversations, createConversation, deleteConversation } from "../api.js";
+import { FiChevronLeft, FiChevronRight, FiPaperclip, FiSquare } from "react-icons/fi";
+import { 
+  sendChatMessage, 
+  stopChatMessage,
+  getChatHistory, 
+  downloadArtifact, 
+  logout, 
+  uploadDocument, 
+  getConversations, 
+  createConversation, 
+  deleteConversation 
+} from "../api.js";
 import MessageBubble from "../components/MessageBubble.jsx";
 import Sidebar from "../components/Sidebar.jsx";
 import LeftSidebar from "../components/LeftSidebar.jsx";
@@ -36,7 +46,9 @@ export default function Chat() {
 
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
+  const abortControllerRef = useRef(null);
   const navigate = useNavigate();
+
 
   const bgMain = useColorModeValue("paper.50", "gray.900");
   const bgFloatingBtn = useColorModeValue("paper.100", "gray.800");
@@ -108,7 +120,10 @@ export default function Chat() {
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || sending || loadingHistory || !activeConversationId) return;
+    if (!text || sending || uploading || loadingHistory || !activeConversationId) return;
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setInput("");
@@ -116,7 +131,7 @@ export default function Chat() {
     setError("");
 
     try {
-      const data = await sendChatMessage(text, activeConversationId);
+      const data = await sendChatMessage(text, activeConversationId, controller.signal);
       
       if (data.title) {
         setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, title: data.title } : c));
@@ -131,12 +146,46 @@ export default function Chat() {
       ]);
       setState(data.state || {});
     } catch (err) {
+      if (err.name === "AbortError" || err.message?.includes("stopped by user") || err.message?.includes("cancelled")) {
+        // Handled cleanly via handleStop
+        return;
+      }
       setError(err.message);
       if (err.message.includes("Session expired")) {
         navigate("/login");
       }
     } finally {
       setSending(false);
+      abortControllerRef.current = null;
+    }
+  }
+
+  async function handleStop() {
+    if (!sending) return;
+
+    // 1. Abort fetch immediately
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    // 2. Immediately reflect stopped state in UI
+    setSending(false);
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: "*Execution stopped by user.*",
+      },
+    ]);
+
+    // 3. Notify backend to terminate the task and cancellation event
+    if (activeConversationId) {
+      try {
+        await stopChatMessage(activeConversationId);
+      } catch (err) {
+        console.warn("[handleStop] Could not send stop signal:", err);
+      }
     }
   }
 
@@ -167,6 +216,30 @@ export default function Chat() {
     }
   }
 
+  async function handleDeleteAllUserData() {
+    // Reset all local states
+    setConversations([]);
+    setActiveConversationId(null);
+    setMessages([]);
+    setState({});
+    setError("");
+
+    try {
+      const newConv = await createConversation();
+      setConversations([newConv]);
+      setActiveConversationId(newConv.id);
+      setMessages([
+        {
+          role: "assistant",
+          content:
+            "Tell me about a project or research idea you're working on, and I can help with literature gaps, a technical plan, a teaching plan and course, lab exercises, or experiment design.",
+        },
+      ]);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   function handleKeyDown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -190,6 +263,9 @@ export default function Chat() {
           content: `File "${file.name}" uploaded successfully. You can now ask questions about it.`,
         },
       ]);
+      if (res && res.state) {
+        setState(res.state);
+      }
     } catch (err) {
       setError(err.message);
       if (err.message.includes("Session expired")) {
@@ -217,6 +293,7 @@ export default function Chat() {
         onNewChat={handleNewChat}
         onDeleteChat={handleDeleteChat}
         onLogout={handleLogout}
+        onDeleteAllData={handleDeleteAllUserData}
         state={state}
         messages={messages}
         isCollapsed={isLeftCollapsed}
@@ -341,22 +418,37 @@ export default function Chat() {
             border="none"
             boxShadow="inset 0 0 0 1px var(--chakra-colors-paper-300)" 
           />
-          <Button 
-            onClick={handleSend} 
-            isLoading={sending} 
-            px={6} 
-            borderRadius="14px"
-            boxShadow="0px 4px 10px rgba(193,90,54,0.28)"
-          >
-            Send
-          </Button>
+          {sending ? (
+            <Button 
+              onClick={handleStop} 
+              colorScheme="red"
+              variant="solid"
+              leftIcon={<FiSquare />}
+              px={6} 
+              borderRadius="14px"
+              boxShadow="0px 4px 10px rgba(220, 38, 38, 0.35)"
+            >
+              Stop
+            </Button>
+          ) : (
+            <Button 
+              onClick={handleSend} 
+              isDisabled={!input.trim() || loadingHistory || uploading}
+              px={6} 
+              borderRadius="14px"
+              boxShadow="0px 4px 10px rgba(193,90,54,0.28)"
+            >
+              Send
+            </Button>
+          )}
         </Flex>
       </Flex>
 
       <Sidebar 
-        state={state} 
+        state={{ ...state, conversation_id: activeConversationId }} 
         isCollapsed={isRightCollapsed}
         onToggleCollapse={() => setIsRightCollapsed(!isRightCollapsed)}
+        onStateChange={setState}
       />
     </Flex>
   );

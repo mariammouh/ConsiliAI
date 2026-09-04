@@ -67,7 +67,7 @@ export function logout() {
  * from the authenticated user now — the frontend never generates or sends
  * one (see main.py's /chat).
  */
-export async function sendChatMessage(message, conversationId) {
+export async function sendChatMessage(message, conversationId, abortSignal = null) {
   const token = getToken();
   if (!token) throw new Error("Not authenticated");
   if (!conversationId) throw new Error("No active conversation");
@@ -82,6 +82,7 @@ export async function sendChatMessage(message, conversationId) {
       Authorization: `Bearer ${token}`,
     },
     body,
+    signal: abortSignal,
   });
 
   if (res.status === 401) {
@@ -93,6 +94,21 @@ export async function sendChatMessage(message, conversationId) {
     throw new Error(err.detail || "Something went wrong talking to the assistant.");
   }
   return res.json(); // { reply, state: {...}, title: "..." }
+}
+
+export async function stopChatMessage(conversationId) {
+  const token = getToken();
+  if (!token || !conversationId) return { status: "stopped" };
+
+  try {
+    const res = await fetch(`${API_BASE}/chat/${conversationId}/stop`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return await res.json().catch(() => ({ status: "stopped" }));
+  } catch (err) {
+    return { status: "stopped" };
+  }
 }
 
 export async function getChatHistory(conversationId) {
@@ -256,5 +272,106 @@ export async function updateSettings(settings) {
   }
   return res.json();
 }
+
+export async function deleteAllUserData() {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const res = await fetch(`${API_BASE}/user/data`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (res.status === 401) {
+    clearToken();
+    throw new Error("Session expired — please log in again.");
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to delete all user data.");
+  }
+  return res.json();
+}
+
+export async function downloadProjectZip(conversationId) {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+  if (!conversationId) throw new Error("No conversation selected for project download");
+
+  const res = await fetch(`${API_BASE}/projects/${conversationId}/download`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) {
+    clearToken();
+    throw new Error("Session expired — please log in again.");
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Could not download the project archive.");
+  }
+
+  let filename = "project_archive.zip";
+  const disposition = res.headers.get("Content-Disposition");
+  if (disposition && disposition.includes("filename=")) {
+    const match = disposition.match(/filename=["']?([^"';]+)["']?/);
+    if (match && match[1]) {
+      filename = match[1];
+    }
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export async function evaluateExperimentBenchmark({
+  conversationId,
+  experiment,
+  submissionText,
+  submissionFile,
+  papersWithAnalysis = [],
+}) {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const formData = new FormData();
+  formData.append("experiment", JSON.stringify(experiment));
+  formData.append("papers_with_analysis", JSON.stringify(papersWithAnalysis));
+  if (conversationId) {
+    formData.append("conversation_id", conversationId);
+  }
+  if (submissionFile) {
+    formData.append("submission_file", submissionFile);
+  } else if (submissionText) {
+    formData.append("submission_text", submissionText);
+  } else {
+    throw new Error("Please provide either submission text or a submission file.");
+  }
+
+  const res = await fetch(`${API_BASE}/evaluate_benchmark`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    clearToken();
+    throw new Error("Session expired — please log in again.");
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.error || "Failed to evaluate benchmark.");
+  }
+  return res.json();
+}
+
 
 
