@@ -3,12 +3,13 @@ import uuid
 from fastapi_users import schemas
 
 
-from typing import Optional
+from typing import Optional, Dict, Any
 from pydantic import field_validator
 
 
 class UserRead(schemas.BaseUser[uuid.UUID]):
     llm_provider: str = "cloud"
+    task_models: Optional[Dict[str, Any]] = None
 
 
 class UserCreate(schemas.BaseUserCreate):
@@ -17,6 +18,7 @@ class UserCreate(schemas.BaseUserCreate):
 
 class UserUpdate(schemas.BaseUserUpdate):
     llm_provider: Optional[str] = "cloud"
+    task_models: Optional[Dict[str, Any]] = None
 
     @field_validator("llm_provider")
     @classmethod

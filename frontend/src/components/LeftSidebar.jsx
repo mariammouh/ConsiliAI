@@ -44,9 +44,16 @@ import {
   FiSun, 
   FiMoon,
   FiCpu,
-  FiAlertTriangle
+  FiAlertTriangle,
+  FiServer,
+  FiRefreshCw,
+  FiCheckCircle,
+  FiActivity,
+  FiLayers,
+  FiMessageSquare,
+  FiInfo
 } from "react-icons/fi";
-import { getUserMe, getSettings, updateSettings, downloadProjectZip, deleteAllUserData } from "../api.js";
+import { getUserMe, getSettings, updateSettings, getAvailableModels, downloadProjectZip, deleteAllUserData } from "../api.js";
 
 
 export default function LeftSidebar({ 
@@ -72,6 +79,52 @@ export default function LeftSidebar({
   const [userData, setUserData] = useState(null);
   const [llmProvider, setLlmProvider] = useState("cloud");
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
+
+  // Local Models & Task-specific model routing state
+  const [taskModels, setTaskModels] = useState({
+    analytical: "default",
+    planning: "default",
+    content_generation: "default",
+    general_chat: "default",
+  });
+  const [modelCatalog, setModelCatalog] = useState(null);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [isSavingTaskModels, setIsSavingTaskModels] = useState(false);
+
+  const TASK_CONFIGS = [
+    {
+      key: "analytical",
+      label: "Analytical Tasks",
+      badge: "Analysis",
+      icon: FiActivity,
+      description: "Paper analysis, literature synthesis, section extraction, and research gap detection.",
+      defaultDesc: "Qwen 2.5 27B on Cloud / llama3.2:3b on Local",
+    },
+    {
+      key: "planning",
+      label: "Planning Tasks",
+      badge: "Planning",
+      icon: FiLayers,
+      description: "Technical project plans, architecture design, course syllabi, and teaching plans.",
+      defaultDesc: "Qwen 2.5 27B on Cloud / llama3.2:3b on Local",
+    },
+    {
+      key: "content_generation",
+      label: "Content Generation",
+      badge: "Generation",
+      icon: FiCode,
+      description: "Generated courses, student experiments, practical coding exercises, and runnable Jupyter notebooks.",
+      defaultDesc: "Qwen 2.5 27B on Cloud / qwen2.5-coder:7b on Local",
+    },
+    {
+      key: "general_chat",
+      label: "General Chat",
+      badge: "Chat",
+      icon: FiMessageSquare,
+      description: "Conversational orchestration, intent classification, and direct user conversational Q&A.",
+      defaultDesc: "Qwen 2.5 27B on Cloud / llama3.2:3b on Local",
+    },
+  ];
 
   // Chat deletion confirmation modal state
   const [chatToDelete, setChatToDelete] = useState(null);
@@ -117,18 +170,98 @@ export default function LeftSidebar({
     borderColor: "paper.300",
   };
 
+  const loadModelsAndSettings = async () => {
+    setIsLoadingModels(true);
+    try {
+      const [models, settings] = await Promise.all([
+        getAvailableModels().catch(() => null),
+        getSettings().catch(() => null),
+      ]);
+      if (models) setModelCatalog(models);
+      if (settings?.llm_provider) setLlmProvider(settings.llm_provider);
+      if (settings?.task_models) {
+        setTaskModels({
+          analytical: settings.task_models.analytical || "default",
+          planning: settings.task_models.planning || "default",
+          content_generation: settings.task_models.content_generation || "default",
+          general_chat: settings.task_models.general_chat || "default",
+        });
+      }
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       getUserMe().then((data) => {
         if (data) setUserData(data);
       });
-      getSettings()
-        .then((s) => {
-          if (s?.llm_provider) setLlmProvider(s.llm_provider);
-        })
-        .catch(() => {});
+      loadModelsAndSettings();
     }
   }, [isOpen]);
+
+  const handleTaskModelChange = (catKey, modelId) => {
+    setTaskModels((prev) => ({
+      ...prev,
+      [catKey]: modelId,
+    }));
+  };
+
+  const handleSaveTaskModels = async () => {
+    setIsSavingTaskModels(true);
+    try {
+      await updateSettings({ task_models: taskModels });
+      toast({
+        title: "Model configuration saved",
+        description: "Task-specific model routing has been successfully updated.",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to save configuration",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsSavingTaskModels(false);
+    }
+  };
+
+  const handleResetTaskModels = async () => {
+    const defaults = {
+      analytical: "default",
+      planning: "default",
+      content_generation: "default",
+      general_chat: "default",
+    };
+    setTaskModels(defaults);
+    setIsSavingTaskModels(true);
+    try {
+      await updateSettings({ task_models: defaults });
+      toast({
+        title: "Reset to default models",
+        description: "All task categories are now set to use their default models.",
+        status: "info",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to reset",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsSavingTaskModels(false);
+    }
+  };
 
   const handleProviderChange = async (val) => {
     setLlmProvider(val);
@@ -414,7 +547,7 @@ export default function LeftSidebar({
       </Box>
 
       {/* Settings Modal */}
-      <Modal isOpen={isOpen} onClose={onClose} size="lg">
+      <Modal isOpen={isOpen} onClose={onClose} size="xl">
         <ModalOverlay />
         <ModalContent bg={bgSidebar} borderRadius="card" boxShadow="card">
           <ModalHeader color={textPrimary} borderBottom="1px solid" borderColor={borderColor}>
@@ -428,6 +561,7 @@ export default function LeftSidebar({
                 <Tab><FiDownload style={{ marginRight: 6 }} /> Export & Data</Tab>
                 <Tab><FiSliders style={{ marginRight: 6 }} /> Appearance</Tab>
                 <Tab><FiCpu style={{ marginRight: 6 }} /> Model & Provider</Tab>
+                <Tab><FiServer style={{ marginRight: 6 }} /> Local Models</Tab>
               </TabList>
 
               <TabPanels>
@@ -652,8 +786,213 @@ export default function LeftSidebar({
                               Routes generation to your local Ollama server (llama3.1:8b for reasoning, qwen2.5-coder:7b for Lab Agent). Gracefully falls back to Cloud if Ollama is unreachable.
                             </Text>
                           </Box>
+
+                          <Box
+                            p={3}
+                            mt={1}
+                            borderRadius="control"
+                            border="1px solid"
+                            borderColor={useColorModeValue("gold.200", "gray.700")}
+                            bg={useColorModeValue("gold.50", "whiteAlpha.50")}
+                          >
+                            <HStack spacing={2} align="center" mb={1}>
+                              <FiServer color="var(--chakra-colors-gold-600)" />
+                              <Text fontSize="xs" fontWeight="bold" color={textPrimary}>
+                                Looking for granular model assignment?
+                              </Text>
+                            </HStack>
+                            <Text fontSize="xs" color={textSecondary}>
+                              Use the <b>Local Models</b> tab to configure specialized local or cloud models independently for Analytical Tasks, Planning, Content Generation, and Chat.
+                            </Text>
+                          </Box>
                         </VStack>
                       </RadioGroup>
+                    </Box>
+                  </VStack>
+                </TabPanel>
+
+                {/* Local Models - Task-Specific LLM Configuration */}
+                <TabPanel p={0}>
+                  <VStack align="stretch" spacing={4}>
+                    {/* Header & Connectivity Status Card */}
+                    <Box p={4} {...SECTION_CARD} borderColor={borderColor}>
+                      <HStack justify="space-between" align="start" mb={2}>
+                        <Box>
+                          <Text fontSize="xs" fontWeight="bold" color={textSubtle} letterSpacing="wider">
+                            LOCAL & CUSTOMIZED MODEL ROUTING
+                          </Text>
+                          <Text fontSize="xs" color={textSecondary} mt={1}>
+                            Configure specialized local (Ollama) or cloud models for each workload category. Tasks automatically route to your assigned model.
+                          </Text>
+                        </Box>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          leftIcon={<FiRefreshCw />}
+                          isLoading={isLoadingModels}
+                          onClick={loadModelsAndSettings}
+                          colorScheme="orange"
+                        >
+                          Refresh Models
+                        </Button>
+                      </HStack>
+
+                      {/* Ollama Status Alert */}
+                      <Box
+                        mt={3}
+                        p={3}
+                        borderRadius="control"
+                        border="1px solid"
+                        borderColor={modelCatalog?.ollama_available ? useColorModeValue("green.200", "green.800") : useColorModeValue("orange.200", "orange.800")}
+                        bg={modelCatalog?.ollama_available ? useColorModeValue("green.50", "rgba(72, 187, 120, 0.1)") : useColorModeValue("orange.50", "rgba(237, 137, 54, 0.1)")}
+                      >
+                        <HStack justify="space-between" align="center">
+                          <HStack spacing={2}>
+                            {modelCatalog?.ollama_available ? (
+                              <FiCheckCircle color="var(--chakra-colors-green-500)" />
+                            ) : (
+                              <FiAlertTriangle color="var(--chakra-colors-orange-500)" />
+                            )}
+                            <Text fontSize="xs" fontWeight="bold" color={modelCatalog?.ollama_available ? "green.700" : "orange.700"}>
+                              {modelCatalog?.ollama_available
+                                ? `Local Ollama is Online (${modelCatalog?.providers?.ollama?.models?.length || 0} installed models detected)`
+                                : "Local Ollama is Offline (http://localhost:11434)"}
+                            </Text>
+                          </HStack>
+                          <Badge
+                            colorScheme={modelCatalog?.ollama_available ? "green" : "orange"}
+                            fontSize="10px"
+                            borderRadius="full"
+                            px={2}
+                          >
+                            {modelCatalog?.ollama_available ? "Connected" : "Fallback Active"}
+                          </Badge>
+                        </HStack>
+                        <Text fontSize="xs" color={textSecondary} mt={1}>
+                          {modelCatalog?.ollama_available
+                            ? "Custom and local models are ready for execution. If a local model fails or runs out of VRAM, ConsiliAI gracefully falls back to Cloud."
+                            : "Local Ollama server was not detected. Start Ollama ('ollama serve') to run local models. Cloud inference is currently active as fallback."}
+                        </Text>
+                      </Box>
+                    </Box>
+
+                    {/* Task Categories Cards */}
+                    {TASK_CONFIGS.map((cfg) => {
+                      const IconComp = cfg.icon;
+                      const selectedVal = taskModels[cfg.key] || "default";
+                      const isLocal = selectedVal.startsWith("ollama:");
+                      const isGroq = selectedVal.startsWith("groq:");
+                      const isGemini = selectedVal.startsWith("gemini:");
+
+                      return (
+                        <Box key={cfg.key} p={4} {...SECTION_CARD} borderColor={borderColor}>
+                          <HStack justify="space-between" align="center" mb={1}>
+                            <HStack spacing={2} align="center">
+                              <Box p={1.5} borderRadius="md" bg={useColorModeValue("paper.100", "gray.800")} color="gold.600">
+                                <IconComp size={15} />
+                              </Box>
+                              <Text fontSize="sm" fontWeight="bold" color={textPrimary}>
+                                {cfg.label}
+                              </Text>
+                            </HStack>
+                            <Badge
+                              colorScheme={isLocal ? "orange" : isGroq ? "purple" : isGemini ? "blue" : "gray"}
+                              borderRadius="full"
+                              px={2}
+                              fontSize="10px"
+                            >
+                              {isLocal ? "Local Model" : isGroq ? "Groq Cloud" : isGemini ? "Gemini Cloud" : "Default"}
+                            </Badge>
+                          </HStack>
+
+                          <Text fontSize="xs" color={textSecondary} mb={3}>
+                            {cfg.description}
+                          </Text>
+
+                          <Select
+                            size="sm"
+                            value={selectedVal}
+                            onChange={(e) => handleTaskModelChange(cfg.key, e.target.value)}
+                            bg={useColorModeValue("white", "gray.800")}
+                            borderColor={borderColor}
+                            _hover={{ borderColor: "gold.400" }}
+                            _focus={{ borderColor: "gold.500", boxShadow: "0 0 0 1px #d69e2e" }}
+                          >
+                            <option value="default">Default ({cfg.defaultDesc})</option>
+
+                            {modelCatalog?.providers?.ollama?.models?.length > 0 && (
+                              <optgroup label="Local Models (Ollama)">
+                                {modelCatalog.providers.ollama.models.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.name} {m.size ? `(${m.size}${m.details ? ` · ${m.details}` : ""})` : ""} [Local]
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+
+                            {modelCatalog?.providers?.groq?.models?.length > 0 && (
+                              <optgroup label="Cloud Models (Groq)">
+                                {modelCatalog.providers.groq.models.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.name} [Groq Cloud]
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+
+                            {modelCatalog?.providers?.gemini?.models?.length > 0 && (
+                              <optgroup label="Cloud Models (Gemini)">
+                                {modelCatalog.providers.gemini.models.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.name} [Gemini Cloud]
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </Select>
+
+                          <HStack spacing={1} mt={2}>
+                            <FiInfo size={11} color="var(--chakra-colors-slate-400)" />
+                            <Text fontSize="xs" color={textSubtle}>
+                              {selectedVal === "default"
+                                ? `Uses standard system default: ${cfg.defaultDesc}`
+                                : `Assigned model identifier: ${selectedVal}`}
+                            </Text>
+                          </HStack>
+                        </Box>
+                      );
+                    })}
+
+                    {/* Action Buttons & Persistence Notice */}
+                    <Box p={4} {...SECTION_CARD} borderColor={borderColor}>
+                      <HStack spacing={3} justify="space-between">
+                        <HStack spacing={3}>
+                          <Button
+                            size="sm"
+                            colorScheme="orange"
+                            bg="gold.500"
+                            color="white"
+                            _hover={{ bg: "gold.600" }}
+                            leftIcon={<FiCheckCircle />}
+                            isLoading={isSavingTaskModels}
+                            loadingText="Saving..."
+                            onClick={handleSaveTaskModels}
+                          >
+                            Save Model Configuration
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            isDisabled={isSavingTaskModels}
+                            onClick={handleResetTaskModels}
+                          >
+                            Reset to Defaults
+                          </Button>
+                        </HStack>
+                        <Text fontSize="xs" color={textSubtle} textAlign="right">
+                          Persisted per account
+                        </Text>
+                      </HStack>
                     </Box>
                   </VStack>
                 </TabPanel>

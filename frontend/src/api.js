@@ -238,6 +238,21 @@ export async function getUserMe() {
   return res.json();
 }
 
+export async function getAvailableModels() {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const res = await fetch(`${API_BASE}/models/available`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to load available models");
+  }
+  return res.json();
+}
+
 export async function getSettings() {
   const token = getToken();
   if (!token) throw new Error("Not authenticated");

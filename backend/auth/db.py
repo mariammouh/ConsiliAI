@@ -18,7 +18,7 @@ from fastapi import Depends
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyUserDatabase
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import Column, String, DateTime, ForeignKey, UUID, text
+from sqlalchemy import Column, String, DateTime, ForeignKey, UUID, text, JSON
 
 # e.g. postgresql+asyncpg://consiliai:consiliai@localhost:5432/consiliai
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -36,6 +36,7 @@ class Base(DeclarativeBase):
 class User(SQLAlchemyBaseUserTableUUID, Base):
     """User model with fastapi-users base fields plus application preferences."""
     llm_provider = Column(String, nullable=False, default="cloud", server_default="cloud")
+    task_models = Column(JSON, nullable=True, default=dict, server_default='{}')
 
 
 class Conversation(Base):
@@ -55,6 +56,7 @@ async def create_db_and_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS llm_provider VARCHAR NOT NULL DEFAULT \'cloud\';'))
+        await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS task_models JSON DEFAULT \'{}\';'))
 
 
 

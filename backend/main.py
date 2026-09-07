@@ -31,6 +31,11 @@ from agents.orchestrator import (
 )
 from export_project import build_project_zip_archive
 
+try:
+    from backend.security.prompt_injection_guard import scan_for_injection, sanitize_text
+except ImportError:
+    from security.prompt_injection_guard import scan_for_injection, sanitize_text
+
 load_dotenv()
 
 # Active message generation tasks keyed by conversation_id
@@ -314,24 +319,37 @@ async def delete_all_user_data(
     }
 
 
+from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 
 
 class SettingsPayload(BaseModel):
-    llm_provider: str = Field(..., description="LLM provider choice: 'cloud' or 'local'")
+    llm_provider: Optional[str] = Field(None, description="LLM provider choice: 'cloud' or 'local'")
+    task_models: Optional[Dict[str, Optional[str]]] = Field(None, description="Model ID mapping per task category")
 
     @field_validator("llm_provider")
     @classmethod
-    def validate_provider(cls, v: str) -> str:
-        if v not in ("cloud", "local"):
+    def validate_provider(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("cloud", "local"):
             raise ValueError("llm_provider must be 'cloud' or 'local'")
         return v
+
+
+@app.get("/models/available")
+async def get_available_models_endpoint(user: User = Depends(current_active_user)):
+    """
+    Returns the catalog of available models across all configured providers
+    (local Ollama, cloud Groq, and cloud Gemini), along with task categories and defaults.
+    """
+    from agents.llm_router import get_available_models_catalog
+    return get_available_models_catalog()
 
 
 @app.get("/settings")
 async def get_settings(user: User = Depends(current_active_user)):
     return {
-        "llm_provider": getattr(user, "llm_provider", "cloud")
+        "llm_provider": getattr(user, "llm_provider", "cloud"),
+        "task_models": getattr(user, "task_models", {}) or {},
     }
 
 
@@ -341,13 +359,28 @@ async def update_settings(
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    user.llm_provider = payload.llm_provider
+    if payload.llm_provider is not None:
+        user.llm_provider = payload.llm_provider
+    if payload.task_models is not None:
+        current_models = getattr(user, "task_models", {}) or {}
+        if isinstance(current_models, dict):
+            current_models = dict(current_models)
+        else:
+            current_models = {}
+        for cat, mid in payload.task_models.items():
+            if mid is None or mid == "" or mid == "default":
+                current_models.pop(cat, None)
+            else:
+                current_models[cat] = mid
+        user.task_models = current_models
+
     session.add(user)
     await session.commit()
     await session.refresh(user)
     return {
         "llm_provider": user.llm_provider,
-        "message": f"LLM provider updated to {user.llm_provider}"
+        "task_models": user.task_models or {},
+        "message": "Settings updated successfully"
     }
 
 
@@ -394,13 +427,24 @@ async def chat_endpoint(
 
     thread_id = conversation_id 
 
+    # Prompt injection scan on incoming message
+    scan_res = scan_for_injection(message, source_label="chat_endpoint")
+    if scan_res.is_blocked:
+        raise HTTPException(
+            status_code=400,
+            detail=scan_res.block_reason or "Prompt injection detected. Request rejected."
+        )
+    processed_message = scan_res.sanitized_text if scan_res.is_suspicious else message
+
     # Truncate first message as title if it's the default
     if conv.title == "New Conversation":
-        truncated = message[:30] + "..." if len(message) > 30 else message
+        cleaned_title_src = scan_res.sanitized_text
+        truncated = cleaned_title_src[:30] + "..." if len(cleaned_title_src) > 30 else cleaned_title_src
         conv.title = truncated
         await session.commit()
 
     user_provider = getattr(user, "llm_provider", "cloud")
+    user_task_models = getattr(user, "task_models", {}) or {}
 
     # Register cancellation tracking
     register_cancel_event(conversation_id)
@@ -410,9 +454,10 @@ async def chat_endpoint(
     try:
         reply = await asyncio.to_thread(
             run_orchestrator_turn,
-            message=message,
+            message=processed_message,
             thread_id=thread_id,
             llm_provider=user_provider,
+            task_models=user_task_models,
         )
     except (asyncio.CancelledError, ExecutionCancelledError) as e:
         print(f"[chat_endpoint] Execution cancelled for {conversation_id}")
@@ -627,7 +672,10 @@ async def ask_question(
     question: str = Form(...),
     user: User = Depends(current_active_user)
 ):
-    answer = retrieve_from_knowledge_base(question, user_id=str(user.id))
+    scan_res = scan_for_injection(question, source_label="ask_endpoint")
+    if scan_res.is_blocked:
+        raise HTTPException(status_code=400, detail="Prompt injection detected.")
+    answer = retrieve_from_knowledge_base(scan_res.sanitized_text, user_id=str(user.id))
     return {"answer": answer}
 
 # Optional: keep debug endpoint
