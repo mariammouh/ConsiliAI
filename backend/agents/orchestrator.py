@@ -273,6 +273,9 @@ def _ensure_course(state: dict, idea: str):
     papers, gaps, teaching_plan = _ensure_teaching_plan(state, idea)
     if _same_idea(state, idea) and state.get("course"):
         return papers, gaps, teaching_plan, state["course"]
+    # Guard: teaching_plan must be a dict; if not (e.g. LLM returned a list), treat as error
+    if not isinstance(teaching_plan, dict):
+        teaching_plan = {"_error": f"Teaching plan has unexpected type: {type(teaching_plan).__name__}"}
     if teaching_plan.get("_error"):
         return papers, gaps, teaching_plan, {"_error": teaching_plan["_error"]}
     course = generate_course(teaching_plan, papers)
@@ -1061,7 +1064,7 @@ def _extract_idea_from_text(text: str) -> Optional[str]:
     scan_res = scan_for_injection(text[:4000], source_label="document_idea_extraction")
     wrapped_snippet = wrap_untrusted_content(scan_res.sanitized_text, tag="document_snippet", source_label="uploaded_document")
     prompt = f"""You are analyzing a research or technical project document.
-Extract a concise summary of the core project idea or research topic presented in this text (1-2 sentences).
+Extract a concise summary of the core project idea or research topic presented in this text (1 sentence).
 Focus directly on what the project is about (its goal, primary methodology, and domain).
 
 OUTPUT FORMAT RULES:

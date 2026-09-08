@@ -52,6 +52,7 @@ export default function Login() {
         <Text fontFamily="mono" fontSize="xs" color="slate.500" letterSpacing="wide" mb={2}>
           [ CONSILIAI ]
         </Text>
+        
         <Heading fontSize="2xl" mb={1} color="ink.900">
           Sign in
         </Heading>

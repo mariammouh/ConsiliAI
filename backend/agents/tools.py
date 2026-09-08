@@ -62,10 +62,10 @@ def _get_gemini_llm():
     if not api_key:
         raise ValueError("GEMINI_API_KEY/GOOGLE_API_KEY is not configured")
     return ChatGoogleGenerativeAI(
-        model="gemini-3.1-flash-lite",
+        model="gemini-2.5-flash-lite",
         google_api_key=api_key,
         temperature=0,
-        timeout=60,        
+        timeout=60,
     )
 
 
@@ -105,9 +105,10 @@ def _ensure_llm_clients():
 
 
 def _invoke_gemini(prompt: str):
-    from agents.llm_router import get_active_llm
-    llm, _ = get_active_llm(task_type="lightweight")
-    print("You are using Gemini LLM for lightweight tasks.")
+    """Invoke Gemini directly (not through get_active_llm which might resolve to Groq)."""
+    from agents.llm_router import get_llm_instance
+    llm = get_llm_instance("gemini", "gemini-2.5-flash-lite", temperature=0, timeout=120)
+    print("You are using Gemini LLM (gemini-2.5-flash-lite) as fallback.")
     return llm.invoke(prompt)
 
 
@@ -1012,7 +1013,7 @@ Return ONLY valid JSON: {{"section": "..."}}
 Text:
 {chunk}
 """
-        content = _groq_invoke_safe(prompt)
+        content = _groq_invoke_safe(prompt, task_category="analytical")
         parsed = _safe_json_parse(content)
         section = (parsed.get("section", "") if parsed else "").strip().lower()
 
@@ -1030,42 +1031,171 @@ Text:
 
 def _safe_json_parse(raw_text: str) -> dict:
     """
-    Drop-in replacement. Strips a leading <think>...</think> reasoning
-    block (Groq reasoning models: qwen3, deepseek-r1-distill, etc.) and
-    markdown code fences before attempting to parse JSON. Returns {} on
-    failure, same contract as before — callers that already check for an
-    empty dict (analyze_all_sections, detect_gaps's per-chunk loop, etc.)
-    don't need to change.
+    Universal JSON extraction & repair from any LLM output (Groq, Gemini, Ollama, OpenAI).
+
+    Handles:
+    - <think>...</think> reasoning blocks
+    - Markdown code fences (```json ... ```)
+    - Truncated JSON mid-string/mid-array (repaired automatically)
+    - Array-wrapped objects ([{...}] -> {...})
+    - Envelope-wrapped objects ({"result": {...}} -> {...})
+    - Trailing commas, single quotes, unquoted keys
+    - Prose commentary before and after the JSON
     """
     if not raw_text:
         return {}
- 
+
     cleaned = raw_text.strip()
- 
-    # Strip a <think>...</think> block if present, anywhere it appears —
-    # some reasoning models don't close it if truncated, so also handle
-    # the case where only an opening <think> tag exists with no closing tag.
+
+    # 1. Strip reasoning blocks
     think_match = re.search(r"<think>.*?</think>", cleaned, flags=re.DOTALL)
     if think_match:
         cleaned = cleaned[think_match.end():].strip()
     elif cleaned.lstrip().startswith("<think>"):
-        # Unclosed think block — nothing usable follows it in this response.
         return {}
- 
-    # Existing markdown-fence stripping.
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("```")[1]
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.strip()
-        # handle trailing ``` if the split above left it dangling
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3].strip()
- 
+
+    def _try_parse(text: str):
+        text = text.strip()
+        # Direct parse
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+        # High-performance repair (json_repair handles truncated, unquoted, trailing commas)
+        try:
+            import json_repair
+            repaired = json_repair.loads(text)
+            if repaired is not None and (isinstance(repaired, (dict, list)) and len(repaired) > 0):
+                return repaired
+        except Exception:
+            pass
+        # Regex trailing comma cleanup
+        cleaned2 = re.sub(r",\s*([}\]])", r"\1", text)
+        try:
+            return json.loads(cleaned2)
+        except Exception:
+            pass
+        # Python literal eval
+        try:
+            import ast
+            val = ast.literal_eval(text)
+            if isinstance(val, (dict, list)):
+                return val
+        except Exception:
+            pass
+        return None
+
+    # 2. Extract from code fences
+    for fence_match in re.finditer(r"```(?:json)?\s*\n?(.*?)```", cleaned, flags=re.DOTALL):
+        candidate = fence_match.group(1).strip()
+        result = _try_parse(candidate)
+        if result is not None:
+            normalized = _normalize_parsed(result)
+            if normalized:
+                return normalized
+
+    # 3. Direct parse whole cleaned string
+    result = _try_parse(cleaned)
+    if result is not None:
+        normalized = _normalize_parsed(result)
+        if normalized:
+            return normalized
+
+    # 4. Global json_repair pass on cleaned text
     try:
-        return json.loads(cleaned)
+        import json_repair
+        repaired = json_repair.loads(cleaned)
+        if repaired is not None:
+            normalized = _normalize_parsed(repaired)
+            if normalized:
+                return normalized
     except Exception:
+        pass
+
+    # 5. Scan for all {...} and [...] candidates
+    candidates = []
+    for start_char, end_char in [('{', '}'), ('[', ']')]:
+        pos = 0
+        while True:
+            start = cleaned.find(start_char, pos)
+            if start == -1:
+                break
+            depth = 0
+            in_string = False
+            escape_next = False
+            end = -1
+            for i, ch in enumerate(cleaned[start:], start=start):
+                if escape_next:
+                    escape_next = False
+                    continue
+                if ch == '\\' and in_string:
+                    escape_next = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if ch == start_char:
+                    depth += 1
+                elif ch == end_char:
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end != -1:
+                cand = cleaned[start:end + 1]
+                result = _try_parse(cand)
+                if result is not None:
+                    normalized = _normalize_parsed(result)
+                    if normalized:
+                        candidates.append(normalized)
+                pos = end + 1
+            else:
+                # Handle truncated block starting at start
+                result = _try_parse(cleaned[start:])
+                if result is not None:
+                    normalized = _normalize_parsed(result)
+                    if normalized:
+                        candidates.append(normalized)
+                break
+
+    if candidates:
+        return max(candidates, key=lambda d: len(d))
+
+    return {}
+
+
+def _normalize_parsed(parsed) -> dict:
+    """
+    Coerce any parsed JSON value into a dict, unwrapping arrays and envelopes.
+    """
+    if isinstance(parsed, list):
+        for item in parsed:
+            if isinstance(item, dict) and item:
+                return _normalize_parsed(item)
         return {}
+
+    if not isinstance(parsed, dict):
+        return {}
+
+    # Unwrap single-key envelope dicts (e.g. {"result": {...}})
+    if len(parsed) == 1:
+        val = next(iter(parsed.values()))
+        if isinstance(val, (dict, list)):
+            unwrapped = _normalize_parsed(val)
+            if unwrapped:
+                return unwrapped
+
+    # Common multi-key envelope wrappers
+    for k in ["data", "result", "response", "course", "teaching_plan", "plan", "output", "content"]:
+        if k in parsed and isinstance(parsed[k], (dict, list)):
+            unwrapped = _normalize_parsed(parsed[k])
+            if unwrapped and len(unwrapped) >= 2:
+                return unwrapped
+
+    return parsed
+
 ESSENTIAL_SECTIONS = {
     "methodology",
     "experimental_setup",
@@ -1163,7 +1293,7 @@ Use empty string or empty list if a field isn't present in the text. No markdown
 Section text:
 {chunks[0]}
 """
-        content = _groq_invoke_safe(prompt)
+        content = _groq_invoke_safe(prompt, task_category="analytical")
         parsed = _safe_json_parse(content)
         if not parsed:
             parsed = {field: "" for field in schema["fields"]}
@@ -1185,7 +1315,7 @@ Use empty string or empty list if a field isn't present in this part. No markdow
 Section text (part {i+1}/{len(chunks)}):
 {chunk}
 """
-        content = _groq_invoke_safe(prompt)
+        content = _groq_invoke_safe(prompt, task_category="analytical")
         parsed = _safe_json_parse(content)
         if parsed:
             partial_results.append(parsed)
@@ -1511,7 +1641,9 @@ def detect_gaps(user_idea: str, papers_with_analysis: List[Dict], max_chars: int
     if not all_chunks:
         return {"gaps": [], "_error": "No content available to analyze."}
 
-    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+    schema_instructions = """Your response MUST be a single JSON object starting with { and ending with }.
+Do NOT wrap it in an array (no [...]), do NOT add markdown fences (no ```), do NOT add any prose before or after.
+Use exactly this structure:
 {
   "gaps": [
     {
@@ -1546,7 +1678,7 @@ Paper text:
     partial_gaps = []
     for i, chunk_dict in enumerate(all_chunks):
         prompt = build_prompt(chunk_dict, part_num=i + 1, total=len(all_chunks))
-        content = _groq_invoke_safe(prompt)
+        content = _groq_invoke_safe(prompt, task_category="analytical")
         parsed = _safe_json_parse(content)
         if parsed and parsed.get("gaps"):
             for gap in parsed["gaps"]:
@@ -1602,7 +1734,7 @@ Return ONLY valid JSON in this format:
 Raw gaps:
 {gaps_text}
 """
-    content = _groq_invoke_safe(prompt)
+    content = _groq_invoke_safe(prompt, task_category="analytical")
     parsed = _safe_json_parse(content)
 
     if not parsed or "gaps" not in parsed:
@@ -1661,7 +1793,7 @@ This paper's contribution does not appear explicitly in the final list. Determin
 Return ONLY valid JSON:
 {{"genuinely_missing": true/false, "covered_by": "gap_description if covered, else empty", "gap_to_add": {{...one of the raw gaps to re-add if genuinely missing, else null}}}}
 """
-        content = _groq_invoke_safe(prompt)
+        content = _groq_invoke_safe(prompt, task_category="analytical")
         parsed = _safe_json_parse(content)
         results[paper] = parsed if parsed else {"genuinely_missing": True, "gap_to_add": paper_raw_gaps[0]}
     return results
@@ -1739,7 +1871,9 @@ def generate_technical_plan(
         similar_text = "No sufficiently similar existing projects were found for this idea."
 
     novelty_text = novelty_analysis or "No novelty analysis available."
-    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+    schema_instructions = """Your response MUST be a single JSON object starting with { and ending with }.
+Do NOT wrap it in an array (no [...]), do NOT add markdown fences (no ```), do NOT add any prose before or after.
+Use exactly this structure:
 {
   "novelty_assessment": "...",
   "differentiation_strategy": "...",
@@ -1872,7 +2006,9 @@ def generate_teaching_plan(
         for g in gaps[:8]
     )
 
-    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+    schema_instructions = """Your response MUST be a single JSON object starting with { and ending with }.
+Do NOT wrap it in an array (no [...]), do NOT add markdown fences (no ```), do NOT add any prose before or after.
+Use exactly this structure:
 {
   "course_title": "...",
   "target_audience": "...",
@@ -1947,9 +2083,36 @@ course from established knowledge (in the papers) toward open research questions
 {schema_instructions}
 """
 
-    content = _groq_invoke_safe(prompt)
+    content = _groq_invoke_safe(prompt, task_category="planning")
     parsed = _safe_json_parse(content)
-    return parsed if parsed else {"_error": "LLM output could not be parsed"}
+    if not parsed:
+        print(f"[generate_teaching_plan] JSON parse FAILED. Raw ({len(content)} chars, first 800):\n{content[:800]!r}")
+        return {"_error": "LLM output could not be parsed"}
+
+    # Rescue: top-level keys wrong? search one level deeper
+    if "course_title" not in parsed and "modules" not in parsed:
+        print(f"[generate_teaching_plan] Top-level keys: {list(parsed.keys())} — searching inside...")
+        rescued = None
+        for key, val in parsed.items():
+            if isinstance(val, dict) and ("course_title" in val or "modules" in val):
+                rescued = val
+                break
+            if isinstance(val, list):
+                for item in val:
+                    if isinstance(item, dict) and ("course_title" in item or "modules" in item):
+                        rescued = item
+                        break
+                if rescued:
+                    break
+        if rescued:
+            parsed = rescued
+            print(f"[generate_teaching_plan] Rescued teaching plan successfully.")
+        else:
+            print(f"[generate_teaching_plan] Cannot find plan. Keys: {list(parsed.keys())}. Raw:\n{content[:800]!r}")
+            return {"_error": f"Teaching plan structure invalid — got keys: {list(parsed.keys())}"}
+
+    print(f"[generate_teaching_plan] SUCCESS — title={parsed.get('course_title','?')!r}, modules={len(parsed.get('modules',[]))}")
+    return parsed
 # ---------- QUERY BROADENING AGENT (for niche/underserved ideas) ----------
 
 def broaden_idea(user_idea: str) -> Dict:
@@ -2072,7 +2235,9 @@ def generate_module_content(
     source_text = _get_paper_analysis_by_title(papers_with_analysis, module.get("based_on_papers", []))
     source_text = source_text[:max_chars]
 
-    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+    schema_instructions = """Your response MUST be a single JSON object starting with { and ending with }.
+Do NOT wrap it in an array (no [...]), do NOT add markdown fences (no ```), do NOT add any prose before or after.
+Use exactly this structure:
 {
   "overview": "...",
   "key_concepts": ["..."],
@@ -2123,8 +2288,10 @@ Source material from the paper(s) this module is based on:
 {schema_instructions}
 """
 
-    content = _groq_invoke_safe(prompt)
+    content = _groq_invoke_safe(prompt, task_category="content_generation")
     parsed = _safe_json_parse(content)
+    if not parsed:
+        print(f"[generate_module_content] JSON parse failed for module '{module.get('title','')}'. Raw output (first 500 chars): {content[:500]!r}")
     return parsed if parsed else {"_error": "LLM output could not be parsed"}
 
 def generate_course(
@@ -2356,7 +2523,9 @@ def generate_lesson_for_module(
         if already_covered else ""
     )
 
-    schema_instructions = """Return ONLY valid JSON with this exact structure, no markdown fences:
+    schema_instructions = """Your response MUST be a single JSON object starting with { and ending with }.
+Do NOT wrap it in an array (no [...]), do NOT add markdown fences (no ```), do NOT add any prose before or after.
+Use exactly this structure:
 {
   "lesson_title": "...",
   "objectives_covered": ["..."],
@@ -2403,8 +2572,10 @@ Source material from the paper(s) this module is based on:
 {schema_instructions}
 """
 
-    content = _groq_invoke_safe(prompt)
+    content = _groq_invoke_safe(prompt, task_category="content_generation")
     parsed = _safe_json_parse(content)
+    if not parsed:
+        print(f"[generate_lesson_for_module] JSON parse failed for module '{module.get('title','')}' lesson {lesson_index}. Raw output (first 500 chars): {content[:500]!r}")
     return parsed if parsed else {"_error": "LLM output could not be parsed"}
 
 
@@ -3226,7 +3397,9 @@ def _build_scaffold_prompt(lesson: Dict, module: Dict, source_text: str, repo_te
         f"{i + 1}. {s.get('topic', f'Step {i + 1}')}" for i, s in enumerate(topics)
     ) or "No topic breakdown available for this lesson — code_plan can be an empty list."
 
-    schema_instructions = f"""Return ONLY valid JSON with this exact structure, no markdown fences:
+    schema_instructions = f"""Your response MUST be a single JSON object starting with {{ and ending with }}.
+Do NOT wrap it in an array (no [...]), do NOT add markdown fences (no ```), do NOT add any prose before or after.
+Use exactly this structure:
 {{
   "exercise_title": "...",
   "format": "notebook" | "fill_in_blank" | "conceptual",

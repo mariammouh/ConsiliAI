@@ -44,9 +44,9 @@ TASK_CATEGORIES_METADATA = [
 ]
 
 DEFAULT_TASK_MODELS_CLOUD = {
-    TASK_ANALYTICAL: "groq:qwen/qwen3.6-27b",
-    TASK_PLANNING: "groq:qwen/qwen3.6-27b",
-    TASK_CONTENT_GENERATION: "groq:qwen/qwen3.6-27b",
+    TASK_ANALYTICAL: "groq:qwen/qwen3.6-27b",               # fast analytical extraction
+    TASK_PLANNING: "gemini:gemini-2.5-flash-lite",           # large JSON (teaching plan) — 1500 req/day
+    TASK_CONTENT_GENERATION: "gemini:gemini-2.5-flash-lite", # large JSON (course content) — 1500 req/day
     TASK_GENERAL_CHAT: "groq:qwen/qwen3.6-27b",
 }
 
@@ -504,7 +504,7 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
                 try:
                     return get_llm_instance("groq", fallback_model), note
                 except Exception:
-                    return get_llm_instance("gemini", "gemini-3.1-flash-lite"), note
+                    return get_llm_instance("gemini", "gemini-2.5-flash-lite"), note
             else:
                 # Default selection: pick best installed candidate
                 task_type = "coder" if cat == TASK_CONTENT_GENERATION else "reasoning"
@@ -524,7 +524,7 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
         try:
             return get_llm_instance("groq", fallback_model), note
         except Exception:
-            return get_llm_instance("gemini", "gemini-3.1-flash-lite"), note
+            return get_llm_instance("gemini", "gemini-2.5-flash-lite"), note
 
     # 2. Handle Groq cloud model
     if provider == "groq":
@@ -536,7 +536,7 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
             set_fallback_note(note)
             print(f"[llm_router] {note}")
             try:
-                return get_llm_instance("gemini", "gemini-3.1-flash-lite"), note
+                return get_llm_instance("gemini", "gemini-2.5-flash-lite"), note
             except Exception:
                 raise
 
@@ -579,7 +579,13 @@ def invoke_task_llm(prompt: str, task_category: Optional[str] = None) -> Tuple[s
     """
     cat = task_category or get_current_task_category()
     llm, initial_note = get_task_llm(cat)
-    print(f"[llm_router] Invoking LLM for task category '{cat}' using model '{llm.model_name}'")
+    model_name = (
+        getattr(llm, "model_name", None)
+        or getattr(llm, "model", None)
+        or getattr(llm, "model_id", None)
+        or type(llm).__name__
+    )
+    print(f"[llm_router] Invoking LLM for task category '{cat}' using model '{model_name}'")
     print(f"[llm_router] Prompt: {prompt[:200]}{'...' if len(prompt) > 200 else ''}")
     try:
         resp = llm.invoke(prompt)

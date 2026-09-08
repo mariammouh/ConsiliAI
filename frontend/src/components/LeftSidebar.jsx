@@ -547,7 +547,7 @@ export default function LeftSidebar({
       </Box>
 
       {/* Settings Modal */}
-      <Modal isOpen={isOpen} onClose={onClose} size="xl">
+      <Modal isOpen={isOpen} onClose={onClose} size="3xl" scrollBehavior="inside" >
         <ModalOverlay />
         <ModalContent bg={bgSidebar} borderRadius="card" boxShadow="card">
           <ModalHeader color={textPrimary} borderBottom="1px solid" borderColor={borderColor}>
@@ -833,7 +833,7 @@ export default function LeftSidebar({
                           onClick={loadModelsAndSettings}
                           colorScheme="orange"
                         >
-                          Refresh Models
+                          Refresh 
                         </Button>
                       </HStack>
 
