@@ -1386,6 +1386,40 @@ def _get_llm_with_tools():
     return groq_with_tools.with_fallbacks([gemini_with_tools])
 
 
+def _repair_orphaned_tool_calls(messages: list) -> list:
+    """Detect AIMessages with tool_calls that have no matching ToolMessage response
+    (this happens when a tool execution was interrupted by a 503 or network error).
+    Inject a synthetic error ToolMessage for each orphaned call so the message
+    sequence is valid and the agent can retry on this turn.
+    """
+    repaired = []
+    for i, msg in enumerate(messages):
+        repaired.append(msg)
+        if not hasattr(msg, "tool_calls") or not msg.tool_calls:
+            continue
+        # Check whether every tool_call_id already has a ToolMessage response
+        answered_ids = set()
+        for future_msg in messages[i + 1:]:
+            if isinstance(future_msg, ToolMessage):
+                answered_ids.add(future_msg.tool_call_id)
+        for tc in msg.tool_calls:
+            if tc.get("id") not in answered_ids:
+                print(
+                    f"[orchestrator] Repairing orphaned tool call: {tc.get('name')} "
+                    f"id={tc.get('id')} — injecting synthetic error ToolMessage"
+                )
+                repaired.append(
+                    ToolMessage(
+                        content=(
+                            "Tool execution was interrupted by a transient server error (503). "
+                            "Please retry this operation."
+                        ),
+                        tool_call_id=tc.get("id", "unknown"),
+                    )
+                )
+    return repaired
+
+
 def agent_node(state: OrchestratorState) -> dict:
     from agents.llm_router import set_task_category, TASK_GENERAL_CHAT
     set_task_category(TASK_GENERAL_CHAT)
@@ -1395,6 +1429,8 @@ def agent_node(state: OrchestratorState) -> dict:
     system_msg = SystemMessage(content=SYSTEM_PROMPT + idea_note)
 
     non_system_messages = [m for m in state["messages"] if not isinstance(m, SystemMessage)]
+    # Repair any orphaned tool calls left by a previously interrupted execution
+    non_system_messages = _repair_orphaned_tool_calls(non_system_messages)
     check_cancellation()
     try:
         print(f"[orchestrator] Invoking agent_node LLM with {len(non_system_messages)} messages...")

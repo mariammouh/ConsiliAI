@@ -45,8 +45,8 @@ TASK_CATEGORIES_METADATA = [
 
 DEFAULT_TASK_MODELS_CLOUD = {
     TASK_ANALYTICAL: "groq:qwen/qwen3.6-27b",               # fast analytical extraction
-    TASK_PLANNING: "gemini:gemini-2.5-flash-lite",           # large JSON (teaching plan) — 1500 req/day
-    TASK_CONTENT_GENERATION: "gemini:gemini-2.5-flash-lite", # large JSON (course content) — 1500 req/day
+    TASK_PLANNING: "gemini:gemini-3.1-flash-lite",           # large JSON (teaching plan) — 1500 req/day
+    TASK_CONTENT_GENERATION: "gemini:gemini-3.1-flash-lite", # large JSON (course content) — 1500 req/day
     TASK_GENERAL_CHAT: "groq:qwen/qwen3.6-27b",
 }
 
@@ -267,6 +267,7 @@ def get_available_models_catalog() -> Dict[str, Any]:
                         "pro-latest", "1.5", "2.0"
                     ]
                     verified_gemini_mids = {
+                        "gemini-3.1-flash-lite":"Google Gemini-3.1-flash-lite - Fast",
                         "gemini-2.5-flash": "Google Gemini 2.5 Flash - Fast & multimodal",
                         "gemini-2.5-flash-lite": "Google Gemini 2.5 Flash Lite - Ultra fast",
                         "gemini-flash-latest": "Google Gemini Flash (Latest stable)",
@@ -305,6 +306,7 @@ def get_available_models_catalog() -> Dict[str, Any]:
     if not gemini_models and gemini_key:
         gemini_online = True
         default_geminis = [
+            ("gemini-3.1-flash-lite","Google Gemini-3.1-flash-lite - Fast"),
             ("gemini-2.5-flash", "Google Gemini 2.5 Flash - Fast & multimodal"),
             ("gemini-2.5-flash-lite", "Google Gemini 2.5 Flash Lite - Ultra fast"),
             ("gemini-flash-latest", "Google Gemini Flash (Latest stable)"),
@@ -504,7 +506,7 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
                 try:
                     return get_llm_instance("groq", fallback_model), note
                 except Exception:
-                    return get_llm_instance("gemini", "gemini-2.5-flash-lite"), note
+                    return get_llm_instance("gemini", "gemini-3.1-flash-lite"), note
             else:
                 # Default selection: pick best installed candidate
                 task_type = "coder" if cat == TASK_CONTENT_GENERATION else "reasoning"
@@ -524,7 +526,7 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
         try:
             return get_llm_instance("groq", fallback_model), note
         except Exception:
-            return get_llm_instance("gemini", "gemini-2.5-flash-lite"), note
+            return get_llm_instance("gemini", "gemini-3.1-flash-lite"), note
 
     # 2. Handle Groq cloud model
     if provider == "groq":
@@ -536,7 +538,7 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
             set_fallback_note(note)
             print(f"[llm_router] {note}")
             try:
-                return get_llm_instance("gemini", "gemini-2.5-flash-lite"), note
+                return get_llm_instance("gemini", "gemini-3.1-flash-lite"), note
             except Exception:
                 raise
 
@@ -575,8 +577,10 @@ def get_active_llm(user: Any = None, task_type: str = "reasoning") -> Tuple[Base
 def invoke_task_llm(prompt: str, task_category: Optional[str] = None) -> Tuple[str, Optional[str]]:
     """
     Invokes the LLM configured for a given task category with runtime fallback safety.
+    Retries up to 3 times on 503/UNAVAILABLE before falling back to cloud-direct.
     Returns (response_text, fallback_note).
     """
+    import time
     cat = task_category or get_current_task_category()
     llm, initial_note = get_task_llm(cat)
     model_name = (
@@ -587,21 +591,37 @@ def invoke_task_llm(prompt: str, task_category: Optional[str] = None) -> Tuple[s
     )
     print(f"[llm_router] Invoking LLM for task category '{cat}' using model '{model_name}'")
     print(f"[llm_router] Prompt: {prompt[:200]}{'...' if len(prompt) > 200 else ''}")
-    try:
-        resp = llm.invoke(prompt)
-        content = resp.content
-        if isinstance(content, list):
-            content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
-        return content, initial_note
-    except Exception as e:
-        print(f"[llm_router] Task invocation failed for {cat} ({e}). Falling back to safe Cloud direct.")
-        cat_meta = next((c for c in TASK_CATEGORIES_METADATA if c["key"] == cat), None)
-        cat_label = cat_meta["label"] if cat_meta else cat.replace("_", " ").title()
-        runtime_note = f" Model execution for {cat_label} failed ({e}). Fell back to Cloud provider for this generation."
-        set_fallback_note(runtime_note)
-        from agents.tools import _groq_invoke_safe_cloud_direct
-        cloud_res = _groq_invoke_safe_cloud_direct(prompt)
-        return cloud_res, runtime_note
+
+    _RETRY_DELAYS = [5, 10, 20]
+    last_err = None
+    for attempt, delay in enumerate([0] + _RETRY_DELAYS, start=1):
+        if delay:
+            print(f"[llm_router] 503 retry #{attempt} for '{cat}' after {delay}s...")
+            time.sleep(delay)
+        try:
+            resp = llm.invoke(prompt)
+            content = resp.content
+            if isinstance(content, list):
+                content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
+            return content, initial_note
+        except Exception as e:
+            err_str = str(e)
+            if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str.lower():
+                print(f"[llm_router] 503 UNAVAILABLE on attempt {attempt} for '{cat}': {e}")
+                last_err = e
+                continue
+            # Non-503 error → fall through to cloud fallback immediately
+            last_err = e
+            break
+
+    print(f"[llm_router] Task invocation failed for {cat} ({last_err}). Falling back to safe Cloud direct.")
+    cat_meta = next((c for c in TASK_CATEGORIES_METADATA if c["key"] == cat), None)
+    cat_label = cat_meta["label"] if cat_meta else cat.replace("_", " ").title()
+    runtime_note = f" Model execution for {cat_label} failed ({last_err}). Fell back to Cloud provider for this generation."
+    set_fallback_note(runtime_note)
+    from agents.tools import _groq_invoke_safe_cloud_direct
+    cloud_res = _groq_invoke_safe_cloud_direct(prompt)
+    return cloud_res, runtime_note
 
 
 def invoke_ollama_safe(prompt: str, model_name: str = DEFAULT_OLLAMA_MODEL) -> Tuple[str, Optional[str]]:

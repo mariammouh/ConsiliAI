@@ -62,7 +62,7 @@ def _get_gemini_llm():
     if not api_key:
         raise ValueError("GEMINI_API_KEY/GOOGLE_API_KEY is not configured")
     return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash-lite",
+        model="gemini-3.1-flash-lite",
         google_api_key=api_key,
         temperature=0,
         timeout=60,
@@ -105,11 +105,30 @@ def _ensure_llm_clients():
 
 
 def _invoke_gemini(prompt: str):
-    """Invoke Gemini directly (not through get_active_llm which might resolve to Groq)."""
+    """Invoke Gemini directly (not through get_active_llm which might resolve to Groq).
+    Retries up to 3 times on 503/UNAVAILABLE with exponential backoff before re-raising.
+    """
     from agents.llm_router import get_llm_instance
-    llm = get_llm_instance("gemini", "gemini-2.5-flash-lite", temperature=0, timeout=120)
-    print("You are using Gemini LLM (gemini-2.5-flash-lite) as fallback.")
-    return llm.invoke(prompt)
+    llm = get_llm_instance("gemini", "gemini-3.1-flash-lite", temperature=0, timeout=120)
+    print("You are using Gemini LLM (gemini-3.1-flash-lite) as fallback.")
+    _GEMINI_RETRY_DELAYS = [5, 10, 20]
+    last_err = None
+    for attempt, delay in enumerate([0] + _GEMINI_RETRY_DELAYS, start=1):
+        if delay:
+            print(f"[_invoke_gemini] Retrying after {delay}s (attempt {attempt})...")
+            time.sleep(delay)
+        try:
+            return llm.invoke(prompt)
+        except Exception as e:
+            err_str = str(e)
+            # Retry only on transient 503/overload; raise immediately for other errors
+            if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str.lower():
+                print(f"[_invoke_gemini] 503 UNAVAILABLE on attempt {attempt}: {e}")
+                last_err = e
+                continue
+            raise
+    # All retries exhausted
+    raise last_err
 
 
 def _invoke_groq(prompt: str):
@@ -905,7 +924,7 @@ def is_likely_header(line: str) -> bool:
     """Heuristic guard: does this line LOOK like a header, independent of content?"""
     if not line or len(line) > 70:
         return False
-    if line.endswith("."):  # body sentences end in periods, headers rarely do
+    if line.endswith("."):  
         return False
     word_count = len(line.split())
     if word_count > 8:
