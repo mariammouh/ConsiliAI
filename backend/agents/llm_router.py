@@ -195,7 +195,7 @@ def get_available_models_catalog() -> Dict[str, Any]:
     # 2. Cloud Groq models (Strictly verified, reliable, free-tier chat models)
     groq_models = []
     groq_online = False
-    groq_key = os.getenv("GROQ_API_KEY2") or os.getenv("GROQ_API_KEY")
+    groq_key = os.getenv("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
     if groq_key:
         try:
             req = urllib.request.Request(
@@ -435,7 +435,7 @@ def get_llm_instance(provider: str, model_name: str, temperature: float = 0.2, t
         )
     elif provider == "groq":
         from langchain_openai import ChatOpenAI
-        api_key = os.getenv("GROQ_API_KEY2") or os.getenv("GROQ_API_KEY")
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
         if not api_key:
             raise ValueError("GROQ_API_KEY is not configured")
         llm = ChatOpenAI(

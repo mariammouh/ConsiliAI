@@ -223,6 +223,43 @@ def _papers_have_metadata(papers: list) -> bool:
     return bool(papers) and all(bool(p.get("url")) for p in papers)
 
 
+def _canonical_idea(state: dict, llm_idea: str) -> str:
+    """Return the best idea string to use for a tool call.
+
+    The LLM fills the ``idea`` tool parameter from conversation context, which
+    can be shorter or differently-phrased than an idea that was already stored
+    in state (e.g. extracted from an uploaded PDF).  Using the LLM-supplied
+    string verbatim causes ``_same_idea()`` to miss the cache and re-fetches
+    papers under a slightly different key, losing the richer extraction.
+
+    Policy: prefer ``state["idea"]`` when it is already set AND is
+    substantially more descriptive (≥20 chars longer).  Otherwise fall back to
+    the LLM-supplied idea (which may be the only one we have).
+    """
+    existing = (state.get("idea") or "").strip()
+    candidate = (llm_idea or "").strip()
+    if existing and len(existing) >= len(candidate) + 20:
+        print(f"[orchestrator] _canonical_idea: using state idea ({len(existing)} chars) "
+              f"over LLM arg ({len(candidate)} chars).")
+        return existing
+    return candidate or existing
+
+
+def _record_tool_state_update(update: dict) -> None:
+    """Record state changes made by tools during this turn so they can be
+    enforced via graph.update_state at the end of the turn and merged into the response."""
+    if not hasattr(_local, "tool_updates") or _local.tool_updates is None:
+        _local.tool_updates = {}
+    _local.tool_updates.update(update)
+    print(f"[orchestrator] _record_tool_state_update: recorded keys {list(update.keys())}")
+
+
+def _get_and_clear_tool_state_updates() -> dict:
+    updates = getattr(_local, "tool_updates", {}) or {}
+    _local.tool_updates = {}
+    return updates
+
+
 def _ensure_papers_only(state: dict, idea: str, max_papers: int = 3):
     """Like _ensure_papers_and_gaps but deliberately does NOT trigger gap
     detection — used for informational literature questions where full gap
@@ -237,13 +274,22 @@ def _ensure_papers_only(state: dict, idea: str, max_papers: int = 3):
 
 def _ensure_papers_and_gaps(state: dict, idea: str, max_papers: int = 3):
     cached = state.get("papers_with_analysis") if _same_idea(state, idea) else None
-    if _papers_have_metadata(cached) and state.get("gaps") is not None:
+    # Use truthiness (not `is not None`) so that an empty list — which means
+    # gap detection previously ran but returned nothing, e.g. due to a network
+    # blip or LLM rate-limit — does NOT count as a valid cache hit.  We must
+    # re-run detection in that case rather than permanently serving [] from the
+    # checkpoint to every downstream tool.
+    if _papers_have_metadata(cached) and state.get("gaps"):
         return cached, state["gaps"]
     papers = get_papers_with_analysis(idea, max_papers=max_papers)
     if not papers:
         return [], []
     gaps_result = detect_gaps(idea, papers)
-    return papers, gaps_result.get("gaps", [])
+    gaps = gaps_result.get("gaps") or []
+    if not gaps:
+        print(f"[orchestrator] _ensure_papers_and_gaps: gap detection returned 0 gaps for '{idea}'. "
+              "State will NOT cache this empty result so the next request re-tries.")
+    return papers, gaps
 
 
 def _ensure_similar_projects(state: dict, idea: str, max_results: int = 15):
@@ -411,9 +457,13 @@ Provide a thorough, well-structured answer. Use Markdown formatting:
 """
     answer = _groq_invoke_safe(prompt)
 
-    return Command(update={
+    update_dict = {
         "idea": idea,
         "papers_with_analysis": papers,
+    }
+    _record_tool_state_update(update_dict)
+    return Command(update={
+        **update_dict,
         "messages": [ToolMessage(answer, tool_call_id=tool_call_id)],
     })
 
@@ -431,6 +481,7 @@ def find_research_gaps(
     need to call this first just to prime state."""
     from agents.llm_router import set_task_category, TASK_ANALYTICAL, TASK_PLANNING
     set_task_category(TASK_ANALYTICAL)
+    idea = _canonical_idea(state, idea)
     papers, gaps = _ensure_papers_and_gaps(state, idea)
     if not papers:
         msg = f"No papers could be found or analyzed for the idea: '{idea}'."
@@ -450,10 +501,15 @@ def find_research_gaps(
         if g.get('potential_impact'):
             summary_parts.append(f"  Potential impact: {g['potential_impact']}")
     summary = "\n".join(summary_parts)
-    return Command(update={
+    
+    update_dict = {
         "idea": idea,
         "papers_with_analysis": papers,
         "gaps": gaps,
+    }
+    _record_tool_state_update(update_dict)
+    return Command(update={
+        **update_dict,
         "messages": [ToolMessage(summary, tool_call_id=tool_call_id)],
     })
 
@@ -472,6 +528,7 @@ def create_technical_plan(
     not already available for this idea."""
     from agents.llm_router import set_task_category, TASK_PLANNING
     set_task_category(TASK_PLANNING)
+    idea = _canonical_idea(state, idea)
     papers, gaps = _ensure_papers_and_gaps(state, idea)
     if not papers:
         msg = f"No papers could be found or analyzed for the idea: '{idea}'."
@@ -515,7 +572,7 @@ def create_technical_plan(
         for r in risks:
             summary_parts.append(f"- {r if isinstance(r, str) else r.get('description', str(r))}")
     summary = "\n".join(summary_parts)
-    return Command(update={
+    update_dict = {
         "idea": idea,
         "papers_with_analysis": papers,
         "gaps": gaps,
@@ -523,6 +580,10 @@ def create_technical_plan(
         "similar_projects_scored": scored,
         "novelty_analysis": novelty,
         "technical_plan": plan,
+    }
+    _record_tool_state_update(update_dict)
+    return Command(update={
+        **update_dict,
         "messages": [ToolMessage(summary, tool_call_id=tool_call_id)],
     })
 
@@ -540,6 +601,7 @@ def create_teaching_plan(
     not already available."""
     from agents.llm_router import set_task_category, TASK_PLANNING, TASK_CONTENT_GENERATION
     set_task_category(TASK_PLANNING)
+    idea = _canonical_idea(state, idea)
     papers, gaps, teaching_plan = _ensure_teaching_plan(state, idea)
     if teaching_plan.get("_error"):
         return Command(update={"messages": [ToolMessage(teaching_plan["_error"], tool_call_id=tool_call_id)]})
@@ -579,11 +641,15 @@ def create_teaching_plan(
             else:
                 summary_parts.append(f"- {ft}")
     summary = "\n".join(summary_parts)
-    return Command(update={
+    update_dict = {
         "idea": idea,
         "papers_with_analysis": papers,
         "gaps": gaps,
         "teaching_plan": teaching_plan,
+    }
+    _record_tool_state_update(update_dict)
+    return Command(update={
+        **update_dict,
         "messages": [ToolMessage(summary, tool_call_id=tool_call_id)],
     })
 
@@ -604,6 +670,7 @@ def create_course(
     from agents.llm_router import set_task_category, TASK_CONTENT_GENERATION
     set_task_category(TASK_CONTENT_GENERATION)
     check_cancellation()
+    idea = _canonical_idea(state, idea)
     papers, gaps, teaching_plan, course = _ensure_course(state, idea)
     check_cancellation()
     if course.get("_error"):
@@ -631,13 +698,17 @@ def create_course(
             if remaining > 0:
                 summary_parts.append(f"    - ...and {remaining} more section(s)")
     summary = "\n".join(summary_parts)
-    return Command(update={
+    update_dict = {
         "idea": idea,
         "papers_with_analysis": papers,
         "gaps": gaps,
         "teaching_plan": teaching_plan,
         "course": course,
         "course_export_path": export_path_value,
+    }
+    _record_tool_state_update(update_dict)
+    return Command(update={
+        **update_dict,
         "messages": [ToolMessage(summary, tool_call_id=tool_call_id)],
     })
 
@@ -658,6 +729,7 @@ def create_lab_exercises(
     from agents.llm_router import set_task_category, TASK_CONTENT_GENERATION
     set_task_category(TASK_CONTENT_GENERATION)
     check_cancellation()
+    idea = _canonical_idea(state, idea)
     papers, gaps, teaching_plan, course = _ensure_course(state, idea)
     check_cancellation()
     if course.get("_error"):
@@ -700,7 +772,7 @@ def create_lab_exercises(
         f"Generated {lesson_count} lab exercise(s) across {len(modules_output)} module(s) for '{idea}'.\n"
         f"Notebook files (if any) written under: {output_dir}"
     )
-    return Command(update={
+    update_dict = {
         "idea": idea,
         "papers_with_analysis": papers,
         "gaps": gaps,
@@ -710,6 +782,10 @@ def create_lab_exercises(
         "similar_projects_raw": raw,
         "similar_projects_scored": scored,
         "novelty_analysis": novelty,
+    }
+    _record_tool_state_update(update_dict)
+    return Command(update={
+        **update_dict,
         "messages": [ToolMessage(summary, tool_call_id=tool_call_id)],
     })
 
@@ -729,6 +805,7 @@ def create_experiments(
     research gaps first if not already available."""
     from agents.llm_router import set_task_category, TASK_CONTENT_GENERATION
     set_task_category(TASK_CONTENT_GENERATION)
+    idea = _canonical_idea(state, idea)
     papers, gaps = _ensure_papers_and_gaps(state, idea)
     if not papers:
         msg = f"No papers could be found or analyzed for the idea: '{idea}'."
@@ -761,7 +838,7 @@ def create_experiments(
             summary_parts.append(f"  Gap addressed: {e['gap_addressed']}")
         summary_parts.append("")
     summary = "\n".join(summary_parts)
-    return Command(update={
+    update_dict = {
         "idea": idea,
         "papers_with_analysis": papers,
         "gaps": gaps,
@@ -769,6 +846,10 @@ def create_experiments(
         "similar_projects_scored": scored,
         "novelty_analysis": novelty,
         "experiments": experiment_set,
+    }
+    _record_tool_state_update(update_dict)
+    return Command(update={
+        **update_dict,
         "messages": [ToolMessage(summary, tool_call_id=tool_call_id)],
     })
 
@@ -1086,7 +1167,12 @@ Respond with only the idea description, starting immediately with the subject:""
     try:
         from agents.llm_router import get_active_llm
         llm, _ = get_active_llm(task_type="lightweight")
-        res = llm.invoke(prompt)
+        try:
+            res = llm.invoke(prompt)
+        except Exception as primary_err:
+            print(f"[orchestrator] _extract_idea_from_text primary LLM failed ({primary_err}). Falling back to Gemini.")
+            from agents.tools import _get_gemini_llm
+            res = _get_gemini_llm().invoke(prompt)
         content = res.content
         if isinstance(content, list):
             content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
@@ -1267,7 +1353,20 @@ def classify_node(state: OrchestratorState) -> dict:
         if not any(phrase in cleaned.lower() for phrase in meta_phrases) and len(cleaned) >= 10:
             idea_scan = scan_for_injection(cleaned, source_label="intent_idea_verification")
             if not idea_scan.is_suspicious:
-                update["idea"] = idea_scan.sanitized_text
+                existing_idea = (state.get("idea") or "").strip()
+                new_idea = idea_scan.sanitized_text
+                # Preserve the existing idea when it is substantially more
+                # descriptive (≥20 chars longer) than what the classifier
+                # returned.  This prevents a richer PDF-extracted idea from
+                # being silently replaced by the shorter chat-context phrasing
+                # the classifier extracts from a brief follow-up message like
+                # "Detect gaps" or "What literature is there?".
+                if existing_idea and len(existing_idea) >= len(new_idea) + 20:
+                    print(f"[orchestrator] classify_node: preserving existing idea "
+                          f"({len(existing_idea)} chars) over classifier extraction "
+                          f"({len(new_idea)} chars).")
+                else:
+                    update["idea"] = new_idea
 
     if result.get("intent") in ("idea_introduction", "general_chat") and result.get("direct_reply"):
         update["messages"] = [AIMessage(content=result["direct_reply"])]
@@ -1561,7 +1660,29 @@ def run_orchestrator_turn(
     if fallback_note and fallback_note not in content:
         content = f"{content}\n\n{fallback_note}"
 
-    return content
+    # Collect any tool state updates recorded during this turn
+    tool_updates = _get_and_clear_tool_state_updates()
+    state_dict = {k: v for k, v in result.items()}
+    if tool_updates:
+        print(f"[orchestrator] Merging recorded tool updates into state: {list(tool_updates.keys())}")
+        state_dict.update(tool_updates)
+
+    # Explicitly enforce writing the updated state to the LangGraph checkpoint
+    # via graph.update_state to guarantee persistence across subsequent requests and page reloads.
+    persist_payload = {
+        k: v for k, v in state_dict.items()
+        if k not in ("messages", "_route") and v is not None
+    }
+    if persist_payload:
+        try:
+            graph.update_state(config, persist_payload)
+            print(f"[orchestrator] Enforced state checkpoint update via graph.update_state: {list(persist_payload.keys())}")
+        except Exception as e:
+            print(f"[orchestrator] graph.update_state failed (non-fatal): {e}")
+
+    print(f"[orchestrator] run_orchestrator_turn finished. "
+          f"State keys with values: { {k: bool(v) for k, v in state_dict.items() if k != 'messages'} }")
+    return content, state_dict
 
 
 
@@ -1600,8 +1721,8 @@ def record_uploaded_document(
         "messages": [AIMessage(content=f'File "{filename}" uploaded successfully. You can now ask questions about it.')],
     }
 
-    # Extract idea from file text if not already set in state
-    if not current_values.get("idea") and file_path and os.path.isfile(file_path):
+    # Extract idea from file text if available
+    if file_path and os.path.isfile(file_path):
         try:
             import fitz
             doc = fitz.open(file_path)
@@ -1611,7 +1732,11 @@ def record_uploaded_document(
             doc.close()
             extracted_idea = _extract_idea_from_text(extracted_text)
             if extracted_idea:
-                update_payload["idea"] = extracted_idea
+                existing_idea = (current_values.get("idea") or "").strip()
+                # Set idea if missing or if newly extracted idea is descriptive
+                if not existing_idea or len(extracted_idea) >= len(existing_idea):
+                    update_payload["idea"] = extracted_idea
+                    print(f"[orchestrator] record_uploaded_document: set idea '{extracted_idea}' from {filename}")
         except Exception as e:
             print(f"[orchestrator] Could not extract idea during upload of {filename}: {e}")
 
@@ -1623,7 +1748,7 @@ def record_benchmark_evaluation(thread_id: str, eval_record: dict) -> dict:
     """Updates LangGraph checkpointer state for thread_id when a benchmark evaluation is performed."""
     set_current_thread_id(thread_id)
     graph = _build_graph()
-    config = {"configurable": {"thread_qid": str(thread_id)}}
+    config = {"configurable": {"thread_id": str(thread_id)}}
     snap = graph.get_state(config)
     current_values = dict(snap.values) if snap else {}
 

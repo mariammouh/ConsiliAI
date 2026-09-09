@@ -70,7 +70,7 @@ def _get_gemini_llm():
 
 
 def _get_groq_llm():
-    api_key = os.getenv("GROQ_API_KEY2")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY is not configured")
     return ChatOpenAI(
@@ -1199,12 +1199,22 @@ def _normalize_parsed(parsed) -> dict:
         return {}
 
     # Unwrap single-key envelope dicts (e.g. {"result": {...}})
+    # IMPORTANT: Do NOT unwrap known top-level response schema keys — they are
+    # intentional containers, not wrapping envelopes. Unwrapping {"gaps": [...]}
+    # would strip the key and return a single gap dict, breaking gap detection.
+    _KNOWN_TOP_LEVEL_KEYS = {
+        "gaps", "papers", "sections", "items", "results", "entries",
+        "modules", "weeks", "experiments", "deliverables", "milestones",
+        "tools", "resources", "references", "objectives",
+    }
     if len(parsed) == 1:
-        val = next(iter(parsed.values()))
-        if isinstance(val, (dict, list)):
-            unwrapped = _normalize_parsed(val)
-            if unwrapped:
-                return unwrapped
+        only_key = next(iter(parsed.keys()))
+        if only_key not in _KNOWN_TOP_LEVEL_KEYS:
+            val = next(iter(parsed.values()))
+            if isinstance(val, (dict, list)):
+                unwrapped = _normalize_parsed(val)
+                if unwrapped:
+                    return unwrapped
 
     # Common multi-key envelope wrappers
     for k in ["data", "result", "response", "course", "teaching_plan", "plan", "output", "content"]:
@@ -1500,9 +1510,10 @@ def _groq_invoke_safe_cloud_direct(prompt: str, retries: int = 1, wait_seconds: 
                 print(f"Groq rate-limited (attempt {attempt+1}), retrying after {wait_seconds}s...")
                 time.sleep(wait_seconds)
                 continue
-            raise
+            print(f"[tools] Groq invocation failed ({e}). Falling back to Gemini.")
+            break
 
-    print("Groq exhausted retries — falling back to Gemini for this call only.")
+    print("Groq exhausted retries or failed — falling back to Gemini for this call.")
     try:
         response = _invoke_gemini(prompt)
         content = response.content
@@ -1591,34 +1602,83 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
     return "\n".join(lines)
 # ---------- GAP DETECTION AGENT ----------
 
-def _extract_gap_relevant_text(paper_title: str, analysis: Dict) -> str:
+def _extract_gap_relevant_text(paper_title: str, analysis: Dict, abstract: str = "") -> str:
     """
     Pull the fields most useful for gap detection from a paper's section
-    analysis: stated limitations, future work, and what the paper claims
-    to contribute (to infer what's NOT yet covered elsewhere).
+    analysis: stated limitations, future work, contributions, problem statement,
+    and abstract summary. Ensures substantial text is always available for
+    gap detection even if the paper only has abstract analysis.
     """
     parts = [f"Paper: {paper_title}"]
 
+    # 1. Abstract
+    abs_sec = analysis.get("abstract", {})
+    abs_text = ""
+    if isinstance(abs_sec, dict):
+        abs_text = abs_sec.get("summary") or abs_sec.get("text", "")
+    elif isinstance(abs_sec, str):
+        abs_text = abs_sec
+    if not abs_text and abstract:
+        abs_text = abstract
+    if abs_text:
+        parts.append(f"Abstract: {abs_text}")
+
+    # 2. Introduction / Problem
     intro = analysis.get("introduction", {})
-    if intro.get("contributions"):
-        parts.append(f"Contributions: {intro['contributions']}")
-    if intro.get("problem_statement"):
-        parts.append(f"Problem addressed: {intro['problem_statement']}")
+    if isinstance(intro, dict):
+        if intro.get("contributions"):
+            parts.append(f"Contributions: {intro['contributions']}")
+        if intro.get("problem_statement"):
+            parts.append(f"Problem addressed: {intro['problem_statement']}")
+        if intro.get("motivation"):
+            parts.append(f"Motivation: {intro['motivation']}")
+    elif isinstance(intro, str) and intro:
+        parts.append(f"Introduction: {intro}")
 
+    # 3. Related work
     related = analysis.get("related_work", {})
-    if related.get("positioning"):
-        parts.append(f"Positioning vs prior work: {related['positioning']}")
+    if isinstance(related, dict):
+        if related.get("positioning"):
+            parts.append(f"Positioning vs prior work: {related['positioning']}")
+        if related.get("prior_approaches"):
+            parts.append(f"Prior approaches: {related['prior_approaches']}")
+    elif isinstance(related, str) and related:
+        parts.append(f"Related work: {related}")
 
+    # 4. Limitations & Future work (critical for gaps!)
     for key in ("discussion", "conclusion"):
         sec = analysis.get(key, {})
-        if sec.get("limitations"):
-            parts.append(f"Limitations ({key}): {sec['limitations']}")
-        if sec.get("future_work"):
-            parts.append(f"Future work ({key}): {sec['future_work']}")
+        if isinstance(sec, dict):
+            if sec.get("limitations"):
+                parts.append(f"Limitations ({key}): {sec['limitations']}")
+            if sec.get("future_work"):
+                parts.append(f"Future work ({key}): {sec['future_work']}")
+            if sec.get("summary"):
+                parts.append(f"Summary ({key}): {sec['summary']}")
+        elif isinstance(sec, str) and sec:
+            parts.append(f"{key.capitalize()}: {sec}")
 
+    # 5. Results
     results = analysis.get("results", {})
-    if results.get("key_improvements"):
-        parts.append(f"Key results: {results['key_improvements']}")
+    if isinstance(results, dict):
+        if results.get("key_improvements"):
+            parts.append(f"Key results: {results['key_improvements']}")
+        if results.get("findings"):
+            parts.append(f"Findings: {results['findings']}")
+    elif isinstance(results, str) and results:
+        parts.append(f"Results: {results}")
+
+    # 6. Fallback: if nothing beyond title was extracted, include anything in analysis or abstract
+    if len(parts) == 1:
+        if abstract:
+            parts.append(f"Abstract: {abstract}")
+        for sec_k, sec_v in analysis.items():
+            if isinstance(sec_v, dict):
+                for sub_k, sub_v in sec_v.items():
+                    if sub_v:
+                        parts.append(f"{sec_k}.{sub_k}: {sub_v}")
+            elif isinstance(sec_v, str) and sec_v:
+                parts.append(f"{sec_k}: {sec_v}")
 
     return "\n".join(parts)
 
@@ -1652,9 +1712,13 @@ def detect_gaps(user_idea: str, papers_with_analysis: List[Dict], max_chars: int
 
     all_chunks = []  # list of {"source": title, "text": chunk}
     for p in papers_with_analysis:
-        paper_text = _extract_gap_relevant_text(p["title"], p["analysis"])
+        paper_text = _extract_gap_relevant_text(
+            p.get("title", "Untitled Paper"),
+            p.get("analysis") or {},
+            abstract=p.get("abstract", "")
+        )
         all_chunks.extend(
-            chunk_text_with_source(paper_text, source=p["title"], max_chars=max_chars)
+            chunk_text_with_source(paper_text, source=p.get("title", "Untitled Paper"), max_chars=max_chars)
         )
 
     if not all_chunks:

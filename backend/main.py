@@ -452,7 +452,7 @@ async def chat_endpoint(
     active_chat_tasks[conversation_id] = current_task
 
     try:
-        reply = await asyncio.to_thread(
+        reply, state = await asyncio.to_thread(
             run_orchestrator_turn,
             message=processed_message,
             thread_id=thread_id,
@@ -474,8 +474,6 @@ async def chat_endpoint(
     finally:
         active_chat_tasks.pop(conversation_id, None)
         clear_cancel_event(conversation_id)
-
-    state = get_state_snapshot(thread_id)
 
     return {
         "reply": reply,
