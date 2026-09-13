@@ -55,7 +55,16 @@ import {
 } from "react-icons/fi";
 import { getUserMe, getSettings, updateSettings, getAvailableModels, downloadProjectZip, deleteAllUserData } from "../api.js";
 
-
+/**
+ * LeftSidebar Component
+ * =====================
+ * Primary navigation sidebar for the ConsiliAI workspace:
+ *   - Lists existing chat threads with search and active selection.
+ *   - Provides action controls for creating new chats and deleting threads.
+ *   - Houses the User Profile & Settings modal (LLM provider configuration,
+ *     Ollama task-specific model routing, theme mode, and data wipe).
+ *   - Triggers full project ZIP archive packaging and download.
+ */
 export default function LeftSidebar({ 
   conversations, 
   activeConversationId, 

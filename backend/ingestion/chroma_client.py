@@ -1,20 +1,48 @@
+"""
+ChromaDB Storage & Semantic Cache Client
+========================================
+Manages persistent ChromaDB vector collections for ConsiliAI:
+  1. `user_docs`: Stores chunked embeddings of user-uploaded PDFs for personal RAG.
+  2. `search_cache`: Semantic cache for academic paper searches using cosine distance.
+  3. `analysis_cache`: Content-hash based cache for paper section analysis extractions.
+"""
+
 import chromadb
 import os
-from .embedding_model import embed   # use shared model
+from .embedding_model import embed   # Shared 384-d sentence-transformers model
 
 CHROMA_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "chroma_data")
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 
-# Document chunks collection (unchanged)
+# Document chunks collection for user RAG
 collection = chroma_client.get_or_create_collection(name="user_docs")
 
-# Semantic cache collection for search queries
+# Semantic cache collection for search queries (cosine distance metric)
 cache_collection = chroma_client.get_or_create_collection(
     name="search_cache",
-    metadata={"hnsw:space": "cosine"}   # cosine distance
+    metadata={"hnsw:space": "cosine"}   # Cosine similarity metric
 )
+
+# Content-hash cache collection for extracted paper sections
 analysis_cache_collection = chroma_client.get_or_create_collection("analysis_cache")
+
 def query_chroma(query_text: str, user_id: str, n_results: int = 3):
+    """
+    Query the ChromaDB `user_docs` collection for semantic chunks relevant to query_text.
+    
+    Implements a 3-tier fallback strategy:
+      1. Match where either user_id OR conversation_id equals the provided identifier.
+      2. Fall back to exact user_id metadata match.
+      3. Fall back to unconstrained top-similarity search across the collection.
+    
+    Args:
+        query_text: Natural language query string.
+        user_id: User UUID or Conversation ID string.
+        n_results: Maximum number of document chunks to retrieve (default: 3).
+        
+    Returns:
+        List of matching document text chunks.
+    """
     query_embedding = embed(query_text)
     # 1. Try matching user_id or conversation_id against the passed user_id (which might be thread_id)
     try:
@@ -54,8 +82,13 @@ def query_chroma(query_text: str, user_id: str, n_results: int = 3):
 
 
 def delete_conversation_documents(conversation_id: str) -> set[str]:
-    """Delete all document chunks belonging to a specific conversation from ChromaDB.
-    Returns the set of source filenames deleted."""
+    """
+    Delete all document chunks belonging to a specific conversation from ChromaDB.
+    Scans by both metadata (conversation_id) and document ID prefix (e.g. {conversation_id}_...).
+    
+    Returns:
+        The set of source filenames whose chunks were removed.
+    """
     deleted_sources = set()
     ids_to_delete = set()
     cid_str = str(conversation_id)
@@ -69,7 +102,8 @@ def delete_conversation_documents(conversation_id: str) -> set[str]:
                 if meta and meta.get("source"):
                     deleted_sources.add(meta["source"])
     except Exception as e:
-        print(f"[chroma] Error querying chunks for conversation {conversation_id}: {e}")
+        # print(f"[chroma] Error querying chunks for conversation {conversation_id}: {e}")
+        pass
 
     try:
         # Match by ID prefix
@@ -82,21 +116,31 @@ def delete_conversation_documents(conversation_id: str) -> set[str]:
                     if meta and meta.get("source"):
                         deleted_sources.add(meta["source"])
     except Exception as e:
-        print(f"[chroma] Error scanning ID prefix for conversation {conversation_id}: {e}")
+        # print(f"[chroma] Error scanning ID prefix for conversation {conversation_id}: {e}")
+        pass
 
     if ids_to_delete:
         try:
             collection.delete(ids=list(ids_to_delete))
-            print(f"[chroma] Deleted {len(ids_to_delete)} chunks for conversation {conversation_id}")
+            # print(f"[chroma] Deleted {len(ids_to_delete)} chunks for conversation {conversation_id}")
         except Exception as e:
-            print(f"[chroma] Error deleting chunks for conversation {conversation_id}: {e}")
+            # print(f"[chroma] Error deleting chunks for conversation {conversation_id}: {e}")
+            pass
 
     return deleted_sources
 
 
 def delete_user_documents(user_id: str, conversation_ids: list[str] = None) -> set[str]:
-    """Delete all document chunks belonging to a user (and all their conversations) from ChromaDB.
-    Returns the set of source filenames deleted."""
+    """
+    Delete all document chunks belonging to a user (and all their conversations) from ChromaDB.
+    
+    Args:
+        user_id: UUID string of the target user.
+        conversation_ids: Optional list of conversation IDs belonging to the user.
+        
+    Returns:
+        The set of source filenames whose chunks were deleted.
+    """
     deleted_sources = set()
     ids_to_delete = set()
     uid_str = str(user_id)
@@ -113,7 +157,8 @@ def delete_user_documents(user_id: str, conversation_ids: list[str] = None) -> s
                 if meta and meta.get("source"):
                     deleted_sources.add(meta["source"])
     except Exception as e:
-        print(f"[chroma] Error querying chunks for user {user_id}: {e}")
+        # print(f"[chroma] Error querying chunks for user {user_id}: {e}")
+        pass
 
     # 2. By conversation_ids metadata
     if conversation_ids:
@@ -139,21 +184,28 @@ def delete_user_documents(user_id: str, conversation_ids: list[str] = None) -> s
                     if meta and meta.get("source"):
                         deleted_sources.add(meta["source"])
     except Exception as e:
-        print(f"[chroma] Error scanning ID prefix for user {user_id}: {e}")
+        # print(f"[chroma] Error scanning ID prefix for user {user_id}: {e}")
+        pass
 
     if ids_to_delete:
         try:
             collection.delete(ids=list(ids_to_delete))
-            print(f"[chroma] Deleted {len(ids_to_delete)} chunks for user {user_id}")
+            # print(f"[chroma] Deleted {len(ids_to_delete)} chunks for user {user_id}")
         except Exception as e:
-            print(f"[chroma] Error deleting chunks for user {user_id}: {e}")
+            # print(f"[chroma] Error deleting chunks for user {user_id}: {e}")
+            pass
 
     return deleted_sources
 
 
 def get_conversation_document_sources(conversation_id: str, user_id: str = None) -> list[str]:
-    """Returns a sorted list of distinct document source filenames associated with
-    a conversation_id or user_id in ChromaDB."""
+    """
+    Returns a sorted list of unique document source filenames associated with
+    a conversation_id or user_id in ChromaDB.
+    
+    Checks metadata fields first; if none are found, falls back to inspecting document
+    ID prefixes to support legacy chunks created before conversation metadata tagging.
+    """
     sources = set()
     cid_str = str(conversation_id) if conversation_id else None
 

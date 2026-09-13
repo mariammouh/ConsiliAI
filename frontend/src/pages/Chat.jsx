@@ -28,6 +28,15 @@ import MessageBubble from "../components/MessageBubble.jsx";
 import Sidebar from "../components/Sidebar.jsx";
 import LeftSidebar from "../components/LeftSidebar.jsx";
 
+/**
+ * Chat Page
+ * =========
+ * Main conversational interface for ConsiliAI:
+ *   - Orchestrates chat history fetching, real-time message sending, and response rendering.
+ *   - Supports mid-generation request cancellation using AbortController and backend stop signals.
+ *   - Synchronizes state artifacts across the LeftSidebar (navigation) and Sidebar (deliverables drawer).
+ *   - Supports file attachment uploads for dynamic PDF ingestion into vector memory.
+ */
 export default function Chat() {
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);

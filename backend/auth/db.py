@@ -40,6 +40,11 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
 
 
 class Conversation(Base):
+    """
+    Persistent conversation model representing an independent chat session.
+    Each conversation is owned by a User and serves as the thread boundary for
+    LangGraph checkpointing and ChromaDB document isolation.
+    """
     __tablename__ = "conversation"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
@@ -48,15 +53,22 @@ class Conversation(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 
+# Asynchronous SQLAlchemy engine and session factory
 engine = create_async_engine(DATABASE_URL)
 async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def create_db_and_tables():
+    """
+    Initialize database schema: create tables and apply idempotent column migrations
+    for multi-model routing preferences without requiring an external migration runner.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Ensure new preference columns exist on the user table
         await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS llm_provider VARCHAR NOT NULL DEFAULT \'cloud\';'))
         await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS task_models JSON DEFAULT \'{}\';'))
+
 
 
 

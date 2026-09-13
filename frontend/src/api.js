@@ -1,3 +1,11 @@
+/**
+ * ConsiliAI Frontend API Client
+ * ==============================
+ * Handles authentication tokens, conversation state persistence, chat message
+ * streaming/cancellation, document upload, artifact downloading, PowerPoint
+ * export, and empirical benchmark evaluation requests.
+ */
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const TOKEN_KEY = "consiliai_token";
 
@@ -191,6 +199,44 @@ export async function downloadArtifact(download) {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export async function exportCoursePptx(course, filename, lessonIndex, conversationId) {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const res = await fetch(`${API_BASE}/export/course-pptx`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      course,
+      filename,
+      lesson_index: lessonIndex,
+      conversation_id: conversationId,
+    }),
+  });
+
+  if (res.status === 401) {
+    clearToken();
+    throw new Error("Session expired — please log in again.");
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Could not generate PowerPoint presentation.");
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "course_presentation.pptx";
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

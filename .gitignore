@@ -12,12 +12,7 @@ __pycache__/
 # VS Code (optional)
 .vscode/
 
-report.html
-report.pdf
-sota.html
-ch.txt
-md.md
+
 .gitignore
 chroma_data/
 user_uploads/
-test_output/

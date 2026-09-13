@@ -23,6 +23,11 @@ import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { FiArrowLeft, FiEye, FiEyeOff } from "react-icons/fi";
 import { register, login } from "../api.js";
 
+/**
+ * Register Page
+ * =============
+ * Handles user account creation, client-side password verification, and automatic login.
+ */
 export default function Register() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

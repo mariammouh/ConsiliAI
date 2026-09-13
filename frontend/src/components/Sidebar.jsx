@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { downloadArtifact } from "../api.js";
+import { downloadArtifact, exportCoursePptx } from "../api.js";
 import ReactMarkdown from "react-markdown";
 import {
   Box,
@@ -67,6 +67,10 @@ const LEDGER_ICONS = {
   evaluation: FiBarChart2,
 };
 
+/**
+ * Extracts and aggregates all benchmark evaluations from conversation state,
+ * reconciling top-level evaluations and experiment-embedded evaluation objects.
+ */
 function extractEvaluations(state) {
   const s = state || {};
   let list = [];
@@ -97,6 +101,9 @@ function extractEvaluations(state) {
   return list;
 }
 
+/**
+ * Generates a URL-safe lowercase slug from arbitrary text strings.
+ */
 function slugify(text) {
   return String(text || "")
     .toLowerCase()
@@ -104,17 +111,32 @@ function slugify(text) {
     .replace(/^_+|_+$/g, "");
 }
 
-function generateClientSideNotebookDownload(exercise) {
+/**
+ * Generates a fully formatted Jupyter Notebook (.ipynb JSON) on the client
+ * as a fallback if the backend filesystem download endpoint is unavailable.
+ */
+function generateClientSideNotebookDownload(exercise, downloadItem) {
+  if (!exercise) return;
+  const isSolution = Boolean(
+    (downloadItem?.label && /solution|teacher|instructor/i.test(downloadItem.label)) ||
+    (downloadItem?.filename && /solution|teacher|instructor/i.test(downloadItem.filename))
+  );
+
+  const codeSource = (isSolution && exercise.solutionCode)
+    ? exercise.solutionCode
+    : (exercise.starterCode || 
+       `# ${exercise.title || "Practical Exercise"} - Starter Code\n# Complete the exercise based on the instructions above\n\ndef main():\n    print("Starting exercise: ${exercise.title || "Practical Exercise"}")\n\nif __name__ == "__main__":\n    main()`);
+
   const notebook = {
     cells: [
       {
         cell_type: "markdown",
         metadata: {},
         source: [
-          `# ${exercise.title}\n`,
+          `# ${exercise.title || "Practical Exercise"}\n`,
           `**Difficulty:** ${(exercise.difficulty || "intermediate").toUpperCase()} | **Module:** ${exercise.basedOnModule || 'N/A'}\n\n`,
-          `## Objective\n${exercise.objective}\n\n`,
-          `## Instructions & Context\n${exercise.instructions}\n`
+          `## Objective\n${exercise.objective || "Apply machine learning and software concepts to hands-on practical exercises."}\n\n`,
+          `## Instructions & Context\n${exercise.instructions || "Follow the step-by-step practical guide to complete the exercise."}\n`
         ]
       },
       {
@@ -123,7 +145,7 @@ function generateClientSideNotebookDownload(exercise) {
         source: [
           `## Topics / Concepts Covered\n`,
           ...(exercise.topics || []).map(t => `- ${t}\n`),
-          `\n## Expected Outcomes\n${typeof exercise.outcomes === 'string' ? exercise.outcomes : JSON.stringify(exercise.outcomes)}\n`
+          `\n## Expected Outcomes\n${typeof exercise.outcomes === 'string' ? exercise.outcomes : JSON.stringify(exercise.outcomes || "Runnable pipeline completed.")}\n`
         ]
       },
       {
@@ -131,10 +153,7 @@ function generateClientSideNotebookDownload(exercise) {
         execution_count: null,
         metadata: {},
         outputs: [],
-        source: [
-          exercise.starterCode || 
-          `# ${exercise.title} - Starter Code\n# Complete the exercise based on the instructions above\n\ndef main():\n    print("Starting exercise: ${exercise.title}")\n\nif __name__ == "__main__":\n    main()`
-        ]
+        source: [codeSource]
       }
     ],
     metadata: {
@@ -144,11 +163,14 @@ function generateClientSideNotebookDownload(exercise) {
     nbformat_minor: 2
   };
 
+  const rawFilename = downloadItem?.filename || `${slugify(exercise.title || "practical_exercise")}.ipynb`;
+  const filename = rawFilename.endsWith(".ipynb") ? rawFilename : `${rawFilename.replace(/\.[^/.]+$/, "")}.ipynb`;
+
   const blob = new Blob([JSON.stringify(notebook, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${slugify(exercise.title || "practical_exercise")}.ipynb`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -164,7 +186,26 @@ async function handleDownloadNotebook(downloadItem, exercise) {
       console.warn("Backend notebook fetch failed, falling back to client-side download", e);
     }
   }
-  generateClientSideNotebookDownload(exercise);
+  generateClientSideNotebookDownload(exercise, downloadItem);
+}
+
+async function handleDownloadLesson(downloadItem, course, lessonIndex, conversationId) {
+  // 1. If downloadItem has a direct artifact URL, try downloading from backend static storage
+  if (downloadItem && downloadItem.url) {
+    try {
+      await downloadArtifact(downloadItem);
+      return;
+    } catch (e) {
+      console.warn("Backend lesson presentation fetch failed, requesting on-demand PPTX export", e);
+    }
+  }
+
+  // 2. On-demand PowerPoint (.pptx) export from backend using the course structure
+  if (course || conversationId) {
+    const rawFilename = downloadItem?.filename || `lesson_${(lessonIndex ?? 0) + 1}.pptx`;
+    const targetFilename = rawFilename.endsWith(".pptx") ? rawFilename : `${rawFilename.replace(/\.[^/.]+$/, "")}.pptx`;
+    await exportCoursePptx(course, targetFilename, lessonIndex, conversationId);
+  }
 }
 
 function extractPracticalExercises(state) {
@@ -1298,26 +1339,50 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse, 
               const course = s.course;
               const modules = course.modules || [];
               const downloads = s.course_downloads || [];
+              const availableLessonDownloads = (downloads && downloads.length > 0)
+                ? downloads
+                : (() => {
+                    const items = [];
+                    let count = 1;
+                    (modules || []).forEach((m, mIdx) => {
+                      (m.lessons || []).forEach((l, lIdx) => {
+                        const safeTitle = (l.lesson_title || `lesson_${count}`).replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "_");
+                        const filename = `${String(mIdx + 1).padStart(2, "0")}_${String(lIdx + 1).padStart(2, "0")}_${safeTitle}.pptx`;
+                        items.push({
+                          label: `Download lesson ${count}`,
+                          filename,
+                          url: `/chat/course-download/${filename}`,
+                          lesson_index: count - 1,
+                        });
+                        count++;
+                      });
+                    });
+                    return items;
+                  })();
+
               return (
                 <VStack align="stretch" spacing={4}>
                   <Box p={4} {...SECTION_CARD}>
-                    <Text fontSize="lg" fontWeight="700" color="ink.900" mb={1}>{course.course_title || "Generated Course"}</Text>
-                    <Text fontSize="xs" color="slate.500" mb={downloads.length > 0 ? 3 : 0}>
-                      {modules.length} module(s), {modules.reduce((acc, m) => acc + (m.lessons?.length || 0), 0)} lesson(s)
-                    </Text>
-                    {downloads.length > 0 && (
+                    <Box mb={availableLessonDownloads.length > 0 ? 1 : 0}>
+                      <Text fontSize="lg" fontWeight="700" color="ink.900" mb={1}>{course.course_title || "Generated Course"}</Text>
+                      <Text fontSize="xs" color="slate.500">
+                        {modules.length} module(s), {modules.reduce((acc, m) => acc + (m.lessons?.length || 0), 0)} lesson(s)
+                      </Text>
+                    </Box>
+                    {availableLessonDownloads.length > 0 && (
                       <Box mt={2} pt={3} borderTop="1px solid" borderColor="paper.200">
-                        <Text fontSize="xs" color="teal.700" fontWeight="bold" mb={2}>AVAILABLE DOWNLOADS:</Text>
+                        <Text fontSize="xs" color="teal.700" fontWeight="bold" mb={2}>AVAILABLE PRESENTATIONS:</Text>
                         <HStack spacing={2} wrap="wrap">
-                          {downloads.map((download, idx) => (
+                          {availableLessonDownloads.map((download, idx) => (
                             <Button
                               key={idx}
                               size="xs"
                               colorScheme="teal"
+                              variant="outline"
                               leftIcon={<Icon as={FiDownload} />}
-                              onClick={() => downloadArtifact(download)}
+                              onClick={() => handleDownloadLesson(download, course, download.lesson_index ?? idx, s.conversation_id)}
                             >
-                              {download.label || `Download Presentation ${idx + 1}`}
+                              {download.label || `Download lesson ${idx + 1}`}
                             </Button>
                           ))}
                         </HStack>
@@ -1336,6 +1401,13 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse, 
             {selectedSection === "practical_exercises" && (() => {
               const practicalExercisesList = extractPracticalExercises(s);
               const labDownloads = s.lab_downloads || [];
+              const availableNotebookDownloads = labDownloads.length > 0
+                ? labDownloads
+                : practicalExercisesList.map((ex, idx) => ex.notebookDownload || {
+                    label: `Download Notebook: ${ex.title}`,
+                    filename: `${slugify(ex.title || `exercise_${idx + 1}`)}.ipynb`,
+                    exercise: ex,
+                  });
 
               return (
                 <VStack align="stretch" spacing={5}>
@@ -1356,23 +1428,43 @@ export default function Sidebar({ state, isCollapsed = false, onToggleCollapse, 
                     </HStack>
 
                     {/* Global Notebook Downloads Button Header if available */}
-                    {labDownloads.length > 0 && (
+                    {availableNotebookDownloads.length > 0 && (
                       <Box mt={3} pt={3} borderTop="1px solid" borderColor="paper.200">
                         <Text fontSize="xs" color="green.700" fontWeight="bold" mb={2} textTransform="uppercase">
                           Available notebooks
                         </Text>
                         <HStack spacing={2} wrap="wrap">
-                          {labDownloads.map((dl, idx) => (
-                            <Button
-                              key={idx}
-                              size="xs"
-                              colorScheme="green"
-                              leftIcon={<Icon as={FiDownload} />}
-                              onClick={() => downloadArtifact(dl)}
-                            >
-                              {dl.label || `Download Notebook ${idx + 1}`}
-                            </Button>
-                          ))}
+                          {availableNotebookDownloads.map((dl, idx) => {
+                            const matchingEx = practicalExercisesList.find(e => {
+                              if (e.notebookDownload && (e.notebookDownload.filename === dl.filename || e.notebookDownload.url === dl.url)) return true;
+                              const dlLabel = (dl.label || "").toLowerCase();
+                              const dlFile = (dl.filename || "").toLowerCase();
+                              const titleLower = (e.title || "").toLowerCase();
+                              const lesLower = (e.basedOnLesson || "").toLowerCase();
+                              const titleSlug = slugify(e.title);
+                              return (
+                                (dlLabel && titleLower && dlLabel.includes(titleLower)) ||
+                                (dlLabel && lesLower && dlLabel.includes(lesLower)) ||
+                                (dlFile && titleSlug && dlFile.includes(titleSlug))
+                              );
+                            }) || dl.exercise || practicalExercisesList[idx] || {
+                              title: dl.label ? dl.label.replace(/^Download\s+(Notebook:\s*)?/i, "") : `Exercise ${idx + 1}`,
+                              objective: "Apply machine learning and software concepts to hands-on practical exercises.",
+                              instructions: "Follow the step-by-step practical guide to complete the exercise.",
+                            };
+
+                            return (
+                              <Button
+                                key={idx}
+                                size="xs"
+                                colorScheme="green"
+                                leftIcon={<Icon as={FiDownload} />}
+                                onClick={() => handleDownloadNotebook(dl, matchingEx)}
+                              >
+                                {dl.label || `Download Notebook ${idx + 1}`}
+                              </Button>
+                            );
+                          })}
                         </HStack>
                       </Box>
                     )}

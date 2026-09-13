@@ -1,3 +1,41 @@
+"""
+ConsiliAI Domain Tools & Pipeline Engine
+========================================
+Implements the core research, novelty evaluation, planning, curriculum generation,
+AST-checked lab synthesis, experiment protocols, and benchmark grading tools:
+
+1. Literature Search & Ingestion:
+   - Queries arXiv, Semantic Scholar, and OpenAlex concurrently.
+   - Applies semantic caching (ChromaDB cosine distance) and hybrid filtering (embedding + LLM).
+   - Fetches full-text PDF open-access content via PyMuPDF.
+
+2. Code & Ecosystem Search:
+   - Queries GitHub, Hugging Face, PapersWithCode, GitLab, and Bitbucket.
+   - Computes embedding similarity scores and synthesizes novelty assessments.
+
+3. Paper Analysis & Gap Detection:
+   - Hybrid section splitting (regex headers + LLM fallback).
+   - Parameterized section extraction (methodology, results, discussion/conclusion) with SHA-256 caching.
+   - Multi-paper research gap detection with 3-cycle citation hardening and dropped-paper repair.
+
+4. Technical & Pedagogical Plans:
+   - Technical project plans with stack selection, architecture overview, and milestone deliverables.
+   - Teaching plans with learning objectives, problem/solution hooks, and frontier topics.
+
+5. Courseware & Slide Generation:
+   - Hierarchical course and lesson slide generator with PowerPoint (.pptx) export.
+
+6. Practical Lab Generation (v2):
+   - Scaffold-first prompt engineering, local code generation (Qwen 2.5 Coder).
+   - Zero-execution Python AST static validation (syntax, undefined variables, duplicate definitions).
+   - Automated self-repair cycles and Jupyter notebook (.ipynb) packaging.
+
+7. Benchmark Evaluation:
+   - Extracts baseline literature metrics and student experimental numbers.
+   - Deterministic mathematical delta calculations and hypothesis validation.
+   - Promotes empirical discrepancies into candidate open research gaps.
+"""
+
 import ast
 import keyword
 import os
@@ -13,6 +51,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 for path in [str(BACKEND_DIR), str(REPO_ROOT)]:
     if path not in sys.path:
         sys.path.insert(0, path)
+
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
@@ -40,7 +79,7 @@ except ImportError:
 import numpy as np
 load_dotenv()
 
-from course_pptx_exporter import (
+from export.course_pptx_exporter import (
     TOKENS,
     ContentSplitter,
     build_title_slide,
@@ -110,12 +149,13 @@ def _invoke_gemini(prompt: str):
     """
     from agents.llm_router import get_llm_instance
     llm = get_llm_instance("gemini", "gemini-3.1-flash-lite", temperature=0, timeout=120)
-    print("You are using Gemini LLM (gemini-3.1-flash-lite) as fallback.")
+    # Debug print commented out for normal operation
+    # print("You are using Gemini LLM (gemini-3.1-flash-lite) as fallback.")
     _GEMINI_RETRY_DELAYS = [5, 10, 20]
     last_err = None
     for attempt, delay in enumerate([0] + _GEMINI_RETRY_DELAYS, start=1):
         if delay:
-            print(f"[_invoke_gemini] Retrying after {delay}s (attempt {attempt})...")
+            # print(f"[_invoke_gemini] Retrying after {delay}s (attempt {attempt})...")
             time.sleep(delay)
         try:
             return llm.invoke(prompt)
@@ -123,7 +163,7 @@ def _invoke_gemini(prompt: str):
             err_str = str(e)
             # Retry only on transient 503/overload; raise immediately for other errors
             if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str.lower():
-                print(f"[_invoke_gemini] 503 UNAVAILABLE on attempt {attempt}: {e}")
+                # print(f"[_invoke_gemini] 503 UNAVAILABLE on attempt {attempt}: {e}")
                 last_err = e
                 continue
             raise
@@ -134,7 +174,8 @@ def _invoke_gemini(prompt: str):
 def _invoke_groq(prompt: str):
     from agents.llm_router import get_active_llm
     llm, _ = get_active_llm(task_type="reasoning")
-    print("You are using Groq LLM for reasoning tasks.")
+    # Debug print commented out for normal operation
+    # print("You are using Groq LLM for reasoning tasks.")
     return llm.invoke(prompt)
 
 def retrieve_from_knowledge_base(question: str, user_id: str) -> str:
@@ -274,28 +315,32 @@ def search_papers(query: str, max_results: int = 15) -> List[Dict]:
                 "source": "arxiv"
             })
     except Exception as e:
-        print(f"arXiv search error: {e}")
+        # print(f"arXiv search error: {e}")
+        pass
 
     # --- Semantic Scholar ---
     try:
         semantic_papers = search_semantic_scholar(query, max_results)
         fresh_papers.extend(semantic_papers)
     except Exception as e:
-        print(f"Semantic Scholar error: {e}")
+        # print(f"Semantic Scholar error: {e}")
+        pass
 
     # --- OpenAlex ---
     try:
         openalex_papers = search_openalex(query, max_results)
         fresh_papers.extend(openalex_papers)
     except Exception as e:
-        print(f"OpenAlex integration error: {e}")
+        # print(f"OpenAlex integration error: {e}")
+        pass
 
     # 4. Merge cache + fresh, deduplicate by URL
     seen = {p.get('url') for p in base_valid if p.get('url')}
     combined = list(base_valid)
     for p in fresh_papers:
         if p.get('url') not in seen:
-            print("link : ",p.get('url'))
+            # Debug print commented out for normal operation
+            # print("link : ",p.get('url'))
             seen.add(p.get('url'))
             combined.append(p)
 
@@ -385,7 +430,7 @@ def search_openalex(query: str, max_results: int = 5) -> List[Dict]:
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        print(f"OpenAlex error: {e}")
+        # print(f"OpenAlex error: {e}")
         return []
 
     papers = []
@@ -620,7 +665,8 @@ Novelty analysis:"""
             content = "".join(block.get('text', '') if isinstance(block, dict) else str(block) for block in content)
         return content
     except Exception as e:
-        print(f"Groq error ({e}), falling back to Gemini...")
+        # Debug print commented out for normal operation
+        # print(f"Groq error ({e}), falling back to Gemini...")
         try:
             response = _invoke_gemini(prompt)
             content = response.content
@@ -628,7 +674,8 @@ Novelty analysis:"""
                 content = "".join(block.get('text', '') if isinstance(block, dict) else str(block) for block in content)
             return content
         except Exception as e2:
-            print(f"Gemini also failed ({e2}). Returning basic analysis.")
+            # Debug print commented out for normal operation
+            # print(f"Gemini also failed ({e2}). Returning basic analysis.")
             return basic_analysis
 def search_kaggle(query: str, max_results: int =15 ) -> List[Dict]:
     """
@@ -693,13 +740,14 @@ def search_kaggle(query: str, max_results: int =15 ) -> List[Dict]:
                 "source": "kaggle_model",
                 "readme": (m.description or "")[:500]
             })
-         #   print(f"kaggle models: {len(projects)} results added")
+            # print(f"kaggle models: {len(projects)} results added")
     except Exception as e:
-        print(f"Kaggle error: {e}")
+        # print(f"Kaggle error: {e}")
+        pass
     return projects
 
 def search_github(query, max_results):
-        # ---- GitHub ----
+    # Search GitHub repositories via GitHub REST API
     projects = []
     github_token = os.getenv("GITHUB_TOKEN")
     headers = {"Accept": "application/vnd.github.v3+json"}
@@ -712,7 +760,7 @@ def search_github(query, max_results):
         resp.raise_for_status()
         data = resp.json()
         for repo in data.get("items", []):
-            # Get readme (if available)
+            # Fetch repository README if available
             readme_url = f"https://api.github.com/repos/{repo['full_name']}/readme"
             readme_text = ""
             try:
@@ -720,7 +768,7 @@ def search_github(query, max_results):
                 if readme_resp.status_code == 200:
                     import base64
                     readme_text = base64.b64decode(readme_resp.json()["content"]).decode("utf-8", errors="ignore")[:1000]
-            except:
+            except Exception:
                 pass
             projects.append({
                 "name": repo["full_name"],
@@ -730,9 +778,11 @@ def search_github(query, max_results):
                 "topics": repo.get("topics", []),
                 "readme": readme_text
             })
-            print(f"github: {len(projects)} results added")
+            # Debug print commented out for normal operation
+            # print(f"github: {len(projects)} results added")
     except Exception as e:
-        print(f"GitHub error: {e}")
+        # print(f"GitHub error: {e}")
+        pass
     return projects
 
 def search_huggingface(query, max_results):
@@ -773,7 +823,8 @@ def search_huggingface(query, max_results):
             })
       #  print(f"Hugging Face: {len(projects)} results added")
     except Exception as e:
-        print(f"Hugging Face error: {e}")
+        # print(f"Hugging Face error: {e}")
+        pass
     return projects
 def diversify_top(scored, max_results=20):
 
@@ -805,7 +856,7 @@ def search_paperswithcode(query: str, max_results: int = 5) -> List[Dict]:
         try:
             data = resp.json()
         except Exception as je:
-            print(f"PapersWithCode JSON decode error: {je}, body was: {resp.text[:200]}")
+            # print(f"PapersWithCode JSON decode error: {je}, body was: {resp.text[:200]}")
             return projects
         for paper in data.get("results", []):
             title = paper.get("title", "")
@@ -821,7 +872,8 @@ def search_paperswithcode(query: str, max_results: int = 5) -> List[Dict]:
                 })
        # print(f"PapersWithCode: {len(projects)} results added")
     except Exception as e:
-        print(f"PapersWithCode error: {e}")
+        # print(f"PapersWithCode error: {e}")
+        pass
     return projects
 
 def search_gitlab(query, max_results):
@@ -841,7 +893,8 @@ def search_gitlab(query, max_results):
                     "readme": ""
                 })
     except Exception as e:
-        print(f"GitLab error: {e}")
+        # print(f"GitLab error: {e}")
+        pass
     return projects
 
 def search_bitbucket(query, max_results):
@@ -864,7 +917,8 @@ def search_bitbucket(query, max_results):
                         "readme": ""
                     })
         except Exception as e:
-            print(f"Bitbucket error: {e}")
+            # print(f"Bitbucket error: {e}")
+            pass
         return projects
 # ---------- SECTION SPLITTER ----------
 
@@ -1246,12 +1300,15 @@ def split_paper_sections(text: str) -> Dict[str, str]:
     heuristic_success = essential_found >= 2
 
     if heuristic_success:
-        print(f"[split] heuristic succeeded: {[(k, len(v)) for k, v in sections.items()]}")
+        # Debug print commented out for normal operation
+        # print(f"[split] heuristic succeeded: {[(k, len(v)) for k, v in sections.items()]}")
         return sections
 
-    print(f"[split] heuristic found only {essential_found} essential section(s), falling back to LLM chunk classification.")
-    llm_sections = llm_split_sections(text)   # actually call it now
-    print(f"[split] LLM fallback result: {[(k, len(v)) for k, v in llm_sections.items()]}")
+    # Debug print commented out for normal operation
+    # print(f"[split] heuristic found only {essential_found} essential section(s), falling back to LLM chunk classification.")
+    llm_sections = llm_split_sections(text)   # LLM fallback when headers are irregular
+    # Debug print commented out for normal operation
+    # print(f"[split] LLM fallback result: {[(k, len(v)) for k, v in llm_sections.items()]}")
     return llm_sections
 # ---------- SECTION-ANALYSIS AGENT ----------
 
@@ -1300,7 +1357,8 @@ def analyze_section(section_text: str, section_type: str, max_chars: int = 3000)
     # Check cache first
     cached = get_cached_section_analysis(section_text, section_type)
     if cached:
-        print(f"[cache hit] section '{section_type}' — skipping Groq call")
+        # Debug print commented out for normal operation
+        # print(f"[cache hit] section '{section_type}' — skipping Groq call")
         return cached
 
     schema = SECTION_SCHEMAS.get(section_type, {
@@ -1331,7 +1389,8 @@ Section text:
         return parsed
 
     # Multiple chunks: analyze each, then merge
-    print(f"Section '{section_type}' split into {len(chunks)} chunks for rate-limit safety.")
+    # Debug print commented out for normal operation
+    # print(f"Section '{section_type}' split into {len(chunks)} chunks for rate-limit safety.")
     partial_results = []
     for i, chunk in enumerate(chunks):
         prompt = f"""You are analyzing part {i+1} of {len(chunks)} of the "{section_type}" section of a scientific paper.
@@ -1416,7 +1475,8 @@ def get_papers_with_analysis(idea: str, max_papers: int = 3) -> List[Dict]:
             continue
 
         analysis = analyze_all_sections(sections)
-        print("link :",paper.get("pdf_url", ""))
+        # Debug print commented out for normal operation
+        # print("link :",paper.get("pdf_url", ""))
         results.append({
             "title": paper.get("title", "Untitled Paper"),
             "authors": paper.get("authors", []),
@@ -1484,7 +1544,8 @@ class TokenBudget:
         if self.used + estimated_tokens > self.tpm_limit:
             wait = 60 - (now - self.window_start)
             if wait > 0:
-                print(f"Approaching TPM limit, waiting {wait:.1f}s...")
+                # Debug print commented out for normal operation
+                # print(f"Approaching TPM limit, waiting {wait:.1f}s...")
                 time.sleep(wait)
             self.used = 0
             self.window_start = time.time()
@@ -1507,13 +1568,16 @@ def _groq_invoke_safe_cloud_direct(prompt: str, retries: int = 1, wait_seconds: 
         except Exception as e:
             err = str(e)
             if "429" in err or "413" in err or "rate_limit" in err:
-                print(f"Groq rate-limited (attempt {attempt+1}), retrying after {wait_seconds}s...")
+                # Debug print commented out for normal operation
+                # print(f"Groq rate-limited (attempt {attempt+1}), retrying after {wait_seconds}s...")
                 time.sleep(wait_seconds)
                 continue
-            print(f"[tools] Groq invocation failed ({e}). Falling back to Gemini.")
+            # Debug print commented out for normal operation
+            # print(f"[tools] Groq invocation failed ({e}). Falling back to Gemini.")
             break
 
-    print("Groq exhausted retries or failed — falling back to Gemini for this call.")
+    # Debug print commented out for normal operation
+    # print("Groq exhausted retries or failed — falling back to Gemini for this call.")
     try:
         response = _invoke_gemini(prompt)
         content = response.content
@@ -1521,7 +1585,8 @@ def _groq_invoke_safe_cloud_direct(prompt: str, retries: int = 1, wait_seconds: 
             content = "".join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
         return content
     except Exception as e:
-        print(f"Gemini also failed: {e}")
+        # Debug print commented out for normal operation
+        # print(f"Gemini also failed: {e}")
         raise
 
 
@@ -1534,7 +1599,8 @@ def _groq_invoke_safe(prompt: str, retries: int = 1, wait_seconds: float = 8.0, 
     from agents.llm_router import invoke_task_llm, get_current_task_category
     cat = task_category or get_current_task_category() or "analytical"
     res, _ = invoke_task_llm(prompt, task_category=cat)
-    print(f"[tools] Invoked LLM for task category '{cat}'")
+    # Debug print commented out for normal operation
+    # print(f"[tools] Invoked LLM for task category '{cat}'")
     return res
 
         
@@ -1584,11 +1650,13 @@ def fetch_full_text(paper: Dict, timeout: int = 20) -> str:
         resp.raise_for_status()
         content_type = resp.headers.get("Content-Type", "")
         if "pdf" not in content_type and not pdf_url.lower().endswith(".pdf"):
-            print(f"Skipping non-PDF content at {pdf_url} (Content-Type: {content_type})")
+            # Debug print commented out for normal operation
+            # print(f"Skipping non-PDF content at {pdf_url} (Content-Type: {content_type})")
             return ""
         return extract_text_from_pdf_bytes(resp.content)
     except Exception as e:
-        print(f"Failed to fetch/extract PDF from {pdf_url}: {e}")
+        # Debug print commented out for normal operation
+        # print(f"Failed to fetch/extract PDF from {pdf_url}: {e}")
         return ""
 
 import fitz  
@@ -1757,7 +1825,8 @@ Paper text:
 {chunk_dict['text']}
 """
 
-    print(f"Gap detection: {len(all_chunks)} chunk(s) across {len(papers_with_analysis)} paper(s).")
+    # Debug print commented out for normal operation
+    # print(f"Gap detection: {len(all_chunks)} chunk(s) across {len(papers_with_analysis)} paper(s).")
     partial_gaps = []
     for i, chunk_dict in enumerate(all_chunks):
         prompt = build_prompt(chunk_dict, part_num=i + 1, total=len(all_chunks))
@@ -1768,11 +1837,13 @@ Paper text:
                 gap["papers_involved"] = [chunk_dict["source"]]
             partial_gaps.extend(parsed["gaps"])
         else:
-            print(f"[debug] chunk from '{chunk_dict['source']}' produced NO gaps: {parsed}")
+            # Debug print commented out for normal operation
+            # print(f"[debug] chunk from '{chunk_dict['source']}' produced NO gaps: {parsed}")
+            pass
         time.sleep(2)
 
-    # NEW: see exactly what's going into consolidation, per paper
-    print(f"[debug] partial_gaps BEFORE consolidation ({len(partial_gaps)} total):")
+    # Debug print commented out for normal operation
+    # print(f"[debug] partial_gaps BEFORE consolidation ({len(partial_gaps)} total):")
     #for g in partial_gaps:
         #print(f"  - {g.get('papers_involved')}: {g.get('gap_description', '')[:80]}")
 
@@ -1832,21 +1903,27 @@ Raw gaps:
         cleaned = [p for p in original if p in all_input_papers]
         if len(cleaned) != len(original):
             invented = set(original) - set(cleaned)
-            print(f"[warning] Consolidation invented paper name(s) not in source data, removing: {invented}")
+            # Debug print commented out for normal operation
+            # print(f"[warning] Consolidation invented paper name(s) not in source data, removing: {invented}")
+            pass
         g["papers_involved"] = cleaned
         covered_papers.update(cleaned)  
 
     # Safeguard 2: verify no real paper vanished entirely, repair if so
     missing_papers = all_input_papers - covered_papers
     if missing_papers:
-        print(f"[warning] Consolidation appears to have dropped papers: {missing_papers}")
+        # Debug print commented out for normal operation
+        # print(f"[warning] Consolidation appears to have dropped papers: {missing_papers}")
         verification = _verify_dropped_papers(user_idea, missing_papers, raw_gaps, consolidated)
         for paper, verdict in verification.items():
             if verdict.get("genuinely_missing"):
-                print(f"[repair] '{paper}' was genuinely dropped, re-adding: {verdict['gap_to_add']['gap_description'][:60]}")
+                # Debug print commented out for normal operation
+                # print(f"[repair] '{paper}' was genuinely dropped, re-adding: {verdict['gap_to_add']['gap_description'][:60]}")
                 consolidated.append(verdict["gap_to_add"])
             else:
-                print(f"[ok] '{paper}' content is legitimately covered by existing gap: {verdict.get('covered_by','')[:60]}")
+                # Debug print commented out for normal operation
+                # print(f"[ok] '{paper}' content is legitimately covered by existing gap: {verdict.get('covered_by','')[:60]}")
+                pass
 
     return {"gaps": consolidated}
 
@@ -2169,12 +2246,14 @@ course from established knowledge (in the papers) toward open research questions
     content = _groq_invoke_safe(prompt, task_category="planning")
     parsed = _safe_json_parse(content)
     if not parsed:
-        print(f"[generate_teaching_plan] JSON parse FAILED. Raw ({len(content)} chars, first 800):\n{content[:800]!r}")
+        # Debug print commented out for normal operation
+        # print(f"[generate_teaching_plan] JSON parse FAILED. Raw ({len(content)} chars, first 800):\n{content[:800]!r}")
         return {"_error": "LLM output could not be parsed"}
 
     # Rescue: top-level keys wrong? search one level deeper
     if "course_title" not in parsed and "modules" not in parsed:
-        print(f"[generate_teaching_plan] Top-level keys: {list(parsed.keys())} — searching inside...")
+        # Debug print commented out for normal operation
+        # print(f"[generate_teaching_plan] Top-level keys: {list(parsed.keys())} — searching inside...")
         rescued = None
         for key, val in parsed.items():
             if isinstance(val, dict) and ("course_title" in val or "modules" in val):
@@ -2189,12 +2268,16 @@ course from established knowledge (in the papers) toward open research questions
                     break
         if rescued:
             parsed = rescued
-            print(f"[generate_teaching_plan] Rescued teaching plan successfully.")
+            # Debug print commented out for normal operation
+            # print(f"[generate_teaching_plan] Rescued teaching plan successfully.")
+            pass
         else:
-            print(f"[generate_teaching_plan] Cannot find plan. Keys: {list(parsed.keys())}. Raw:\n{content[:800]!r}")
+            # Debug print commented out for normal operation
+            # print(f"[generate_teaching_plan] Cannot find plan. Keys: {list(parsed.keys())}. Raw:\n{content[:800]!r}")
             return {"_error": f"Teaching plan structure invalid — got keys: {list(parsed.keys())}"}
 
-    print(f"[generate_teaching_plan] SUCCESS — title={parsed.get('course_title','?')!r}, modules={len(parsed.get('modules',[]))}")
+    # Debug print commented out for normal operation
+    # print(f"[generate_teaching_plan] SUCCESS — title={parsed.get('course_title','?')!r}, modules={len(parsed.get('modules',[]))}")
     return parsed
 # ---------- QUERY BROADENING AGENT (for niche/underserved ideas) ----------
 
@@ -2374,7 +2457,9 @@ Source material from the paper(s) this module is based on:
     content = _groq_invoke_safe(prompt, task_category="content_generation")
     parsed = _safe_json_parse(content)
     if not parsed:
-        print(f"[generate_module_content] JSON parse failed for module '{module.get('title','')}'. Raw output (first 500 chars): {content[:500]!r}")
+        # Debug print commented out for normal operation
+        # print(f"[generate_module_content] JSON parse failed for module '{module.get('title','')}'. Raw output (first 500 chars): {content[:500]!r}")
+        pass
     return parsed if parsed else {"_error": "LLM output could not be parsed"}
 
 def generate_course(
@@ -2658,7 +2743,9 @@ Source material from the paper(s) this module is based on:
     content = _groq_invoke_safe(prompt, task_category="content_generation")
     parsed = _safe_json_parse(content)
     if not parsed:
-        print(f"[generate_lesson_for_module] JSON parse failed for module '{module.get('title','')}' lesson {lesson_index}. Raw output (first 500 chars): {content[:500]!r}")
+        # Debug print commented out for normal operation
+        # print(f"[generate_lesson_for_module] JSON parse failed for module '{module.get('title','')}' lesson {lesson_index}. Raw output (first 500 chars): {content[:500]!r}")
+        pass
     return parsed if parsed else {"_error": "LLM output could not be parsed"}
 
 
@@ -2792,21 +2879,24 @@ def _repair_code(code: str, validation: Dict, label: str, model_name: str, max_a
         if current_validation.get("valid"):
             break
         attempts_used = attempt
-        print(f"[lab] repairing {label} with {model_name}, attempt {attempt}/{max_attempts} — "
-              f"syntax_ok={current_validation.get('syntax_ok')}, "
-              f"undefined_names={current_validation.get('undefined_names')}, "
-              f"used_before_defined={[u['name'] for u in current_validation.get('used_before_defined', [])]}")
+        # Debug print commented out for normal operation
+        # print(f"[lab] repairing {label} with {model_name}, attempt {attempt}/{max_attempts} — "
+        #       f"syntax_ok={current_validation.get('syntax_ok')}, "
+        #       f"undefined_names={current_validation.get('undefined_names')}, "
+        #       f"used_before_defined={[u['name'] for u in current_validation.get('used_before_defined', [])]}")
 
         prompt = _build_repair_prompt(current_code, current_validation, label)
         try:
             raw = _coder_invoke_safe(prompt, model_name)
         except Exception as e:
-            print(f"[lab] repair attempt {attempt} for {label} could not reach {model_name}: {e}")
+            # Debug print commented out for normal operation
+            # print(f"[lab] repair attempt {attempt} for {label} could not reach {model_name}: {e}")
             break
 
         fixed_code = _extract_code_block(raw)
         if not fixed_code.strip():
-            print(f"[lab] repair attempt {attempt} for {label} returned empty output, keeping previous version.")
+            # Debug print commented out for normal operation
+            # print(f"[lab] repair attempt {attempt} for {label} returned empty output, keeping previous version.")
             break
 
         current_code = fixed_code
@@ -2873,12 +2963,14 @@ def _rewrite_code(code: str, validation: Dict, label: str, model_name: str) -> D
     try:
         raw = _coder_invoke_safe(prompt, model_name)
     except Exception as e:
-        print(f"[lab] rewrite attempt for {label} failed: {e}")
+        # Debug print commented out for normal operation
+        # print(f"[lab] rewrite attempt for {label} failed: {e}")
         return {"code": code, "validation": validation, "attempts_used": 0}
 
     rewritten = _extract_code_block(raw)
     if not rewritten.strip():
-        print(f"[lab] rewrite attempt for {label} returned empty output, keeping previous version.")
+        # Debug print commented out for normal operation
+        # print(f"[lab] rewrite attempt for {label} returned empty output, keeping previous version.")
         return {"code": code, "validation": validation, "attempts_used": 0}
 
     new_validation = _validate_python_code(rewritten)
@@ -3592,7 +3684,8 @@ def _generate_code_single_shot(scaffold: Dict, source_text: str, repo_text: str,
     solution_code = _extract_code_block(solution_match.group(1)) if solution_match else ""
 
     if not starter_code or not solution_code:
-        print(f"[lab] {model_name} output didn't match STARTER/SOLUTION shape, storing raw output.")
+        # Debug print commented out for normal operation
+        # print(f"[lab] {model_name} output didn't match STARTER/SOLUTION shape, storing raw output.")
         return {
             "starter_code": starter_code,
             "solution_code": solution_code,
@@ -3937,8 +4030,10 @@ def _generate_code_per_topic(
     code_plan = scaffold.get("code_plan", []) or []
     plan_aligned = len(code_plan) == len(topics)
     if code_plan and not plan_aligned:
-        print(f"[lab] code_plan length ({len(code_plan)}) doesn't match topic count ({len(topics)}) "
-              f"— proceeding without per-step plan contracts for this lesson.")
+        # Debug print commented out for normal operation
+        # print(f"[lab] code_plan length ({len(code_plan)}) doesn't match topic count ({len(topics)}) "
+        #       f"— proceeding without per-step plan contracts for this lesson.")
+        pass
 
     cells = []
     accumulated_starter = ""
@@ -3966,12 +4061,15 @@ def _generate_code_per_topic(
                 continue
             cand_score = _score_full_candidate(accumulated_solution, cand_solution, topic_name)
             if num_candidates > 1:
-                print(f"[lab] topic '{topic_name}' candidate {candidate_num + 1}/{num_candidates}: score={cand_score:.0f}")
+                # Debug print commented out for normal operation
+                # print(f"[lab] topic '{topic_name}' candidate {candidate_num + 1}/{num_candidates}: score={cand_score:.0f}")
+                pass
             if best is None or cand_score > best["score"]:
                 best = {"starter": cand_starter, "solution": cand_solution, "score": cand_score}
 
         if best is None:
-            print(f"[lab] no usable candidate for topic '{topic_name}' after {num_candidates} attempt(s), skipping step.")
+            # Debug print commented out for normal operation
+            # print(f"[lab] no usable candidate for topic '{topic_name}' after {num_candidates} attempt(s), skipping step.")
             continue
 
         step_starter, step_solution = best["starter"], best["solution"]
@@ -4043,7 +4141,8 @@ def compare_lab_code_models(
 
     results = {}
     for model_name in models:
-        print(f"[compare] generating code for '{scaffold.get('exercise_title','')}' with {model_name}...")
+        # Debug print commented out for normal operation
+        # print(f"[compare] generating code for '{scaffold.get('exercise_title','')}' with {model_name}...")
         results[model_name] = _generate_code_per_topic(lesson, scaffold, source_text, repo_text, model_name)
 
     return {"scaffold": scaffold, "results": results}

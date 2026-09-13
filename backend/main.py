@@ -1,9 +1,26 @@
+"""
+ConsiliAI Core API Server
+=========================
+FastAPI application orchestrating user authentication, agent workflows,
+conversational persistence, document indexing, and artifact generation.
+
+Core Capabilities:
+  - Authentication: User registration, JWT login, and role/profile management.
+  - Conversation Management: Session history, LangGraph Postgres checkpoints,
+    and vector document indexing via ChromaDB.
+  - Multi-Agent Chat: Streaming LangGraph orchestrator turns with cancellation.
+  - Document Ingestion: PDF processing, text chunking, and semantic vector indexing.
+  - Deliverable Generation: PowerPoint slides, Jupyter notebooks, lab guides,
+    technical plans, experiment protocols, and downloadable project ZIP archives.
+  - Empirical Benchmark Evaluation: Literature metric comparison and delta scoring.
+"""
+
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi import HTTPException
 from fastapi.params import Depends
 from fastapi.responses import JSONResponse, FileResponse
 from starlette.background import BackgroundTask
-import os, shutil
+import os, shutil, re
 import asyncio
 import requests
 from dotenv import load_dotenv
@@ -29,7 +46,7 @@ from agents.orchestrator import (
     build_enriched_evaluation_record,
     record_benchmark_evaluation,
 )
-from export_project import build_project_zip_archive
+from export.export_project import build_project_zip_archive
 
 try:
     from backend.security.prompt_injection_guard import scan_for_injection, sanitize_text
@@ -44,6 +61,11 @@ active_chat_tasks: dict[str, asyncio.Task] = {}
 
 
 def _chat_state_response(state: dict) -> dict:
+    """
+    Format and sanitize the internal LangGraph state into a clean payload for the UI.
+    Normalizes paper metadata, similar repository matches, curricula, downloads,
+    and experiment benchmark evaluations.
+    """
     papers_raw = state.get("papers_with_analysis") or []
     formatted_papers = []
     for p in papers_raw:
@@ -53,7 +75,7 @@ def _chat_state_response(state: dict) -> dict:
         pdf_url_val = p.get("pdf_url", "")
         source_val = p.get("source", "N/A")
         # DEBUG: log what we're sending to the frontend
-        print(f"[DEBUG _chat_state_response] title={p.get('title','?')!r} | url={url_val!r} | pdf_url={pdf_url_val!r} | source={source_val!r}")
+        # print(f"[DEBUG _chat_state_response] title={p.get('title','?')!r} | url={url_val!r} | pdf_url={pdf_url_val!r} | source={source_val!r}")
         formatted_papers.append({
             "title": p.get("title", "Untitled Paper"),
             "authors": p.get("authors", []),
@@ -102,22 +124,46 @@ def _chat_state_response(state: dict) -> dict:
 
 
 def _course_downloads(state: dict) -> list[dict]:
+    """Generate metadata list for downloadable PowerPoint presentation files."""
     export_path = state.get("course_export_path")
-    if not export_path or not isinstance(export_path, str):
-        return []
+    if export_path and isinstance(export_path, str):
+        paths = [path.strip() for path in export_path.split(",") if path.strip()]
+        return [
+            {
+                "label": f"Download lesson {index}",
+                "filename": os.path.basename(path),
+                "url": f"/chat/course-download/{os.path.basename(path)}",
+                "lesson_index": index - 1,
+            }
+            for index, path in enumerate(paths, start=1)
+        ]
 
-    paths = [path.strip() for path in export_path.split(",") if path.strip()]
-    return [
-        {
-            "label": f"Download lesson {index}",
-            "filename": os.path.basename(path),
-            "url": f"/chat/course-download/{os.path.basename(path)}",
-        }
-        for index, path in enumerate(paths, start=1)
-    ]
+    course = state.get("course")
+    if isinstance(course, dict) and course:
+        downloads = []
+        counter = 1
+        for mod_idx, mod in enumerate(course.get("modules", [])):
+            if not isinstance(mod, dict):
+                continue
+            for les_idx, les in enumerate(mod.get("lessons", [])):
+                if not isinstance(les, dict):
+                    continue
+                lesson_title = les.get("lesson_title") or f"Lesson {counter}"
+                safe_title = re.sub(r"[^\w\s-]", "", lesson_title).strip().replace(" ", "_")
+                filename = f"{mod_idx + 1:02d}_{les_idx + 1:02d}_{safe_title}.pptx"
+                downloads.append({
+                    "label": f"Download lesson {counter}",
+                    "filename": filename,
+                    "url": f"/chat/course-download/{filename}",
+                    "lesson_index": counter - 1,
+                })
+                counter += 1
+        return downloads
+    return []
 
 
 def _lab_downloads(state: dict) -> list[dict]:
+    """Generate metadata list for downloadable Jupyter notebook lab files."""
     downloads = []
     raw_labs = state.get("lab_exercises") or []
     if isinstance(raw_labs, dict):
@@ -232,13 +278,15 @@ async def delete_conversation(
             {"tid": conversation_id}
         )
     except Exception as e:
-        print(f"[delete_conversation] Warning deleting checkpoints for {conversation_id}: {e}")
+        # print(f"[delete_conversation] Warning deleting checkpoints for {conversation_id}: {e}")
+        pass
 
     # 3. Delete ChromaDB document chunks associated with this conversation
     try:
         delete_conversation_documents(conversation_id)
     except Exception as e:
-        print(f"[delete_conversation] Warning deleting Chroma chunks for {conversation_id}: {e}")
+        # print(f"[delete_conversation] Warning deleting Chroma chunks for {conversation_id}: {e}")
+        pass
 
     # 4. Delete the conversation row
     await session.delete(conv)
@@ -289,14 +337,16 @@ async def delete_all_user_data(
                 {"tids": threads_to_wipe}
             )
         except Exception as e:
-            print(f"[delete_all_user_data] Warning deleting Postgres checkpoints: {e}")
+            # print(f"[delete_all_user_data] Warning deleting Postgres checkpoints: {e}")
+            pass
 
     # 3. Delete ChromaDB chunks for this user and their conversations
     deleted_sources = set()
     try:
         deleted_sources = delete_user_documents(str(user.id), conv_ids)
     except Exception as e:
-        print(f"[delete_all_user_data] Warning deleting Chroma chunks: {e}")
+        # print(f"[delete_all_user_data] Warning deleting Chroma chunks: {e}")
+        pass
 
     # 4. Remove physical uploaded files belonging to the deleted documents
     for src in deleted_sources:
@@ -305,7 +355,8 @@ async def delete_all_user_data(
             try:
                 os.remove(target_path)
             except Exception as e:
-                print(f"[delete_all_user_data] Could not remove file {target_path}: {e}")
+                # print(f"[delete_all_user_data] Could not remove file {target_path}: {e}")
+                pass
 
     # 5. Delete all SQL conversation records
     for c in convs:
@@ -411,6 +462,79 @@ async def stop_chat_endpoint(
     return {"status": "stopped", "message": "Execution stopped"}
 
 
+class ExportCourseRequest(BaseModel):
+    course: Optional[Any] = None
+    filename: Optional[str] = None
+    lesson_index: Optional[int] = None
+    conversation_id: Optional[str] = None
+
+
+@app.post("/chat/export-course-pptx")
+@app.post("/export/course-pptx")
+async def export_course_pptx_endpoint(
+    req: ExportCourseRequest,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    course = req.course
+    if isinstance(course, str):
+        try:
+            course = json.loads(course)
+        except Exception:
+            course = None
+
+    if not course or not isinstance(course, dict) or not course.get("modules"):
+        conv_id = req.conversation_id
+        if not conv_id:
+            try:
+                res = await session.execute(
+                    select(Conversation).where(Conversation.user_id == user.id).order_by(Conversation.updated_at.desc())
+                )
+                first_conv = res.scalars().first()
+                if first_conv:
+                    conv_id = first_conv.id
+            except Exception as e:
+                # print(f"[export-course-pptx] db lookup notice: {e}")
+                pass
+        if conv_id:
+            state = get_state_snapshot(conv_id)
+            candidate_course = state.get("course")
+            if isinstance(candidate_course, dict) and candidate_course.get("modules"):
+                course = candidate_course
+
+    if not course or not isinstance(course, dict):
+        raise HTTPException(status_code=400, detail="Invalid course data.")
+
+    output_dir = os.path.abspath(os.path.join(tempfile.gettempdir(), "consiliai_courses"))
+    os.makedirs(output_dir, exist_ok=True)
+
+    from export.course_pptx_exporter import export_course_to_pptx_per_lesson
+
+    generated_paths = export_course_to_pptx_per_lesson(course, output_dir)
+    if not generated_paths:
+        raise HTTPException(status_code=500, detail="Failed to generate PowerPoint slides.")
+
+    target_path = None
+    if req.lesson_index is not None and 0 <= req.lesson_index < len(generated_paths):
+        target_path = generated_paths[req.lesson_index]
+    elif req.filename:
+        req_clean = os.path.basename(req.filename)
+        for p in generated_paths:
+            if os.path.basename(p) == req_clean:
+                target_path = p
+                break
+
+    if not target_path:
+        target_path = generated_paths[0]
+
+    out_filename = os.path.basename(target_path)
+    return FileResponse(
+        target_path,
+        filename=out_filename,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+
+
 @app.post("/chat/{conversation_id}")
 async def chat_endpoint(
     conversation_id: str,
@@ -460,7 +584,7 @@ async def chat_endpoint(
             task_models=user_task_models,
         )
     except (asyncio.CancelledError, ExecutionCancelledError) as e:
-        print(f"[chat_endpoint] Execution cancelled for {conversation_id}")
+        # print(f"[chat_endpoint] Execution cancelled for {conversation_id}")
         state = get_state_snapshot(thread_id)
         return JSONResponse(
             status_code=499,
@@ -566,9 +690,12 @@ async def chat_history_endpoint(
 @app.get("/chat/course-download/{filename}")
 async def chat_course_download_endpoint(
     filename: str,
+    conversation_id: Optional[str] = None,
     user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
 ):
     output_dir = os.path.abspath(os.path.join(tempfile.gettempdir(), "consiliai_courses"))
+    os.makedirs(output_dir, exist_ok=True)
     requested_filename = os.path.basename(filename)
     target_path = os.path.abspath(os.path.join(output_dir, requested_filename))
 
@@ -583,13 +710,61 @@ async def chat_course_download_endpoint(
                     matching_path = candidate
                     break
 
+    # If the file is not found on disk, dynamically generate it from the conversation state!
+    if not matching_path or not os.path.isfile(matching_path):
+        from export.course_pptx_exporter import export_course_to_pptx_per_lesson
+
+        conv_query = select(Conversation).where(Conversation.user_id == user.id)
+        if conversation_id:
+            conv_query = conv_query.where(Conversation.id == conversation_id)
+        conv_query = conv_query.order_by(Conversation.updated_at.desc())
+
+        result = await session.execute(conv_query)
+        convs = result.scalars().all()
+
+        for conv in convs:
+            state = get_state_snapshot(conv.id)
+            course = state.get("course")
+            if isinstance(course, dict) and course.get("modules"):
+                try:
+                    generated_files = export_course_to_pptx_per_lesson(course, output_dir)
+                    for gen_path in generated_files:
+                        if os.path.basename(gen_path) == requested_filename:
+                            matching_path = gen_path
+                            break
+                    if matching_path:
+                        break
+                except Exception as e:
+                    # print(f"[course-download] error generating pptx: {e}")
+                    pass
+
+        # If not matched by exact name, try prefix matching (e.g. "02_01_" or module/lesson numbers)
+        if not matching_path or not os.path.isfile(matching_path):
+            prefix = requested_filename[:5]
+            if len(prefix) == 5 and prefix[2] == "_":
+                for root, dirs, files in os.walk(output_dir):
+                    for f in files:
+                        if f.startswith(prefix) and f.endswith(".pptx"):
+                            matching_path = os.path.abspath(os.path.join(root, f))
+                            break
+                    if matching_path:
+                        break
+
     if not matching_path or not os.path.isfile(matching_path):
         raise HTTPException(status_code=404, detail="Course presentation file not found.")
+
+    media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    if requested_filename.endswith(".md"):
+        media_type = "text/markdown; charset=utf-8"
+    elif requested_filename.endswith(".json"):
+        media_type = "application/json"
+    elif requested_filename.endswith(".ipynb"):
+        media_type = "application/x-ipynb+json"
 
     return FileResponse(
         matching_path,
         filename=requested_filename,
-        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        media_type=media_type,
     )
 
 
@@ -655,7 +830,8 @@ async def upload_pdf(
         )
         updated_state = _chat_state_response(snap)
     except Exception as e:
-        print(f"[upload_pdf] Warning recording uploaded document in state: {e}")
+        # print(f"[upload_pdf] Warning recording uploaded document in state: {e}")
+        pass
 
     return {
         "message": f"✅ {file.filename} uploaded and indexed.",
@@ -987,7 +1163,7 @@ async def download_course(idea_hash: str):
     output_dir = os.path.join(tempfile.gettempdir(), "consiliai_labs", "06b43f13")
     #06b43f13
     filepath = os.path.join(output_dir, f"{idea_hash}.ipynb")
-    print(f"Looking for lab file at: {filepath}")
+    # print(f"Looking for lab file at: {filepath}")
     if not os.path.exists(filepath):
         return {"error": "File not found."}
     return FileResponse(filepath, filename=f"{idea_hash}.ipynb",
@@ -1037,10 +1213,12 @@ async def generate_lab_endpoint(
     gaps_result = detect_gaps(idea, papers_with_analysis)
     teaching_plan = generate_teaching_plan(idea, gaps_result.get("gaps", []), papers_with_analysis)
     if teaching_plan.get("_error"):
-        print(f"[generate_lab] teaching_plan failed: {teaching_plan['_error']}")
+        # print(f"[generate_lab] teaching_plan failed: {teaching_plan['_error']}")
+        pass
     course = generate_course(teaching_plan, papers_with_analysis)
     if not course.get("modules"):
-        print(f"[generate_lab] course empty — teaching_plan had {len(teaching_plan.get('modules', []))} modules")
+        # print(f"[generate_lab] course empty — teaching_plan had {len(teaching_plan.get('modules', []))} modules")
+        pass
  
     # One similar-projects search per idea, reused across all modules/lessons —
     # same simplification as Technical Plan Agent's global relevance gate.
@@ -1064,7 +1242,7 @@ async def generate_lab_endpoint(
                     generate_code=generate_code,
                 )
             except Exception as e:
-                print(f"[generate_lab] failed for lesson '{lesson.get('lesson_title','')}': {e}")
+                # print(f"[generate_lab] failed for lesson '{lesson.get('lesson_title','')}': {e}")
                 lab = {"_error": str(e)}
  
             notebook_paths = None
@@ -1073,7 +1251,8 @@ async def generate_lab_endpoint(
                 try:
                     notebook_paths = export_lab_to_notebook(lab, output_dir, filename_base)
                 except Exception as e:
-                    print(f"[generate_lab] notebook export failed for '{filename_base}': {e}")
+                    # print(f"[generate_lab] notebook export failed for '{filename_base}': {e}")
+                    pass
  
             lessons_output.append({"lab": lab, "notebook_files": notebook_paths})
  
@@ -1160,7 +1339,7 @@ async def evaluate_benchmark_endpoint(
     else:
         return {"error": "Provide either submission_text or submission_file."}
 
-    print(f"[evaluate_benchmark] received submission text length: {len(text)} characters for {experiment_dict.get('title')}")
+    # print(f"[evaluate_benchmark] received submission text length: {len(text)} characters for {experiment_dict.get('title')}")
     raw_result = generate_benchmark_evaluation(
         experiment=experiment_dict,
         papers_with_analysis=papers_dict,
@@ -1191,7 +1370,8 @@ async def evaluate_benchmark_endpoint(
                 "state": _chat_state_response(updated_snap),
             }
         except Exception as e:
-            print(f"[evaluate_benchmark] Warning: could not update checkpointer state: {e}")
+            # print(f"[evaluate_benchmark] Warning: could not update checkpointer state: {e}")
+            pass
 
     return {
         "evaluation": enriched_eval,

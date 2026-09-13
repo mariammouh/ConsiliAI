@@ -239,8 +239,9 @@ def _canonical_idea(state: dict, llm_idea: str) -> str:
     existing = (state.get("idea") or "").strip()
     candidate = (llm_idea or "").strip()
     if existing and len(existing) >= len(candidate) + 20:
-        print(f"[orchestrator] _canonical_idea: using state idea ({len(existing)} chars) "
-              f"over LLM arg ({len(candidate)} chars).")
+        # Debug print commented out for normal operation
+        # print(f"[orchestrator] _canonical_idea: using state idea ({len(existing)} chars) "
+        #       f"over LLM arg ({len(candidate)} chars).")
         return existing
     return candidate or existing
 
@@ -251,7 +252,8 @@ def _record_tool_state_update(update: dict) -> None:
     if not hasattr(_local, "tool_updates") or _local.tool_updates is None:
         _local.tool_updates = {}
     _local.tool_updates.update(update)
-    print(f"[orchestrator] _record_tool_state_update: recorded keys {list(update.keys())}")
+    # Debug print commented out for normal operation
+    # print(f"[orchestrator] _record_tool_state_update: recorded keys {list(update.keys())}")
 
 
 def _get_and_clear_tool_state_updates() -> dict:
@@ -287,8 +289,10 @@ def _ensure_papers_and_gaps(state: dict, idea: str, max_papers: int = 3):
     gaps_result = detect_gaps(idea, papers)
     gaps = gaps_result.get("gaps") or []
     if not gaps:
-        print(f"[orchestrator] _ensure_papers_and_gaps: gap detection returned 0 gaps for '{idea}'. "
-              "State will NOT cache this empty result so the next request re-tries.")
+        # Debug print commented out for normal operation
+        # print(f"[orchestrator] _ensure_papers_and_gaps: gap detection returned 0 gaps for '{idea}'. "
+        #       "State will NOT cache this empty result so the next request re-tries.")
+        pass
     return papers, gaps
 
 
@@ -370,7 +374,8 @@ def _extract_literature_qa_text(papers: List[Dict], max_chars: int = 6000) -> st
         if p.get("url"):
             piece.append(f"URL: {p['url']}")
         if p.get("pdf_url"):
-            print(f"[orchestrator] paper '{p.get('title','')}' has pdf_url: {p['pdf_url']}")
+            # Debug print commented out for normal operation
+            # print(f"[orchestrator] paper '{p.get('title','')}' has pdf_url: {p['pdf_url']}")
             piece.append(f"PDF Link: {p['pdf_url']}")
         if methodology.get("algorithms"):
             piece.append(f"Algorithms/methods: {methodology['algorithms']}")
@@ -761,7 +766,9 @@ def create_lab_exercises(
                 try:
                     notebook_paths = export_lab_to_notebook(lab, output_dir, filename_base)
                 except Exception as e:
-                    print(f"[orchestrator] notebook export failed for '{filename_base}': {e}")
+                    # Debug print commented out for normal operation
+                    # print(f"[orchestrator] notebook export failed for '{filename_base}': {e}")
+                    pass
 
             lessons_output.append({"lab": lab, "notebook_files": notebook_paths})
             lesson_count += 1
@@ -1170,7 +1177,8 @@ Respond with only the idea description, starting immediately with the subject:""
         try:
             res = llm.invoke(prompt)
         except Exception as primary_err:
-            print(f"[orchestrator] _extract_idea_from_text primary LLM failed ({primary_err}). Falling back to Gemini.")
+            # Debug print commented out for normal operation
+            # print(f"[orchestrator] _extract_idea_from_text primary LLM failed ({primary_err}). Falling back to Gemini.")
             from agents.tools import _get_gemini_llm
             res = _get_gemini_llm().invoke(prompt)
         content = res.content
@@ -1192,7 +1200,8 @@ Respond with only the idea description, starting immediately with the subject:""
             return None
         return idea_scan.sanitized_text
     except Exception as e:
-        print(f"[orchestrator] _extract_idea_from_text error: {e}")
+        # Debug print commented out for normal operation
+        # print(f"[orchestrator] _extract_idea_from_text error: {e}")
         return None
 
 
@@ -1323,7 +1332,8 @@ Recent conversation:
     try:
         raw = classifier_llm.invoke(prompt).content
     except Exception as e:
-        print(f"[orchestrator] Classifier LLM invocation failed ({e}). Falling back to Gemini.")
+        # Debug print commented out for normal operation
+        # print(f"[orchestrator] Classifier LLM invocation failed ({e}). Falling back to Gemini.")
         set_fallback_note(" Local Ollama memory limit reached or error occurred. Fell back to Cloud provider.")
         from agents.tools import _get_gemini_llm
         raw = _get_gemini_llm().invoke(prompt).content
@@ -1362,9 +1372,11 @@ def classify_node(state: OrchestratorState) -> dict:
                 # the classifier extracts from a brief follow-up message like
                 # "Detect gaps" or "What literature is there?".
                 if existing_idea and len(existing_idea) >= len(new_idea) + 20:
-                    print(f"[orchestrator] classify_node: preserving existing idea "
-                          f"({len(existing_idea)} chars) over classifier extraction "
-                          f"({len(new_idea)} chars).")
+                    # Debug print commented out for normal operation
+                    # print(f"[orchestrator] classify_node: preserving existing idea "
+                    #       f"({len(existing_idea)} chars) over classifier extraction "
+                    #       f"({len(new_idea)} chars).")
+                    pass
                 else:
                     update["idea"] = new_idea
 
@@ -1461,7 +1473,9 @@ def _get_llm_with_tools():
                     ollama_with_tools = ollama_llm.bind_tools(TOOLS)
                     return ollama_with_tools.with_fallbacks([groq_with_tools, gemini_with_tools])
                 except Exception as e:
-                    print(f"[orchestrator] Could not bind tools to ChatOllama ({e}). Falling back to cloud.")
+                    # Debug print commented out for normal operation
+                    # print(f"[orchestrator] Could not bind tools to ChatOllama ({e}). Falling back to cloud.")
+                    pass
 
         note = f" Local model '{model_name}' for General Chat is offline or tool-binding failed. Used Cloud provider for tool orchestration."
         set_fallback_note(note)
@@ -1470,7 +1484,8 @@ def _get_llm_with_tools():
     if provider == "groq":
         try:
             custom_groq = get_llm_instance("groq", model_name)
-            print(f"[orchestrator] Using custom Groq model '{model_name}' for General Chat with tools.")
+            # Debug print commented out for normal operation
+            # print(f"[orchestrator] Using custom Groq model '{model_name}' for General Chat with tools.")
             return custom_groq.bind_tools(TOOLS).with_fallbacks([gemini_with_tools])
         except Exception:
             return groq_with_tools.with_fallbacks([gemini_with_tools])
@@ -1503,10 +1518,11 @@ def _repair_orphaned_tool_calls(messages: list) -> list:
                 answered_ids.add(future_msg.tool_call_id)
         for tc in msg.tool_calls:
             if tc.get("id") not in answered_ids:
-                print(
-                    f"[orchestrator] Repairing orphaned tool call: {tc.get('name')} "
-                    f"id={tc.get('id')} — injecting synthetic error ToolMessage"
-                )
+                # Debug print commented out for normal operation
+                # print(
+                #     f"[orchestrator] Repairing orphaned tool call: {tc.get('name')} "
+                #     f"id={tc.get('id')} — injecting synthetic error ToolMessage"
+                # )
                 repaired.append(
                     ToolMessage(
                         content=(
@@ -1532,13 +1548,15 @@ def agent_node(state: OrchestratorState) -> dict:
     non_system_messages = _repair_orphaned_tool_calls(non_system_messages)
     check_cancellation()
     try:
-        print(f"[orchestrator] Invoking agent_node LLM with {len(non_system_messages)} messages...")
+        # Debug print commented out for normal operation
+        # print(f"[orchestrator] Invoking agent_node LLM with {len(non_system_messages)} messages...")
         response = llm_with_tools.invoke([system_msg] + non_system_messages)
     except ExecutionCancelledError:
         raise
     except Exception as e:
         check_cancellation()
-        print(f"[orchestrator] agent_node LLM invocation failed ({e}). Falling back to Cloud Groq.")
+        # Debug print commented out for normal operation
+        # print(f"[orchestrator] agent_node LLM invocation failed ({e}). Falling back to Cloud Groq.")
         from agents.tools import _ensure_llm_clients
         from agents.llm_router import set_fallback_note
         set_fallback_note(" Local Ollama invocation error (memory/runner panic). Fell back to Cloud provider.")
@@ -1631,7 +1649,8 @@ def run_orchestrator_turn(
     if task_models:
         set_active_task_models(task_models)
     set_task_category(TASK_GENERAL_CHAT)
-    print(f"[orchestrator] Running turn for thread_id={thread_id} with llm_provider={llm_provider} and task_models={task_models}")
+    # Debug print commented out for normal operation
+    # print(f"[orchestrator] Running turn for thread_id={thread_id} with llm_provider={llm_provider} and task_models={task_models}")
     set_current_thread_id(thread_id)
     check_cancellation(thread_id)
 
@@ -1664,7 +1683,8 @@ def run_orchestrator_turn(
     tool_updates = _get_and_clear_tool_state_updates()
     state_dict = {k: v for k, v in result.items()}
     if tool_updates:
-        print(f"[orchestrator] Merging recorded tool updates into state: {list(tool_updates.keys())}")
+        # Debug print commented out for normal operation
+        # print(f"[orchestrator] Merging recorded tool updates into state: {list(tool_updates.keys())}")
         state_dict.update(tool_updates)
 
     # Explicitly enforce writing the updated state to the LangGraph checkpoint
@@ -1676,12 +1696,16 @@ def run_orchestrator_turn(
     if persist_payload:
         try:
             graph.update_state(config, persist_payload)
-            print(f"[orchestrator] Enforced state checkpoint update via graph.update_state: {list(persist_payload.keys())}")
+            # Debug print commented out for normal operation
+            # print(f"[orchestrator] Enforced state checkpoint update via graph.update_state: {list(persist_payload.keys())}")
         except Exception as e:
-            print(f"[orchestrator] graph.update_state failed (non-fatal): {e}")
+            # Debug print commented out for normal operation
+            # print(f"[orchestrator] graph.update_state failed (non-fatal): {e}")
+            pass
 
-    print(f"[orchestrator] run_orchestrator_turn finished. "
-          f"State keys with values: { {k: bool(v) for k, v in state_dict.items() if k != 'messages'} }")
+    # Debug print commented out for normal operation
+    # print(f"[orchestrator] run_orchestrator_turn finished. "
+    #       f"State keys with values: { {k: bool(v) for k, v in state_dict.items() if k != 'messages'} }")
     return content, state_dict
 
 
@@ -1736,9 +1760,12 @@ def record_uploaded_document(
                 # Set idea if missing or if newly extracted idea is descriptive
                 if not existing_idea or len(extracted_idea) >= len(existing_idea):
                     update_payload["idea"] = extracted_idea
-                    print(f"[orchestrator] record_uploaded_document: set idea '{extracted_idea}' from {filename}")
+                    # Debug print commented out for normal operation
+                    # print(f"[orchestrator] record_uploaded_document: set idea '{extracted_idea}' from {filename}")
         except Exception as e:
-            print(f"[orchestrator] Could not extract idea during upload of {filename}: {e}")
+            # Debug print commented out for normal operation
+            # print(f"[orchestrator] Could not extract idea during upload of {filename}: {e}")
+            pass
 
     graph.update_state(config, update_payload)
     return get_state_snapshot(thread_id)

@@ -1,3 +1,23 @@
+"""
+ConsiliAI Project Exporter Module
+=================================
+Packages all generated research artifacts, curricula, and deliverables from a
+conversation session into a structured, downloadable ZIP archive.
+
+Directory Layout Schema:
+  <project_slug>/
+    ├── courses/        # PPTX presentations, syllabus markdown, course structure JSON
+    ├── notebooks/      # Generated Jupyter notebooks (.ipynb) for labs and solutions
+    ├── labs/           # Markdown lab guides and raw lab exercise specifications
+    ├── exercises/      # Standalone coding exercises and practice tasks
+    ├── plans/          # Technical implementation plans, teaching plans, and research gaps
+    ├── experiments/    # Experiment protocols, hypotheses, and methodology specs
+    ├── evaluations/    # Benchmark evaluation results and literature comparison tables
+    ├── documents/      # User-uploaded PDFs, literature summaries, and similar repository docs
+    ├── code/           # Python starter scripts and reference solution implementations
+    └── other/          # Markdown and JSON exports of the conversation chat transcript
+"""
+
 import os
 import json
 import re
@@ -10,6 +30,7 @@ from ingestion.chroma_client import collection
 
 
 def _slug(text: str, max_len: int = 50) -> str:
+    """Sanitize and shorten a string into a filesystem-safe directory/file slug."""
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", str(text or "")).strip("_").lower()
     if len(slug) <= max_len:
         return slug or "project"
@@ -18,6 +39,7 @@ def _slug(text: str, max_len: int = 50) -> str:
 
 
 def _generate_technical_plan_markdown(plan: Any) -> str:
+    """Format structured technical implementation plan dictionary as clean Markdown."""
     if isinstance(plan, str):
         return plan
     if not isinstance(plan, dict):
@@ -58,6 +80,7 @@ def _generate_technical_plan_markdown(plan: Any) -> str:
 
 
 def _generate_teaching_plan_markdown(plan: Any) -> str:
+    """Format structured teaching plan dictionary as clean Markdown."""
     if isinstance(plan, str):
         return plan
     if not isinstance(plan, dict):
@@ -95,6 +118,7 @@ def _generate_teaching_plan_markdown(plan: Any) -> str:
 
 
 def _generate_course_markdown(course: Any) -> str:
+    """Format structured course syllabus and modules dictionary as readable Markdown."""
     if isinstance(course, str):
         return course
     if not isinstance(course, dict):
@@ -136,6 +160,7 @@ def _generate_course_markdown(course: Any) -> str:
 
 
 def _generate_labs_markdown(lab_exercises: Any) -> str:
+    """Format structured lab exercises, instructions, and hints as Markdown."""
     if not lab_exercises:
         return ""
     md = ["# Hands-On Lab Exercises & Practice Guide\n"]
@@ -176,6 +201,7 @@ def _generate_labs_markdown(lab_exercises: Any) -> str:
 
 
 def _generate_gaps_markdown(gaps: Any) -> str:
+    """Format identified research gap opportunities and supporting literature into Markdown."""
     if isinstance(gaps, str):
         return gaps
     if not isinstance(gaps, list):
@@ -203,6 +229,7 @@ def _generate_gaps_markdown(gaps: Any) -> str:
 
 
 def _generate_experiments_markdown(experiments_obj: Any) -> str:
+    """Format structured empirical experiment protocols and baseline metrics as Markdown."""
     if isinstance(experiments_obj, str):
         return experiments_obj
     exp_list = experiments_obj.get("experiments") if isinstance(experiments_obj, dict) else experiments_obj
@@ -242,6 +269,7 @@ def _generate_experiments_markdown(experiments_obj: Any) -> str:
 
 
 def _generate_evaluations_markdown(evaluations: Any) -> str:
+    """Format benchmark evaluation metrics, comparisons, and analysis into Markdown."""
     if not isinstance(evaluations, list) or not evaluations:
         return ""
     md = ["# Experiment Benchmark Evaluations\n"]
@@ -310,6 +338,7 @@ def _generate_evaluations_markdown(evaluations: Any) -> str:
 
 
 def _generate_papers_markdown(papers: Any) -> str:
+    """Format analyzed research papers, metadata, and abstracts into Markdown."""
     if not isinstance(papers, list):
         return json.dumps(papers, indent=2)
     md = ["# Literature Review & Analyzed Papers\n"]
@@ -343,6 +372,7 @@ def _generate_papers_markdown(papers: Any) -> str:
 
 
 def _generate_similar_projects_markdown(projects: Any) -> str:
+    """Format matching open-source repositories and relevance scores into Markdown."""
     if not isinstance(projects, list):
         return json.dumps(projects, indent=2)
     md = ["# Related Repositories & Implementations\n"]
@@ -368,6 +398,7 @@ def _generate_similar_projects_markdown(projects: Any) -> str:
 
 
 def _generate_transcript_markdown(messages: list) -> str:
+    """Format user and assistant conversation history into clean chronological Markdown."""
     md = ["# ConsiliAI Project Chat Transcript\n"]
     for m in messages:
         if isinstance(m, dict):
@@ -538,7 +569,8 @@ def build_project_zip_archive(conv: Any, state: Dict[str, Any], user_id: str) ->
                     zf.write(fpath, arcname=arc)
                     written_paths.add(arc)
         except Exception as e:
-            print(f"[export] Could not attach user documents: {e}")
+            # print(f"[export] Could not attach user documents: {e}")
+            pass
 
         if state.get("papers_with_analysis"):
             papers = state["papers_with_analysis"]

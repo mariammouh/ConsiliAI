@@ -29,6 +29,12 @@ import {
 import { FaFlask, FaLaptopCode, FaLightbulb } from "react-icons/fa";
 import { isLoggedIn, logout } from "../api.js";
 
+/**
+ * Home Landing Page
+ * =================
+ * Public introduction to ConsiliAI features, multi-agent capabilities,
+ * research workflow stages, and quick entry points to login/register/chat.
+ */
 export default function Home() {
   const [authenticated, setAuthenticated] = useState(() => isLoggedIn());
 

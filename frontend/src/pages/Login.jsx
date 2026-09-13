@@ -22,6 +22,11 @@ import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { FiArrowLeft, FiEye, FiEyeOff } from "react-icons/fi";
 import { login } from "../api.js";
 
+/**
+ * Login Page
+ * ==========
+ * Authenticates users using OAuth2 URL-encoded credentials and saves the JWT access token.
+ */
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

@@ -66,6 +66,9 @@ const SECTION_CARD_SUBTLE = {
   borderColor: "paper.300",
 };
 
+/**
+ * Formats decimal numbers and percentages with consistent precision.
+ */
 function formatPercent(val) {
   if (val === null || val === undefined || isNaN(val)) return "N/A";
   const num = typeof val === "number" ? val : parseFloat(val);
@@ -76,6 +79,9 @@ function formatPercent(val) {
   return `${num.toFixed(1)}%`;
 }
 
+/**
+ * Normalizes metric display values, appending unit suffixes for latency and percentages.
+ */
 function formatRawValue(val, metric) {
   if (val === null || val === undefined) return "N/A";
   const s = String(val);
@@ -90,6 +96,15 @@ function formatRawValue(val, metric) {
   return s;
 }
 
+/**
+ * EvaluationDashboard
+ * ===================
+ * Interactive UI dashboard displaying empirical benchmark results for student experiments:
+ *   - Comparison table showing student metrics vs. published literature baselines with deltas.
+ *   - Overall score cards, pass rate indicators, and hypothesis validation statuses.
+ *   - Strengths, weaknesses, and actionable improvement recommendations.
+ *   - Submission modal allowing interactive re-evaluation via text log or PDF submission.
+ */
 export default function EvaluationDashboard({
   evaluations = [],
   experiments = [],

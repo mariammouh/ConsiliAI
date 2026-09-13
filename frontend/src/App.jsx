@@ -5,10 +5,17 @@ import Register from "./pages/Register.jsx";
 import Chat from "./pages/Chat.jsx";
 import { isLoggedIn } from "./api.js";
 
+/**
+ * Route protection wrapper component.
+ * Redirects unauthenticated users to /login before permitting access to protected routes.
+ */
 function RequireAuth({ children }) {
   return isLoggedIn() ? children : <Navigate to="/login" replace />;
 }
 
+/**
+ * Main application router configuration for ConsiliAI.
+ */
 export default function App() {
   return (
     <BrowserRouter>

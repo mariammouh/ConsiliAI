@@ -1,3 +1,20 @@
+"""
+LLM Router & Multi-Provider Model Dispatcher
+============================================
+Manages model discovery, lazy initialization, caching, and runtime routing across:
+  - Local Ollama instances (e.g. Qwen 2.5 Coder, Llama 3.2)
+  - Cloud Groq models (e.g. Qwen 2.5 27B)
+  - Cloud Google Gemini models (e.g. Gemini 3.1 Flash Lite)
+
+Features:
+- Task-Category Routing: Dispatches requests by task type (analytical, planning,
+  content_generation, general_chat) with customizable per-user model assignments.
+- Context Variable Isolation: Uses Python contextvars (`active_provider_var`,
+  `active_task_models_var`, `current_task_category_var`) for concurrent request safety.
+- Graceful Degradation: Cascades through fallback providers (Local -> Groq -> Gemini)
+  on failure or rate limits with automatic user notifications.
+"""
+
 import os
 import json
 import urllib.request
@@ -12,6 +29,7 @@ TASK_ANALYTICAL = "analytical"
 TASK_PLANNING = "planning"
 TASK_CONTENT_GENERATION = "content_generation"
 TASK_GENERAL_CHAT = "general_chat"
+
 
 TASK_CATEGORIES = [
     TASK_ANALYTICAL,
@@ -497,12 +515,13 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
                     llm = get_llm_instance("ollama", model_name)
                     return llm, None
                 except Exception as e:
-                    print(f"[llm_router] Error initializing Ollama model {model_name}: {e}")
+                    # print(f"[llm_router] Error initializing Ollama model {model_name}: {e}")
+                    pass
             elif is_custom:
                 fallback_model = "qwen/qwen3.6-27b"
                 note = f" Configured model '{model_name}' for {cat_label} is not installed in local Ollama. Fell back to Cloud ({fallback_model})."
                 set_fallback_note(note)
-                print(f"[llm_router] {note}")
+                # print(f"[llm_router] {note}")
                 try:
                     return get_llm_instance("groq", fallback_model), note
                 except Exception:
@@ -516,13 +535,14 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
                         llm = get_llm_instance("ollama", best_model)
                         return llm, None
                     except Exception as e:
-                        print(f"[llm_router] Error initializing Ollama model {best_model}: {e}")
+                        # print(f"[llm_router] Error initializing Ollama model {best_model}: {e}")
+                        pass
 
         # Local requested but offline/failed -> fall back to Cloud
         fallback_model = "qwen/qwen3.6-27b"
         note = f" Local model '{model_name}' for {cat_label} is offline or unreachable. Fell back to Cloud ({fallback_model})."
         set_fallback_note(note)
-        print(f"[llm_router] {note}")
+        # print(f"[llm_router] {note}")
         try:
             return get_llm_instance("groq", fallback_model), note
         except Exception:
@@ -536,7 +556,7 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
         except Exception as e:
             note = f" Groq model '{model_name}' for {cat_label} failed to load ({e}). Fell back to Gemini."
             set_fallback_note(note)
-            print(f"[llm_router] {note}")
+            # print(f"[llm_router] {note}")
             try:
                 return get_llm_instance("gemini", "gemini-3.1-flash-lite"), note
             except Exception:
@@ -550,7 +570,7 @@ def get_task_llm(task_category: Optional[str] = None) -> Tuple[BaseChatModel, Op
         except Exception as e:
             note = f" Gemini model '{model_name}' for {cat_label} failed to load ({e}). Fell back to Groq."
             set_fallback_note(note)
-            print(f"[llm_router] {note}")
+            # print(f"[llm_router] {note}")
             try:
                 return get_llm_instance("groq", "qwen/qwen3.6-27b"), note
             except Exception:
@@ -589,14 +609,16 @@ def invoke_task_llm(prompt: str, task_category: Optional[str] = None) -> Tuple[s
         or getattr(llm, "model_id", None)
         or type(llm).__name__
     )
-    print(f"[llm_router] Invoking LLM for task category '{cat}' using model '{model_name}'")
-    print(f"[llm_router] Prompt: {prompt[:200]}{'...' if len(prompt) > 200 else ''}")
+    # Debug prints commented out for normal operation
+    # print(f"[llm_router] Invoking LLM for task category '{cat}' using model '{model_name}'")
+    # print(f"[llm_router] Prompt: {prompt[:200]}{'...' if len(prompt) > 200 else ''}")
 
+    # Retry backoff delays in seconds for handling temporary service unavailability (503 / high demand)
     _RETRY_DELAYS = [5, 10, 20]
     last_err = None
     for attempt, delay in enumerate([0] + _RETRY_DELAYS, start=1):
         if delay:
-            print(f"[llm_router] 503 retry #{attempt} for '{cat}' after {delay}s...")
+            # print(f"[llm_router] 503 retry #{attempt} for '{cat}' after {delay}s...")
             time.sleep(delay)
         try:
             resp = llm.invoke(prompt)
@@ -607,14 +629,15 @@ def invoke_task_llm(prompt: str, task_category: Optional[str] = None) -> Tuple[s
         except Exception as e:
             err_str = str(e)
             if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str.lower():
-                print(f"[llm_router] 503 UNAVAILABLE on attempt {attempt} for '{cat}': {e}")
+                # print(f"[llm_router] 503 UNAVAILABLE on attempt {attempt} for '{cat}': {e}")
                 last_err = e
                 continue
             # Non-503 error → fall through to cloud fallback immediately
             last_err = e
             break
 
-    print(f"[llm_router] Task invocation failed for {cat} ({last_err}). Falling back to safe Cloud direct.")
+    # If all retries fail, fall back to safe cloud direct invocation
+    # print(f"[llm_router] Task invocation failed for {cat} ({last_err}). Falling back to safe Cloud direct.")
     cat_meta = next((c for c in TASK_CATEGORIES_METADATA if c["key"] == cat), None)
     cat_label = cat_meta["label"] if cat_meta else cat.replace("_", " ").title()
     runtime_note = f" Model execution for {cat_label} failed ({last_err}). Fell back to Cloud provider for this generation."
@@ -639,11 +662,12 @@ def invoke_ollama_safe(prompt: str, model_name: str = DEFAULT_OLLAMA_MODEL) -> T
                 content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
             return content, None
         except Exception as e:
-            print(f"[llm_router] Ollama invocation failed for model {resolved_model} ({e}). Falling back to Cloud.")
+            # print(f"[llm_router] Ollama invocation failed for model {resolved_model} ({e}). Falling back to Cloud.")
+            pass
 
     note = " Local Ollama model failed or was unreachable. Fell back to Cloud provider for this generation."
     set_fallback_note(note)
-    print(f"[llm_router] {note}")
+    # print(f"[llm_router] {note}")
     from agents.tools import _groq_invoke_safe_cloud_direct
     cloud_result = _groq_invoke_safe_cloud_direct(prompt)
     return cloud_result, note

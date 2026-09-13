@@ -264,13 +264,16 @@ def scan_for_injection(text: str, source_label: str = "untrusted_input") -> Scan
             if conf > max_confidence:
                 max_confidence = conf
 
-    # 4. Contextual discount for legitimate technical research
+    # 4. Contextual discount for legitimate technical research:
+    # Machine learning and computer science texts frequently contain terms like "instruction tuning",
+    # "override default settings", or "disregard null values". If these benign technical indicators
+    # are present and no blatant critical override pattern triggered, apply a confidence discount
+    # to avoid false positive interruptions in valid academic literature or lab prompts.
     has_benign_indicators = any(b.search(text) for b in BENIGN_TECHNICAL_INDICATORS)
     if has_benign_indicators and max_confidence < 0.90:
-        # If technical indicators are present and no blatant override was detected, discount
         max_confidence = max(0.0, max_confidence - 0.35)
 
-    # Determine risk level
+    # Determine risk level category based on calibrated confidence thresholds
     if max_confidence >= 0.85:
         risk_level = "critical" if max_confidence >= 0.95 else "high"
     elif max_confidence >= 0.55:
@@ -280,11 +283,17 @@ def scan_for_injection(text: str, source_label: str = "untrusted_input") -> Scan
     else:
         risk_level = "none"
 
+    # Flag as suspicious if confidence exceeds the 0.50 operational threshold
     is_suspicious = max_confidence >= 0.50
 
-    # Determine if hard block is warranted
-    # Only hard block if direct user chat AND critical confidence AND input has purely adversarial content
-    # (e.g. just an attack line, with zero legitimate project text or metrics)
+    # Determine if hard block is warranted:
+    # A hard block immediately rejects the request with an HTTP error.
+    # To protect user experience and avoid false rejections during valid technical discussions,
+    # hard blocks are restricted strictly to:
+    #   1. Direct user chat inputs (not passive PDF chunks or external papers)
+    #   2. Extremely high confidence (>= 0.90) critical override attempts
+    #   3. Inputs that lack legitimate scientific/ML content (e.g. metrics, datasets, models)
+    #      and are short enough (< 35 words) to be purely adversarial commands.
     is_blocked = False
     block_reason = None
     is_direct_chat = source_label in ("chat_message", "chat_endpoint", "chat_test")
