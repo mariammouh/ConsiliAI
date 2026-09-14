@@ -4,9 +4,9 @@
   <img src="frontend/public/logo.png" alt="ConsiliAI logo" width="180"/>
 </p>
 
-ConsiliAI is a research-to-education assistant I built during a two-month engineering internship at 3D SMART FACTORY, under the supervision of Thierry BERTIN, Omar KELLA and Ibtihal KHALIL. The idea is simple to state and less simple to build: take a technical project idea, do the literature and code-ecosystem research a student or researcher would normally spend weeks on, and then turn what it finds into something you could actually teach from — a syllabus, slide decks, lab exercises with working code, and experiment protocols with benchmark grading.
+ConsiliAI is a research-to-education assistant I built during a two-month engineering internship at 3D SMART FACTORY, under the supervision of Thierry BERTIN, Omar KELLA and Ibtihal KHALIL. The idea is simple to state and less simple to build: take a technical project idea, do the literature and code-ecosystem research a student or researcher would normally spend weeks on, and then turn what it finds into something you could actually teach from  a syllabus, slide decks, lab exercises with working code, and experiment protocols with benchmark grading.
 
-It started as a plain research assistant (search papers, summarize, suggest a plan) and pivoted about ten days in, after supervisor feedback, toward the educational side — which ended up being the more interesting half of the project.
+It started as a plain research assistant (search papers, summarize, suggest a plan) and pivoted about ten days in, after supervisor feedback, toward the educational side  which ended up being the more interesting half of the project.
 
 ## What it actually does
 
@@ -19,7 +19,7 @@ Give it an idea like "federated learning on edge IoT devices" and, depending on 
 - Generate a technical plan (stack, architecture, milestones, risks) and a teaching plan (objectives, modules tied to the gaps it found).
 - Build an actual course from the teaching plan — real `.pptx` files, one per lesson, with title/objective/content/code/quiz slides and a layout engine that splits content across slides instead of letting text overflow.
 - Generate lab exercises with real starter and solution code, run it through Python's `ast` module to catch syntax errors and undefined names before the student ever sees it, and let the model repair its own code up to twice if validation fails. Everything gets packaged into student and teacher Jupyter notebooks.
-- Propose experiment protocols tied to the gaps, and — when a student submits results — grade them against the literature baselines using plain Python arithmetic, not an LLM's guess at a percentage difference.
+- Propose experiment protocols tied to the gaps, and — when a student submits results , grade them against the literature baselines using plain Python arithmetic, not an LLM's guess at a percentage difference.
 
 Everything above is grounded in whatever was actually retrieved and analyzed in that conversation; nothing pedagogical gets generated out of thin air without a literature/gap basis behind it.
 
@@ -33,7 +33,7 @@ A few decisions shaped most of the architecture, and they're worth explaining up
 
 **No generated code runs on the server, ever.** Labs and experiments are meant for the student to run in their own environment. The server's job is to statically validate the code (syntax, undefined variables, duplicate definitions, whether it matches what the lesson plan promised) and repair it if something's broken — not execute it.
 
-**Cloud and local models are mixed on purpose.** Groq and Gemini are fast and free-tier friendly but rate-limited; Ollama running locally has no quota but needs a decent GPU/CPU. The router picks a model per task category (analytical / planning / content generation / general chat), and if the chosen one fails or the local one runs out of memory, it falls back automatically — Groq → Gemini → a safe direct call — and tells the user in the response that a fallback happened, rather than just quietly using a worse model.
+**Cloud and local models are mixed on purpose.** Groq and Gemini are fast and free-tier friendly but rate-limited; Ollama running locally has no quota but needs a decent GPU/CPU. The router picks a model per task category (analytical / planning / content generation / general chat), and if the chosen one fails or the local one runs out of memory, it falls back automatically , Groq → Gemini → a safe direct call ,and tells the user in the response that a fallback happened, rather than just quietly using a worse model.
 
 ## Architecture, roughly
 
