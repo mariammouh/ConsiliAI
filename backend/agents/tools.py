@@ -3470,40 +3470,22 @@ def _validate_python_code(code: str) -> Dict[str, object]:
     return validation
 
 """
-Lab Generator Agent (v2)
---------------------------
-Turns one course lesson (from Course Generator) into a hands-on exercise:
-fill-in-the-blank code, or a small Kaggle-style notebook, grounded in the
-lesson's source paper(s) and (optionally) a matched real repo.
+Practical Lab & Code Generator
+-------------------------------
+Transforms course lessons into interactive, hands-on lab exercises and notebook
+activities grounded in source research papers and related repositories.
 
-Two-model split, consistent with the project's existing task-routing pattern
-(cheap/structural tasks -> Gemini, heavy reasoning -> Groq):
-  - Groq: produces the grounded PEDAGOGICAL scaffold (title, instructions,
-    difficulty, hints) as structured JSON — model-independent, generated
-    once regardless of which local coder model is used below.
-  - A local coder model (via Ollama, swappable — e.g. qwen2.5-coder:7b or
-    deepseek-coder-v2:16b): produces the CODE.
-
-v2 change — PER-TOPIC decomposition: instead of asking the coder model to
-write one full script covering the whole lesson in a single shot, code is
-generated ONE TOPIC AT A TIME (using the lesson's own `sections`, the same
-per-topic breakdown Course Generator already produces), with each step's
-code carried forward as context for the next. This reduces the cross-
-referential slip-ups (e.g. a variable used in an eval step that was never
-created because the training step and eval step were written far apart in
-one long generation) that showed up when testing the single-shot version.
-
-Every piece of generated code is validated (syntax + undefined-name +
-use-before-define checks — no execution) and, if invalid, sent back to the
-model with the specific error for up to 2 repair attempts before giving up.
-Static validation cannot catch "confidently wrong about a real library"
-mistakes (e.g. a misspelled real API, or a plausible-but-nonexistent
-import) — that's expected, and is the reason for the model-swap support:
-compare_lab_code_models() lets you run the same exercise spec through two
-different coder models to see which one hallucinates less on real material.
-
-No code is ever executed anywhere in this system (same constraint as the
-rest of the project). Students/teachers run the notebooks themselves.
+Pipeline Architecture:
+  - Pedagogical Scaffolding: Groq synthesizes structured JSON exercise specs
+    (learning objectives, step-by-step instructions, difficulty ratings, and hints).
+  - Local Code Generation: Swappable local coder models (via Ollama, e.g., Qwen 2.5 Coder)
+    produce starter templates and reference implementations.
+  - Per-Topic Decomposition: Generates code topic-by-topic using lesson sections,
+    carrying previous context forward to ensure clean variable scoping and consistency.
+  - Static AST Validation: Performs non-executing AST checks (syntax verification,
+    undefined names, and use-before-define checks) with automatic self-repair cycles.
+  - Zero-Execution Safety: All code artifacts are synthesized without local execution,
+    packaged cleanly into Jupyter notebooks (.ipynb) for student delivery.
 """
 
 import os
@@ -4338,36 +4320,12 @@ def export_lab_to_notebook(lab: Dict, output_dir: str, filename_base: str) -> Op
     return {"student_notebook": student_path, "solution_notebook": solution_path}
 
 """
-Experiment & Suggested-Study Agent
-===================================
-
-Scope (explicitly, per PROJECT_MASTER_CONTEXT.md §2.3 "Experiment-replication
-scoping decision" and §3.1): this agent SUGGESTS experiments for a teacher to
-assign — dataset, baseline, metric, protocol, variations. It never executes
-code and never runs anything itself. The student is the one who carries the
-experiment out; this agent's job ends at producing a grounded, actionable
-experiment design. This keeps it in the same "structured LLM output" pattern
-as every other agent in the codebase (no sandboxing, no execution risk).
-
-Drop this into agents/tools.py (or keep as its own module and import into
-tools.py / main.py — either works, just make sure the shared helpers below
-resolve to the real implementations already in tools.py).
-
-Assumed already present in tools.py (per PROJECT_MASTER_CONTEXT.md):
-    - _groq_invoke_safe(prompt: str) -> str        (Groq call, retry+fallback, normalized .content)
-    - _safe_json_parse(raw_text: str) -> dict        (strips md fences, {} on failure)
-    - chunk_text(text: str, max_chars: int = 3000) -> list[str]
-    - _hash_text(text: str) -> str
-    - GROUNDING_RULES_BLOCK (str)                    (the v3 grounding block, reused verbatim
-                                                       across Technical Plan / Teaching Plan /
-                                                       Course Generator per §13.2 — reuse the
-                                                       SAME constant here rather than redefining it)
-
-If GROUNDING_RULES_BLOCK doesn't exist as a shared constant yet, the fallback
-below defines it locally so this module still works standalone — but per
-§13.4 ("a single merged grounding-rules block, reused verbatim, is more
-effective and maintainable than each agent inventing its own"), you should
-delete the fallback and import the real one once this is merged into tools.py.
+Experiment & Suggested-Study Protocol Generator
+================================================
+Synthesizes structured, actionable empirical experiment designs and protocols
+grounded in analyzed literature baselines and detected research gaps.
+Defines targeted hypotheses, baseline models, datasets, evaluation metrics,
+and step-by-step procedures for empirical replication and validation.
 """
 
 import json
@@ -4375,7 +4333,6 @@ import json
 try:
     from agents.tools import _groq_invoke_safe, _safe_json_parse, chunk_text, _hash_text
 except ImportError:
-    # Standalone fallback stubs — replace with real imports once merged into tools.py.
     def _groq_invoke_safe(prompt: str) -> str:
         raise NotImplementedError("Wire this up to the real _groq_invoke_safe in tools.py")
 
@@ -4412,21 +4369,16 @@ except ImportError:
   the point in terms of the underlying problem instead of an unverified solution."""
 
 
-# Same threshold used by Technical Plan Agent's relevance gate (§2.7 / §13.2 v4) —
-# reused here rather than reinvented, per the "single reused grounding pattern" lesson.
+# Relevance threshold for filtering candidate repository references
 SIMILARITY_THRESHOLD = 0.35
 
-# Same silent-truncation lesson as generate_technical_plan's gaps[:8] (flagged as a bug
-# in §7.6 for lacking visibility) — capped here too, but with a logged warning instead
-# of a silent cap, so this doesn't repeat that exact mistake.
+# Upper bound on research gaps analyzed per experiment set
 MAX_GAPS_PER_EXPERIMENT_SET = 6
 
 
 # ---------------------------------------------------------------------------
 # Extraction: pull only the fields relevant to experiment design out of a
-# paper's structured section-analysis, mirroring _extract_gap_relevant_text
-# and _extract_teaching_relevant_text (§6.3 / §6.5) — same field-selective
-# pattern, different field set.
+# paper's structured section-analysis.
 # ---------------------------------------------------------------------------
 def _extract_experiment_relevant_text(paper: dict, max_chars: int = 1500) -> str:
     """
@@ -4467,12 +4419,8 @@ def _extract_experiment_relevant_text(paper: dict, max_chars: int = 1500) -> str
 
 def _relevant_repo_reference(gap: dict, similar_projects_raw: list) -> dict | None:
     """
-    Re-scores the SAME candidate repo pool (already fetched once per idea via
-    search_similar_projects) against this specific gap's text, rather than
-    reusing one global idea-level best match. This is deliberately NOT a new
-    search — same relevance-gate discipline as Technical Plan Agent (§2.7):
-    the candidate pool is fixed and idea-anchored, only the scoring query
-    changes per gap.
+    Re-scores candidate repositories against this specific research gap's text,
+    surfacing gap-specific code implementations rather than global project matches.
  
     Args:
         gap: one gap dict ({"gap_description", "opportunity", ...}).
@@ -4618,9 +4566,7 @@ Similar-project context:
     if not parsed:
         return {"_error": "Failed to generate or parse experiment plan.", "gap": gap.get("gap_description", "")}
 
-    # Same ground-truth-override principle as detect_gaps' papers_involved fix (§7.3):
-    # don't trust the model's free-text claim about which paper it used when we already
-    # know it in code. Filter related_paper_evidence against the real involved-paper set.
+    # Verify cited paper evidence corresponds strictly to genuine papers analyzed in the pipeline.
     known_titles = {p.get("title") for p in relevant_papers}
     if isinstance(parsed.get("related_paper_evidence"), list):
         parsed["related_paper_evidence"] = [

@@ -1,70 +1,37 @@
 """
-Conversational Orchestrator
-============================
+ConsiliAI Conversational Orchestrator
+====================================
+Stateful multi-agent orchestrator powered by LangGraph, coordinating conversational
+routing, intent gating, tool execution, and session checkpointing.
 
-v1 scope (per PROJECT_MASTER_CONTEXT.md §16 item 4):
-- Owns conversational routing/tool-calling across the complete agent set
-  (research through benchmark evaluation).
-- Reuses already-fetched papers/gaps/plans within one conversation instead
-  of re-running the search->filter->fetch->split->analyze pipeline on every
-  turn — this is the orchestrator-level fix for the duplicated-pipeline-work
-  issue documented in §4.6 / §10.2 for /gaps, /technical_plan, /teaching_plan.
-- Calls agents/tools.py functions DIRECTLY, never the project's own HTTP
-  endpoints in main.py (per §10.1 / §15.4) — this file has no dependency on
-  main.py, and main.py imports FROM this file, never the reverse.
-- `modify_plan` / generic "edit an existing artifact" is explicitly OUT of
-  scope for v1 (per §16 item 4) — not implemented here.
+Architecture & Core Responsibilities:
+  1. Intent Classification Gate (`classify_node`):
+     - Evaluates incoming messages before tool invocation to prevent unnecessary computation.
+     - Categorizes user inputs into discrete intent paths:
+       * `idea_introduction`: Acknowledges newly introduced project concepts, restates the idea,
+         and outlines next available research actions without invoking heavy tools.
+       * `general_chat`: Directly answers greetings, small talk, and conversational queries without tools.
+       * `action_request`: Routes explicit deliverable requests (literature reviews, gap analyses,
+         technical plans, teaching plans, courses, lab exercises, and experiments) to domain tools.
+       * `info_question`: Grounds domain questions in literature using targeted retrieval rather than
+         triggering full plan generation workflows.
 
-v2 change — intent gating (this revision):
-A ReAct tool-calling loop with self-sufficient, eager tools will pick a
-tool almost every turn, because that's the path of least resistance for a
-routing LLM — prompt instructions alone don't reliably hold it back. This
-is the same class of problem the project already solved three times in Gap
-Detection (§7.3-§7.5): don't trust the model to self-limit when the
-constraint can be enforced in code instead.
+  2. Tool-Bound Reasoning Agent (`agent_node`):
+     - Employs dual-engine resilience: Groq for fast, high-quality reasoning with automatic
+       Gemini fallback.
+     - Directly calls domain tools (`agents.tools`) across the 7 research pipeline stages.
+     - Reuses already-fetched papers, analyzed sections, and gap sets within the current conversation
+       session to avoid redundant re-computation across multiple turns.
 
-Fix: an explicit classification node runs BEFORE the tool-calling loop is
-even reachable. It decides, in code, whether this turn is:
-  - "idea_introduction": user is introducing/describing a project idea
-    without asking for a specific deliverable -> respond with a brief
-    understanding + a menu of what's available, ask what they want. NO
-    tool is invoked, nothing is computed.
-  - "general_chat": greetings/small talk/unrelated questions -> plain
-    reply, no tools.
-  - "action_request": an explicit ask for a specific deliverable (a plan,
-    a course, gaps, experiments, a relevance check, etc.) -> enters the
-    tool-calling loop, which picks the specific tool.
-  - "info_question": a factual/informational question that likely needs
-    the literature to answer well, but isn't a request for a full
-    deliverable (e.g. "has F1-score been used for this before?") -> enters
-    the tool-calling loop, where `answer_from_literature` (grounded, reuses
-    already-analyzed papers, does NOT run gap detection or plan generation)
-    is the expected tool, not the heavy plan/course agents.
+  3. Persistent State & Checkpointing:
+     - Leverages LangGraph's PostgreSQL checkpointer (`PostgresSaver`), isolating session state
+       by conversation thread ID.
+     - Preserves full conversational history, paper metadata, curriculum deliverables, and
+       empirical benchmark records.
 
-Only "action_request" and "info_question" ever reach the tool-bound LLM.
-This is a hard gate, not a prompt suggestion.
-
-Design notes (carried over from v1):
-- Built on LangGraph, NOT the old LangChain `AgentExecutor` that Phase 0
-  abandoned (§5). The graph is now assembled manually (StateGraph + a
-  classify node + a tool-bound agent node + ToolNode), rather than via the
-  `create_react_agent` prebuilt, specifically so the classify gate can sit
-  in front of the tool loop as its own node.
-- State persistence uses LangGraph's checkpointer, keyed by `thread_id`
-  (now derived from the authenticated user's id, not client-supplied — see
-  main.py's /chat). Backed by Postgres via `PostgresSaver` (swapped from
-  the original `MemorySaver` once real multi-user usage became a concrete
-  near-term need, not just a future-proofing guess). This IS the "shadow
-  database" from §2.13/§8.4.
-- Groq-first, Gemini-fallback is preserved via `.with_fallbacks()`, but
-  applied AFTER `.bind_tools()` on each underlying model individually —
-  `RunnableWithFallbacks` does not itself implement `.bind_tools()`, so
-  binding must happen on the two chat-model instances first, then the
-  fallback wraps the two already-tool-bound runnables.
-- Each pipeline tool is still self-sufficient (checks state for an idea
-  match before recomputing, computes missing prerequisite stages inline),
-  per §13.4 / §15.1 — the classify gate controls WHETHER the tool loop
-  runs at all; once inside it, tools still avoid redundant recomputation.
+  4. Asynchronous Task Cancellation:
+     - Implements thread-safe cancellation tracking (`threading.Event`) allowing immediate
+       interruption and clean termination of running agent turns upon user request.
 """
 
 import os
@@ -1249,10 +1216,9 @@ TOOLS = [
 
 # =============================================================================
 # INTENT CLASSIFICATION GATE
-# Runs BEFORE the tool-calling loop is reachable. Cheap Gemini call (no
-# tools bound), matching the project's existing "route cheap/simple tasks
-# to Gemini" convention (§2.11). This is the code-level enforcement that
-# stops idea-introduction / general-chat turns from ever reaching a tool.
+# Evaluates incoming user prompts before entering the tool-calling loop.
+# Uses a lightweight, fast model call to categorize intent and prevent
+# idea-introduction or general-chat turns from triggering heavy tool execution.
 # =============================================================================
 
 _INTENT_SCHEMA_INSTRUCTIONS = """Return ONLY valid JSON, no markdown fences, in this exact shape:
